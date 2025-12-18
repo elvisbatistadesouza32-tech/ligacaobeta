@@ -19,6 +19,7 @@ export interface User {
   id: string;
   name: string;
   email: string;
+  password?: string; // Adicionado para controle de acesso
   role: UserRole;
   status: UserStatus;
   avatar?: string;
