@@ -7,23 +7,31 @@ const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYm
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 /**
- * 🛠️ COMO CORRIGIR O ERRO "EMAIL NOT CONFIRMED":
+ * 🛠️ SQL PARA CORRIGIR O BANCO DE DADOS:
+ * Execute este comando no "SQL Editor" do seu Supabase para criar/ajustar a tabela:
  * 
- * 1. Acesse o Dashboard do seu Supabase.
- * 2. Vá em: Authentication -> Settings.
- * 3. Procure por: "Confirm Email".
- * 4. DESATIVE a opção para que usuários possam logar imediatamente sem confirmar e-mail.
- * 
- * --------------------------------------------------
- * 
- * SCHEMA SQL ATUALIZADO (Execute no SQL Editor):
- * 
- * CREATE TABLE usuarios (
+ * -- 1. Criar tabela de leads (se não existir) ou adicionar coluna faltante
+ * CREATE TABLE IF NOT EXISTS leads (
  *   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
- *   nome TEXT NOT NULL,
- *   email TEXT UNIQUE NOT NULL,
- *   tipo TEXT DEFAULT 'vendedor', -- 'adm' ou 'vendedor'
- *   online BOOLEAN DEFAULT false,
+ *   name TEXT,
+ *   phone TEXT NOT NULL,
+ *   concurso TEXT, -- Esta é a coluna que estava faltando
+ *   status TEXT DEFAULT 'PENDING',
+ *   assigned_to UUID REFERENCES usuarios(id),
  *   created_at TIMESTAMPTZ DEFAULT NOW()
+ * );
+ * 
+ * -- 2. Se a tabela já existir e faltar apenas a coluna, execute:
+ * -- ALTER TABLE leads ADD COLUMN IF NOT EXISTS concurso TEXT;
+ * 
+ * -- 3. Tabela de chamadas
+ * CREATE TABLE IF NOT EXISTS calls (
+ *   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+ *   lead_id UUID REFERENCES leads(id),
+ *   seller_id UUID REFERENCES usuarios(id),
+ *   status TEXT NOT NULL,
+ *   duration_seconds INTEGER DEFAULT 0,
+ *   recording_url TEXT,
+ *   timestamp TIMESTAMPTZ DEFAULT NOW()
  * );
  */

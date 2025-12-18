@@ -55,7 +55,7 @@ const App: React.FC = () => {
           id: l.id,
           name: l.name,
           phone: l.phone,
-          contest: l.contest,
+          concurso: l.concurso, // Atualizado para concurso
           assignedTo: l.assigned_to,
           status: l.status,
           createdAt: l.created_at
@@ -63,7 +63,6 @@ const App: React.FC = () => {
       }
 
       if (callData) {
-        // Fix: Mapping snake_case database fields to camelCase CallRecord interface properties
         setCalls(callData.map((c: any) => ({
           id: c.id,
           leadId: c.lead_id,
@@ -163,42 +162,40 @@ const App: React.FC = () => {
   };
 
   const handleDistributeLeads = async () => {
-    // Busca vendedores online no momento exato da distribuição
     const { data: activeSellers } = await supabase.from('usuarios').select('id').eq('online', true).eq('tipo', 'vendedor');
     const { data: unassignedLeads } = await supabase.from('leads').select('id').is('assigned_to', null).eq('status', 'PENDING');
 
     if (!activeSellers || activeSellers.length === 0) {
-      alert("Importação concluída, mas não há vendedores ONLINE para receber os leads agora.");
+      console.log("Nenhum vendedor online para distribuição.");
       return;
     }
 
     if (!unassignedLeads || unassignedLeads.length === 0) return;
 
-    // Distribuição em lote (Round Robin)
     for (let i = 0; i < unassignedLeads.length; i++) {
       const sellerId = activeSellers[i % activeSellers.length].id;
       await supabase.from('leads').update({ assigned_to: sellerId }).eq('id', unassignedLeads[i].id);
     }
     
     await fetchData();
-    alert(`Distribuição finalizada! ${unassignedLeads.length} leads foram divididos entre ${activeSellers.length} vendedores.`);
   };
 
   const handleImportLeads = async (newLeads: Lead[]) => {
     const leadsToInsert = newLeads.map(l => ({ 
       name: l.name, 
       phone: l.phone, 
-      contest: l.contest, 
+      concurso: l.concurso, // Alterado para concurso
       status: 'PENDING' 
     }));
 
     const { error } = await supabase.from('leads').insert(leadsToInsert);
     
     if (error) {
-      alert("Erro ao salvar leads no banco: " + error.message);
+      alert("Erro ao salvar leads no banco: " + error.message + "\n\nCertifique-se de que a coluna 'concurso' existe na tabela 'leads'.");
     } else {
-      // Após importar com sucesso, dispara a distribuição automática
+      // Distribuição imediata após importação bem-sucedida
       await handleDistributeLeads();
+      alert(`Importação bem-sucedida! ${leadsToInsert.length} leads foram importados e distribuídos.`);
     }
   };
 

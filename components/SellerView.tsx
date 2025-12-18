@@ -66,7 +66,7 @@ export const SellerView: React.FC<SellerViewProps> = ({ user, leads, onLogCall }
       <div className="grid gap-4">
         {myLeads.length > 0 ? (myLeads.map(lead => (
           <div key={lead.id} className="bg-white border rounded-xl p-4 shadow-sm flex items-center justify-between">
-            <div className="space-y-1"><p className="font-bold text-gray-800 text-lg">{lead.name}</p><div className="flex items-center gap-2 text-sm text-gray-500"><span className="bg-gray-100 px-2 py-0.5 rounded text-xs font-semibold">{lead.contest || 'Geral'}</span><span>•</span><span>{lead.phone}</span></div></div>
+            <div className="space-y-1"><p className="font-bold text-gray-800 text-lg">{lead.name}</p><div className="flex items-center gap-2 text-sm text-gray-500"><span className="bg-gray-100 px-2 py-0.5 rounded text-xs font-semibold uppercase tracking-tighter">{lead.concurso || 'Geral'}</span><span>•</span><span>{lead.phone}</span></div></div>
             <button onClick={() => startCall(lead)} className="bg-indigo-600 text-white p-4 rounded-full shadow-lg active:scale-90 transition-all"><Phone className="w-6 h-6" /></button>
           </div>
         ))) : (<div className="text-center py-20 bg-gray-50 border-2 border-dashed rounded-3xl"><p className="text-gray-400 font-medium">Parabéns! Você concluiu todos os seus leads.</p></div>)}

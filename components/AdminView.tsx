@@ -62,7 +62,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
           .map((row, index): Lead => ({
             id: `temp-${Date.now()}-${index}`,
             name: row[0] ? String(row[0]).trim() : 'Sem Nome',
-            contest: row[1] ? String(row[1]).trim() : 'Geral',
+            concurso: row[1] ? String(row[1]).trim() : 'Geral', // Alterado de contest para concurso
             phone: String(row[2]).trim(),
             status: 'PENDING',
             createdAt: new Date().toISOString()
@@ -80,12 +80,10 @@ export const AdminView: React.FC<AdminViewProps> = ({
       }
     };
     reader.readAsBinaryString(file);
-    // Reseta o input para permitir subir o mesmo arquivo se necessário
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   useEffect(() => {
-    // Quando a importação termina (leads aumentam), paramos o loading
     setIsImporting(false);
   }, [leads.length]);
 
@@ -141,7 +139,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
         <div className="bg-white rounded-[2.5rem] border-2 border-gray-100 overflow-hidden shadow-sm">
           <div className="p-6 bg-gray-50/50 border-b flex flex-col sm:flex-row justify-between items-center gap-4">
             <div><h3 className="font-black text-lg tracking-tight">EQUIPE COMERCIAL</h3><p className="text-xs text-gray-500">Gerencie permissões e disponibilidade</p></div>
-            <button onClick={onDistributeLeads} className="w-full sm:w-auto bg-indigo-600 text-white px-8 py-3 rounded-2xl font-black text-sm shadow-lg shadow-indigo-100 active:scale-95 transition-all flex items-center justify-center gap-2"><RefreshCw className="w-4" /> DISTRIBUIR MANUALMENTE</button>
+            <button onClick={onDistributeLeads} className="w-full sm:w-auto bg-indigo-600 text-white px-8 py-3 rounded-2xl font-black text-sm shadow-lg shadow-indigo-100 active:scale-95 transition-all flex items-center justify-center gap-2"><RefreshCw className="w-4" /> DISTRIBUIR LEADS AGORA</button>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-left">
@@ -171,7 +169,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
               )}
               <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept=".xlsx,.xls,.csv" className="hidden" />
               <div className="w-16 h-16 bg-indigo-50 rounded-3xl flex items-center justify-center group-hover:bg-indigo-600 transition-all"><Upload className="w-8 h-8 text-indigo-600 group-hover:text-white" /></div>
-              <div><h4 className="font-black text-gray-900 uppercase">Importar e Distribuir</h4><p className="text-[10px] text-gray-400 font-bold">COL 1: NOME | COL 2: CONCURSO | COL 3: TELEFONE</p></div>
+              <div><h4 className="font-black text-gray-900 uppercase">Importar e Distribuir</h4><p className="text-[10px] text-gray-400 font-bold tracking-widest uppercase">Col 1: Nome | Col 2: Concurso | Col 3: Telefone</p></div>
             </div>
             <div className="bg-white p-8 rounded-[2.5rem] border-2 border-gray-100 flex flex-col items-center justify-center text-center space-y-4">
                <div className="w-16 h-16 bg-green-50 rounded-3xl flex items-center justify-center"><Database className="w-8 h-8 text-green-600" /></div>
@@ -187,13 +185,13 @@ export const AdminView: React.FC<AdminViewProps> = ({
                 <tbody className="divide-y divide-gray-100">
                   {leads.slice(0, 100).map(l => (
                     <tr key={l.id} className="hover:bg-gray-50 transition-colors">
-                      <td className="px-8 py-4"><p className="text-sm font-bold text-gray-900">{l.name}</p><span className="text-[10px] text-gray-400 font-bold uppercase tracking-tighter">{l.contest}</span></td>
+                      <td className="px-8 py-4"><p className="text-sm font-bold text-gray-900">{l.name}</p><span className="text-[10px] text-gray-400 font-bold uppercase tracking-tighter">{l.concurso}</span></td>
                       <td className="px-8 py-4 font-mono text-xs font-black text-indigo-600">{l.phone}</td>
                       <td className="px-8 py-4"><span className={`px-2 py-1 rounded-lg text-[10px] font-black ${l.status === 'CALLED' ? 'bg-indigo-100 text-indigo-700' : 'bg-gray-100 text-gray-400'}`}>{l.status}</span></td>
                       <td className="px-8 py-4 text-xs font-black text-gray-500">{users.find(u => u.id === l.assignedTo)?.nome || '—'}</td>
                     </tr>
                   ))}
-                  {leads.length === 0 && <tr><td colSpan={4} className="p-20 text-center text-gray-400 font-bold italic">Nenhum lead importado. Clique acima para subir sua planilha.</td></tr>}
+                  {leads.length === 0 && <tr><td colSpan={4} className="p-20 text-center text-gray-400 font-bold italic">Nenhum lead importado.</td></tr>}
                 </tbody>
               </table>
             </div>

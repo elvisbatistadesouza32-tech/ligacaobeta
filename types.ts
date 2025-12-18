@@ -17,10 +17,10 @@ export enum CallStatus {
 
 export interface User {
   id: string;
-  nome: string; // Alterado de 'name' para 'nome'
+  nome: string;
   email: string;
-  tipo: 'adm' | 'vendedor'; // Alterado de 'role' para 'tipo'
-  online: boolean; // Alterado de 'status' para 'online'
+  tipo: 'adm' | 'vendedor';
+  online: boolean;
   avatar?: string;
 }
 
@@ -28,7 +28,7 @@ export interface Lead {
   id: string;
   name: string;
   phone: string;
-  contest?: string;
+  concurso?: string; // Alterado de 'contest' para 'concurso'
   assignedTo?: string; // User ID
   status: 'PENDING' | 'CALLED';
   createdAt: string;

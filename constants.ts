@@ -34,7 +34,8 @@ export const INITIAL_LEADS: Lead[] = [
     id: 'l1',
     name: 'Carlos Oliveira',
     phone: '11999887766',
-    contest: 'Mega Sena',
+    // Fix: Property name changed from 'contest' to 'concurso' to match Lead interface
+    concurso: 'Mega Sena',
     assignedTo: 'u2',
     status: 'PENDING',
     createdAt: new Date().toISOString()
@@ -43,7 +44,8 @@ export const INITIAL_LEADS: Lead[] = [
     id: 'l2',
     name: 'Ana Souza',
     phone: '21988776655',
-    contest: 'Lotofácil',
+    // Fix: Property name changed from 'contest' to 'concurso' to match Lead interface
+    concurso: 'Lotofácil',
     assignedTo: 'u2',
     status: 'PENDING',
     createdAt: new Date().toISOString()
