@@ -10,13 +10,13 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey);
  * SCHEMA SQL ATUALIZADO (Execute no SQL Editor do Supabase):
  * 
  * -- Adicionar coluna de senha se já criou a tabela antes:
- * -- ALTER TABLE users ADD COLUMN password TEXT;
+ * -- ALTER TABLE usuarios ADD COLUMN password TEXT;
  * 
  * CREATE TYPE user_role AS ENUM ('ADMIN', 'SELLER');
  * CREATE TYPE user_status AS ENUM ('ONLINE', 'OFFLINE');
  * CREATE TYPE call_status AS ENUM ('ANSWERED', 'NO_ANSWER', 'INVALID_NUMBER');
  * 
- * CREATE TABLE users (
+ * CREATE TABLE usuarios (
  *   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
  *   name TEXT NOT NULL,
  *   email TEXT UNIQUE NOT NULL,

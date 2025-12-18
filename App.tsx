@@ -4,7 +4,7 @@ import { User, Lead, CallRecord, UserRole, UserStatus } from './types';
 import { Layout } from './components/Layout';
 import { SellerView } from './components/SellerView';
 import { AdminView } from './components/AdminView';
-import { ShieldCheck, LogIn, Loader2, Mail, Lock, UserPlus, ArrowRight, AlertCircle } from 'lucide-react';
+import { ShieldCheck, LogIn, Loader2, Mail, Lock, UserPlus, ArrowRight, AlertCircle, Database } from 'lucide-react';
 import { supabase } from './supabase';
 
 // CONFIGURAÇÃO DE ACESSO MESTRE
@@ -17,6 +17,7 @@ const App: React.FC = () => {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [calls, setCalls] = useState<CallRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [dbError, setDbError] = useState<string | null>(null);
   
   const [isRegistering, setIsRegistering] = useState(false);
   const [email, setEmail] = useState('');
@@ -27,11 +28,16 @@ const App: React.FC = () => {
 
   const fetchData = async () => {
     try {
-      const { data: userData, error: userError } = await supabase.from('users').select('*');
+      const { data: userData, error: userError } = await supabase.from('usuarios').select('*');
       const { data: leadData } = await supabase.from('leads').select('*');
       const { data: callData } = await supabase.from('calls').select('*');
 
-      if (userError) console.warn("Tabela 'users' pode não existir ainda. Execute o SQL no Supabase.");
+      if (userError) {
+        console.error("Erro Supabase:", userError);
+        setDbError(`Erro na tabela 'usuarios': ${userError.message || 'Verifique se a tabela existe no schema public'}`);
+      } else {
+        setDbError(null);
+      }
 
       if (userData) {
         setUsers(userData.map((u: any) => ({
@@ -39,7 +45,8 @@ const App: React.FC = () => {
           name: u.name,
           email: u.email,
           password: u.password,
-          role: u.role as UserRole,
+          // Normalização para garantir que bata com o Enum independente de como está no DB
+          role: String(u.role).toUpperCase() === 'ADMIN' ? UserRole.ADMIN : UserRole.SELLER,
           status: u.status as UserStatus,
           avatar: u.avatar
         })));
@@ -77,7 +84,7 @@ const App: React.FC = () => {
 
   useEffect(() => {
     fetchData();
-    const userSub = supabase.channel('users_changes').on('postgres_changes', { event: '*', schema: 'public', table: 'users' }, () => fetchData()).subscribe();
+    const userSub = supabase.channel('users_changes').on('postgres_changes', { event: '*', schema: 'public', table: 'usuarios' }, () => fetchData()).subscribe();
     const leadSub = supabase.channel('leads_changes').on('postgres_changes', { event: '*', schema: 'public', table: 'leads' }, () => fetchData()).subscribe();
     const callSub = supabase.channel('calls_changes').on('postgres_changes', { event: '*', schema: 'public', table: 'calls' }, () => fetchData()).subscribe();
     return () => {
@@ -96,7 +103,7 @@ const App: React.FC = () => {
       const lowerEmail = email.toLowerCase().trim();
 
       if (isRegistering) {
-        const { error: regError } = await supabase.from('users').insert([{
+        const { error: regError } = await supabase.from('usuarios').insert([{
           name,
           email: lowerEmail,
           password,
@@ -105,34 +112,35 @@ const App: React.FC = () => {
           avatar: `https://picsum.photos/seed/${lowerEmail}/100`
         }]);
 
-        if (regError) throw new Error("Erro ao cadastrar. Verifique se o e-mail já existe.");
-        alert("Cadastro realizado! Faça login.");
+        if (regError) {
+          throw new Error(`Erro ao cadastrar: ${regError.message}`);
+        }
+        
+        alert("Cadastro realizado! Agora você pode fazer login.");
         setIsRegistering(false);
+        fetchData();
       } else {
         // BYPASS PARA ADMIN MESTRE
         if (lowerEmail === MASTER_ADMIN_EMAIL && password === ADMIN_MASTER_PASSWORD) {
-          const existingAdmin = users.find(u => u.email.toLowerCase() === lowerEmail);
+          const existingUser = users.find(u => u.email.toLowerCase() === lowerEmail);
           
-          if (existingAdmin) {
-            setCurrentUser(existingAdmin);
-          } else {
-            // Se o admin não existe no banco, cria um objeto temporário para permitir o acesso
-            setCurrentUser({
-              id: 'master-admin',
-              name: 'Administrador Geral',
-              email: MASTER_ADMIN_EMAIL,
-              role: UserRole.ADMIN,
-              status: UserStatus.ONLINE
-            });
-          }
+          // FORÇAMOS o Role como ADMIN para o login mestre, mesmo que ele exista no banco como SELLER
+          setCurrentUser({
+            id: existingUser?.id || 'master-admin',
+            name: existingUser?.name || 'Administrador Geral',
+            email: MASTER_ADMIN_EMAIL,
+            role: UserRole.ADMIN, // Garante acesso à tela de ADM
+            status: UserStatus.ONLINE,
+            avatar: existingUser?.avatar
+          });
           return;
         }
 
-        // LOGIN NORMAL (Vendedores ou outros Admins no DB)
+        // LOGIN NORMAL
         const user = users.find(u => u.email.toLowerCase() === lowerEmail);
 
         if (!user) {
-          throw new Error("Usuário não encontrado. Se você for ADM, use as credenciais mestre.");
+          throw new Error("Usuário não cadastrado.");
         }
 
         if (user.password !== password) {
@@ -141,7 +149,10 @@ const App: React.FC = () => {
 
         setCurrentUser(user);
         if (user.role === UserRole.SELLER) {
-          await supabase.from('users').update({ status: UserStatus.ONLINE }).eq('id', user.id);
+          await supabase.from('usuarios').update({ status: UserStatus.ONLINE }).eq('id', user.id);
+        } else {
+          // Admins também ficam online no sistema
+          await supabase.from('usuarios').update({ status: UserStatus.ONLINE }).eq('id', user.id);
         }
       }
     } catch (err: any) {
@@ -152,8 +163,8 @@ const App: React.FC = () => {
   };
 
   const handleLogout = async () => {
-    if (currentUser && currentUser.role === UserRole.SELLER && currentUser.id !== 'master-admin') {
-      await supabase.from('users').update({ status: UserStatus.OFFLINE }).eq('id', currentUser.id);
+    if (currentUser && currentUser.id !== 'master-admin') {
+      await supabase.from('usuarios').update({ status: UserStatus.OFFLINE }).eq('id', currentUser.id);
     }
     setCurrentUser(null);
     setEmail('');
@@ -204,13 +215,13 @@ const App: React.FC = () => {
     const user = users.find(u => u.id === userId);
     if (!user) return;
     const newStatus = user.status === UserStatus.ONLINE ? UserStatus.OFFLINE : UserStatus.ONLINE;
-    await supabase.from('users').update({ status: newStatus }).eq('id', userId);
+    await supabase.from('usuarios').update({ status: newStatus }).eq('id', userId);
     await fetchData();
   };
 
   const promoteUser = async (userId: string) => {
     if (userId === 'master-admin') return;
-    await supabase.from('users').update({ role: UserRole.ADMIN }).eq('id', userId);
+    await supabase.from('usuarios').update({ role: UserRole.ADMIN }).eq('id', userId);
     await fetchData();
   };
 
@@ -226,6 +237,13 @@ const App: React.FC = () => {
   if (!currentUser) {
     return (
       <div className="min-h-screen bg-indigo-950 flex flex-col items-center justify-center p-4">
+        {dbError && (
+          <div className="w-full max-w-md mb-6 bg-amber-500/20 border border-amber-500/50 p-4 rounded-2xl flex items-center gap-3 text-amber-200 text-xs font-bold animate-pulse">
+            <Database className="w-5 h-5 shrink-0" />
+            <span>{dbError}</span>
+          </div>
+        )}
+
         <div className="w-full max-w-md bg-white rounded-[2.5rem] shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-500">
           <div className="bg-indigo-600 p-8 text-white text-center relative overflow-hidden">
             <div className="bg-white/20 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4 backdrop-blur-md">
@@ -265,7 +283,7 @@ const App: React.FC = () => {
                 <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
                 <input 
                   type="email" required value={email} onChange={e => setEmail(e.target.value)}
-                  placeholder="admin@callmaster.com"
+                  placeholder="vendedor@empresa.com"
                   className="w-full pl-12 pr-4 py-4 bg-gray-50 border-2 border-transparent focus:border-indigo-600 focus:bg-white rounded-2xl outline-none transition-all font-medium"
                 />
               </div>
@@ -300,7 +318,7 @@ const App: React.FC = () => {
                 type="button" onClick={() => { setIsRegistering(!isRegistering); setError(''); }}
                 className="text-indigo-600 font-bold hover:underline text-sm"
               >
-                {isRegistering ? 'Já tem conta? Login' : 'Novo por aqui? Cadastre-se'}
+                {isRegistering ? 'Já tem conta? Fazer Login' : 'Novo por aqui? Criar conta de Vendedor'}
               </button>
             </div>
           </form>
@@ -308,8 +326,8 @@ const App: React.FC = () => {
         <div className="mt-8 flex flex-col items-center gap-2">
           <p className="text-indigo-300 text-[10px] font-bold uppercase tracking-[0.2em]">Status do Sistema</p>
           <div className="flex items-center gap-2 px-3 py-1 bg-white/5 rounded-full border border-white/10">
-            <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></div>
-            <span className="text-indigo-200 text-[9px] font-medium">DATABASE ONLINE</span>
+            <div className={`w-1.5 h-1.5 rounded-full animate-pulse ${dbError ? 'bg-red-500' : 'bg-green-500'}`}></div>
+            <span className="text-indigo-200 text-[9px] font-medium uppercase">{dbError ? 'Ajuste Necessário' : 'Database Conectado'}</span>
           </div>
         </div>
       </div>
