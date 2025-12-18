@@ -1,7 +1,7 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Lead, CallStatus, CallRecord, User } from '../types';
-import { Phone, CheckCircle, XCircle, AlertTriangle, Users, Loader2, Sparkles } from 'lucide-react';
+import { Phone, CheckCircle, XCircle, AlertTriangle, Users, Loader2, Sparkles, X, Smartphone } from 'lucide-react';
 
 interface SellerViewProps {
   user: User;
@@ -9,19 +9,40 @@ interface SellerViewProps {
   onLogCall: (call: CallRecord) => void;
 }
 
+const CARRIERS = [
+  { name: 'Claro', code: '021', color: 'bg-red-600' },
+  { name: 'Vivo', code: '015', color: 'bg-purple-600' },
+  { name: 'Tim', code: '041', color: 'bg-blue-600' },
+  { name: 'Oi', code: '031', color: 'bg-yellow-500' },
+];
+
 export const SellerView: React.FC<SellerViewProps> = ({ user, leads, onLogCall }) => {
   const [activeCallLead, setActiveCallLead] = useState<Lead | null>(null);
+  const [pendingLead, setPendingLead] = useState<Lead | null>(null);
+  const [showCarrierModal, setShowCarrierModal] = useState(false);
   const [startTime, setStartTime] = useState<number | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Filtrar apenas leads PENDENTES atribuídos a este vendedor
   const myLeads = leads.filter(l => l.assignedTo === user.id && l.status === 'PENDING');
 
-  const startCall = (lead: Lead) => {
-    setActiveCallLead(lead);
+  const initiateCallSequence = (lead: Lead) => {
+    setPendingLead(lead);
+    setShowCarrierModal(true);
+  };
+
+  const handleCarrierSelection = (code: string) => {
+    if (!pendingLead) return;
+
+    const formattedNumber = `${code}${pendingLead.telefone.replace(/\D/g, '')}`;
+    
+    setActiveCallLead(pendingLead);
+    setPendingLead(null);
+    setShowCarrierModal(false);
     setStartTime(Date.now());
-    // Disca para o número
-    window.location.href = `tel:${lead.telefone}`;
+    
+    // Disca para o número com o prefixo da operadora
+    window.location.href = `tel:${formattedNumber}`;
   };
 
   const handleStatusSelect = async (status: CallStatus) => {
@@ -51,6 +72,7 @@ export const SellerView: React.FC<SellerViewProps> = ({ user, leads, onLogCall }
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
+      {/* Dashboard Header */}
       <div className="bg-white p-10 rounded-[3rem] border-2 border-indigo-100 shadow-sm flex justify-between items-center relative overflow-hidden group">
         <div className="absolute -right-10 -top-10 w-32 h-32 bg-indigo-50 rounded-full blur-2xl group-hover:scale-150 transition-transform duration-1000" />
         <div className="relative z-10">
@@ -64,6 +86,44 @@ export const SellerView: React.FC<SellerViewProps> = ({ user, leads, onLogCall }
         </div>
       </div>
 
+      {/* Modal de Seleção de Operadora */}
+      {showCarrierModal && (
+        <div className="fixed inset-0 z-[110] bg-indigo-950/90 backdrop-blur-xl flex items-center justify-center p-6">
+          <div className="bg-white rounded-[4rem] w-full max-w-md p-10 shadow-2xl animate-in zoom-in-95 duration-300 relative">
+            <button 
+              onClick={() => setShowCarrierModal(false)}
+              className="absolute top-8 right-8 p-2 text-gray-400 hover:text-gray-600 transition-colors"
+            >
+              <X className="w-6 h-6" />
+            </button>
+            
+            <div className="text-center space-y-6">
+              <div className="w-20 h-20 bg-indigo-50 rounded-[2rem] flex items-center justify-center mx-auto shadow-inner border-2 border-indigo-100 text-indigo-600">
+                <Smartphone className="w-10 h-10" />
+              </div>
+              <div>
+                <h3 className="text-2xl font-black text-gray-900 uppercase tracking-tighter italic">Qual sua operadora?</h3>
+                <p className="text-gray-400 font-bold uppercase text-[10px] tracking-widest mt-2">Selecione para aplicar o prefixo de discagem</p>
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 pt-4">
+                {CARRIERS.map((carrier) => (
+                  <button
+                    key={carrier.name}
+                    onClick={() => handleCarrierSelection(carrier.code)}
+                    className={`flex items-center justify-between px-8 py-5 rounded-[2rem] text-white font-black uppercase tracking-widest text-xs transition-all active:scale-95 shadow-lg ${carrier.color} hover:brightness-110`}
+                  >
+                    <span>{carrier.name}</span>
+                    <span className="bg-white/20 px-3 py-1 rounded-full text-[10px]">{carrier.code}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Chamada Ativa (Feedback do Status) */}
       {activeCallLead && (
         <div className="fixed inset-0 z-[100] bg-indigo-950/80 backdrop-blur-md flex items-center justify-center p-4">
           <div className="bg-white rounded-[4rem] w-full max-w-lg p-12 shadow-2xl animate-in zoom-in-95 duration-300">
@@ -102,6 +162,7 @@ export const SellerView: React.FC<SellerViewProps> = ({ user, leads, onLogCall }
         </div>
       )}
 
+      {/* Listagem de Leads */}
       <div className="grid gap-4">
         {myLeads.length > 0 ? (
           myLeads.map(lead => (
@@ -114,7 +175,10 @@ export const SellerView: React.FC<SellerViewProps> = ({ user, leads, onLogCall }
                   <span className="text-sm font-bold text-gray-400 tracking-tighter">{lead.telefone}</span>
                 </div>
               </div>
-              <button onClick={() => startCall(lead)} className="bg-indigo-600 text-white p-6 rounded-[2rem] shadow-2xl shadow-indigo-200 group-hover:scale-110 active:scale-90 transition-all">
+              <button 
+                onClick={() => initiateCallSequence(lead)} 
+                className="bg-indigo-600 text-white p-6 rounded-[2rem] shadow-2xl shadow-indigo-200 group-hover:scale-110 active:scale-90 transition-all"
+              >
                 <Phone className="w-8 h-8" />
               </button>
             </div>
