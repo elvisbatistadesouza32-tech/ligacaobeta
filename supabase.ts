@@ -7,9 +7,9 @@ const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYm
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 /**
- * 🛠️ SETUP DO BANCO DE DADOS (SQL EDITOR DO SUPABASE):
+ * 🛠️ SCRIPT DE REPARO E SETUP (COPIE E COLE NO SQL EDITOR DO SUPABASE):
  * 
- * -- 1. Habilitar UUID
+ * -- 1. Garante extensões e tabelas básicas
  * CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
  * 
  * -- 2. Tabela de Usuários
@@ -22,19 +22,25 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey);
  *   created_at TIMESTAMPTZ DEFAULT NOW()
  * );
  * 
- * -- 3. Tabela de Leads
- * -- O campo 'status' possui um DEFAULT 'PENDING' para não precisar ser enviado no INSERT.
+ * -- 3. Tabela de Leads (Com correção de colunas)
  * CREATE TABLE IF NOT EXISTS leads (
  *   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
  *   nome TEXT,
  *   telefone TEXT,
  *   concurso TEXT,
  *   status TEXT DEFAULT 'PENDING',
- *   assigned_to UUID REFERENCES usuarios(id),
  *   created_at TIMESTAMPTZ DEFAULT NOW()
  * );
  * 
- * -- 4. Tabela de Chamadas (Calls)
+ * -- COMANDO CRÍTICO: Adiciona a coluna assigned_to se ela não existir
+ * DO $$ 
+ * BEGIN 
+ *   IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='leads' AND column_name='assigned_to') THEN
+ *     ALTER TABLE leads ADD COLUMN assigned_to UUID REFERENCES usuarios(id);
+ *   END IF;
+ * END $$;
+ * 
+ * -- 4. Tabela de Chamadas
  * CREATE TABLE IF NOT EXISTS calls (
  *   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
  *   lead_id UUID REFERENCES leads(id) ON DELETE CASCADE,
@@ -42,15 +48,10 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey);
  *   status TEXT NOT NULL,
  *   duration_seconds INTEGER DEFAULT 0,
  *   timestamp TIMESTAMPTZ DEFAULT NOW(),
- *   recording_url TEXT,
- *   created_at TIMESTAMPTZ DEFAULT NOW()
+ *   recording_url TEXT
  * );
  * 
- * -- 5. Habilitar Realtime
- * alter publication supabase_realtime add table usuarios;
- * alter publication supabase_realtime add table leads;
- * alter publication supabase_realtime add table calls;
- * 
- * -- 6. CRÍTICO: Recarregar o cache do schema para resolver erros de "table not found"
+ * -- 5. Habilitar Realtime e Atualizar Cache
+ * alter publication supabase_realtime add table usuarios, leads, calls;
  * NOTIFY pgrst, 'reload schema';
  */
