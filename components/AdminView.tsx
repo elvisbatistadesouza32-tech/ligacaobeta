@@ -1,9 +1,9 @@
 
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { User, Lead, CallRecord, CallStatus } from '../types';
 import { 
   Users, PhoneIncoming, Upload, Database, 
-  Play, Clock, ArrowRightLeft, Power, PowerOff, TrendingUp, CheckCircle, XCircle, AlertTriangle, Calendar, Mic2
+  Play, Clock, ArrowRightLeft, Power, PowerOff, TrendingUp, CheckCircle, XCircle, AlertTriangle, Calendar, Mic2, Loader2, X
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
@@ -24,8 +24,17 @@ export const AdminView: React.FC<AdminViewProps> = ({
   const [viewMode, setViewMode] = useState<'geral' | 'individual'>('geral');
   const [selectedSellerId, setSelectedSellerId] = useState<string>('');
   const [playingId, setPlayingId] = useState<string | null>(null);
-  // Fix: Added useRef for file input to resolve 'fileInputRef' not found errors
+  const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const [isImporting, setIsImporting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Auto-hide notification
+  useEffect(() => {
+    if (notification) {
+      const timer = setTimeout(() => setNotification(null), 4000);
+      return () => clearTimeout(timer);
+    }
+  }, [notification]);
 
   // Filtro de vendedores
   const sellers = useMemo(() => users.filter(u => u.tipo === 'vendedor'), [users]);
@@ -64,8 +73,75 @@ export const AdminView: React.FC<AdminViewProps> = ({
   const totalDurationSeconds = filteredCalls.reduce((acc, curr) => acc + (curr.durationSeconds || 0), 0);
   const unassignedLeadsCount = leads.filter(l => !l.assignedTo).length;
 
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsImporting(true);
+    const reader = new FileReader();
+    
+    reader.onload = async (evt) => {
+      try {
+        const bstr = evt.target?.result;
+        const wb = XLSX.read(bstr, { type: 'binary' });
+        const wsname = wb.SheetNames[0];
+        const ws = wb.Sheets[wsname];
+        const data = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
+
+        // Filtra linhas vazias e cabeçalho (data[0])
+        const rawLeads = data.slice(1).filter(row => row.length > 0 && row[0]);
+        
+        if (rawLeads.length === 0) {
+          setNotification({ message: "A planilha parece estar vazia ou sem dados válidos.", type: 'error' });
+          setIsImporting(false);
+          return;
+        }
+
+        const newLeads = rawLeads.map((row, i) => ({
+          id: `imp-${Date.now()}-${i}`,
+          nome: String(row[0] || '').trim(),
+          concurso: String(row[1] || 'Geral').trim(),
+          telefone: String(row[2] || '').replace(/\D/g, ''), // Limpa caracteres não numéricos
+          status: 'PENDING'
+        })).filter(l => l.nome && l.telefone);
+
+        await onImportLeads(newLeads as any);
+        setNotification({ 
+          message: `Sucesso! ${newLeads.length} leads foram importados para o banco de dados.`, 
+          type: 'success' 
+        });
+        
+        // Limpa o input
+        if (fileInputRef.current) fileInputRef.current.value = '';
+      } catch (err) {
+        console.error(err);
+        setNotification({ message: "Erro ao processar o arquivo. Verifique o formato.", type: 'error' });
+      } finally {
+        setIsImporting(false);
+      }
+    };
+
+    reader.onerror = () => {
+      setNotification({ message: "Falha na leitura do arquivo.", type: 'error' });
+      setIsImporting(false);
+    };
+
+    reader.readAsBinaryString(file);
+  };
+
   return (
     <div className="space-y-6 pb-20 animate-in fade-in duration-700">
+      {/* Toast Notification */}
+      {notification && (
+        <div className={`fixed bottom-10 left-1/2 -translate-x-1/2 z-[200] px-8 py-5 rounded-[2rem] shadow-2xl flex items-center gap-4 animate-in slide-in-from-bottom-10 duration-300 ${notification.type === 'success' ? 'bg-indigo-600 text-white' : 'bg-red-600 text-white'}`}>
+          {notification.type === 'success' ? <CheckCircle className="w-6 h-6" /> : <AlertTriangle className="w-6 h-6" />}
+          <span className="font-black uppercase text-xs tracking-tight italic">{notification.message}</span>
+          <button onClick={() => setNotification(null)} className="ml-2 p-1 hover:bg-white/10 rounded-full transition-colors">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
       {/* Menu Principal */}
       <div className="flex bg-white p-2 rounded-[2.5rem] shadow-sm border overflow-x-auto scrollbar-hide">
         <button onClick={() => setActiveTab('stats')} className={`flex items-center gap-2 px-8 py-4 rounded-3xl font-black text-xs uppercase transition-all ${activeTab === 'stats' ? 'bg-indigo-600 text-white shadow-lg' : 'text-gray-400 hover:bg-gray-50'}`}><TrendingUp className="w-4" /> Painel de Controle</button>
@@ -247,7 +323,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
         </div>
       )}
 
-      {/* Tabs de Gestão (Mantidas para funcionalidade administrativa) */}
+      {/* Tabs de Gestão */}
       {activeTab === 'users' && (
         <div className="bg-white rounded-[3.5rem] border-2 border-gray-100 overflow-hidden shadow-sm animate-in slide-in-from-bottom-4 duration-500">
           <div className="p-10 border-b flex justify-between items-center bg-gray-50/50">
@@ -333,31 +409,24 @@ export const AdminView: React.FC<AdminViewProps> = ({
 
       {activeTab === 'leads' && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8 animate-in slide-in-from-bottom-4 duration-500">
-          <div className="bg-white p-14 rounded-[3.5rem] border-2 border-dashed border-gray-200 hover:border-indigo-600 flex flex-col items-center text-center gap-8 transition-all group cursor-pointer" onClick={() => fileInputRef.current?.click()}>
+          <div className="bg-white p-14 rounded-[3.5rem] border-2 border-dashed border-gray-200 hover:border-indigo-600 flex flex-col items-center text-center gap-8 transition-all group cursor-pointer relative" onClick={() => !isImporting && fileInputRef.current?.click()}>
+             {isImporting && (
+               <div className="absolute inset-0 bg-white/80 backdrop-blur-sm z-50 flex flex-col items-center justify-center rounded-[3.5rem]">
+                 <Loader2 className="w-12 h-12 text-indigo-600 animate-spin mb-4" />
+                 <p className="font-black text-xs uppercase italic tracking-widest text-indigo-900">Processando planilha...</p>
+               </div>
+             )}
              <div className="w-24 h-24 bg-indigo-50 rounded-[2.5rem] flex items-center justify-center text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white transition-all shadow-inner"><Upload className="w-10 h-10" /></div>
              <div>
                <h3 className="font-black text-2xl uppercase tracking-tighter italic">Alimentar Base</h3>
-               <p className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mt-3">Arraste aqui sua planilha .XLSX</p>
+               <p className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mt-3">Clique ou arraste seu arquivo .XLSX</p>
+               <div className="mt-6 flex flex-col items-center gap-1">
+                 <p className="text-[9px] font-bold text-indigo-300 uppercase">Coluna A: Nome</p>
+                 <p className="text-[9px] font-bold text-indigo-300 uppercase">Coluna B: Concurso</p>
+                 <p className="text-[9px] font-bold text-indigo-300 uppercase">Coluna C: Telefone</p>
+               </div>
              </div>
-             <input type="file" ref={fileInputRef} onChange={(e) => {
-               const file = e.target.files?.[0];
-               if (!file) return;
-               const reader = new FileReader();
-               reader.onload = (evt) => {
-                 const bstr = evt.target?.result;
-                 const wb = XLSX.read(bstr, { type: 'binary' });
-                 const data = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1 }) as any[][];
-                 const newLeads = data.slice(1).map((row, i) => ({
-                   id: `imp-${Date.now()}-${i}`,
-                   nome: row[0] || 'Lead Importado',
-                   concurso: row[1] || '---',
-                   telefone: String(row[2]) || '',
-                   status: 'PENDING'
-                 }));
-                 onImportLeads(newLeads as any);
-               };
-               reader.readAsBinaryString(file);
-             }} className="hidden" />
+             <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept=".xlsx, .xls" className="hidden" />
           </div>
           <div className="bg-indigo-600 p-14 rounded-[3.5rem] text-white flex flex-col items-center text-center gap-8 hover:bg-indigo-700 transition-all shadow-2xl shadow-indigo-200 group cursor-pointer" onClick={onDistributeLeads}>
              <div className="w-24 h-24 bg-white/10 rounded-[2.5rem] flex items-center justify-center group-hover:scale-110 transition-transform shadow-lg"><ArrowRightLeft className="w-10 h-10" /></div>
