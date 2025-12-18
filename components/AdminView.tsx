@@ -69,13 +69,11 @@ export const AdminView: React.FC<AdminViewProps> = ({
         const firstSheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[firstSheetName];
         
-        // Converte para JSON (array de arrays para facilitar mapeamento por coluna)
         const jsonData: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
 
         const importedLeads: Lead[] = jsonData
-          .filter((row, index) => index > 0 && row.length > 0) // Pula cabeçalho e linhas vazias
+          .filter((row, index) => index > 0 && row.length > 0)
           .map((row, index) => {
-            // Mapeamento: Coluna 1: Nome, Coluna 2: Concurso, Coluna 3: Telefone
             const name = row[0] ? String(row[0]).trim() : 'Lead Importado';
             const contest = row[1] ? String(row[1]).trim() : '';
             const phone = row[2] ? String(row[2]).replace(/\D/g, '') : '';
@@ -286,7 +284,14 @@ export const AdminView: React.FC<AdminViewProps> = ({
                   <tr key={u.id} className="hover:bg-gray-50 transition-colors">
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-3">
-                        <img src={u.avatar} className="w-10 h-10 rounded-full border-2 border-white shadow-sm" alt="" />
+                        <img 
+                          src={u.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(u.name)}&background=random`} 
+                          className="w-10 h-10 rounded-full border-2 border-white shadow-sm" 
+                          alt="" 
+                          onError={(e) => {
+                            (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(u.name)}&background=6366f1&color=fff`;
+                          }}
+                        />
                         <div>
                           <p className="font-bold text-gray-800">{u.name}</p>
                           <p className="text-xs text-gray-500">{u.email}</p>

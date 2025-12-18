@@ -45,10 +45,9 @@ const App: React.FC = () => {
           name: u.name,
           email: u.email,
           password: u.password,
-          // Normalização para garantir que bata com o Enum independente de como está no DB
           role: String(u.role).toUpperCase() === 'ADMIN' ? UserRole.ADMIN : UserRole.SELLER,
           status: u.status as UserStatus,
-          avatar: u.avatar
+          avatar: u.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(u.name)}&background=random`
         })));
       }
       
@@ -103,13 +102,13 @@ const App: React.FC = () => {
       const lowerEmail = email.toLowerCase().trim();
 
       if (isRegistering) {
+        // Removido o campo 'avatar' da inserção para evitar erro de coluna inexistente
         const { error: regError } = await supabase.from('usuarios').insert([{
           name,
           email: lowerEmail,
           password,
           role: UserRole.SELLER,
-          status: UserStatus.OFFLINE,
-          avatar: `https://picsum.photos/seed/${lowerEmail}/100`
+          status: UserStatus.OFFLINE
         }]);
 
         if (regError) {
@@ -124,14 +123,13 @@ const App: React.FC = () => {
         if (lowerEmail === MASTER_ADMIN_EMAIL && password === ADMIN_MASTER_PASSWORD) {
           const existingUser = users.find(u => u.email.toLowerCase() === lowerEmail);
           
-          // FORÇAMOS o Role como ADMIN para o login mestre, mesmo que ele exista no banco como SELLER
           setCurrentUser({
             id: existingUser?.id || 'master-admin',
             name: existingUser?.name || 'Administrador Geral',
             email: MASTER_ADMIN_EMAIL,
-            role: UserRole.ADMIN, // Garante acesso à tela de ADM
+            role: UserRole.ADMIN,
             status: UserStatus.ONLINE,
-            avatar: existingUser?.avatar
+            avatar: existingUser?.avatar || `https://ui-avatars.com/api/?name=Admin&background=6366f1&color=fff`
           });
           return;
         }
@@ -148,12 +146,7 @@ const App: React.FC = () => {
         }
 
         setCurrentUser(user);
-        if (user.role === UserRole.SELLER) {
-          await supabase.from('usuarios').update({ status: UserStatus.ONLINE }).eq('id', user.id);
-        } else {
-          // Admins também ficam online no sistema
-          await supabase.from('usuarios').update({ status: UserStatus.ONLINE }).eq('id', user.id);
-        }
+        await supabase.from('usuarios').update({ status: UserStatus.ONLINE }).eq('id', user.id);
       }
     } catch (err: any) {
       setError(err.message);
