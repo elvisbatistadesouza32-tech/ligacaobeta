@@ -7,12 +7,12 @@ const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYm
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 /**
- * 🛠️ SCRIPT DE REPARO E SETUP (COPIE E COLE NO SQL EDITOR DO SUPABASE):
+ * 🛠️ CÓDIGO PARA COPIAR E COLAR NO SQL EDITOR DO SUPABASE:
  * 
- * -- 1. Garante extensões e tabelas básicas
+ * -- 1. Habilitar extensões necessárias
  * CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
  * 
- * -- 2. Tabela de Usuários
+ * -- 2. Criar tabela de usuários
  * CREATE TABLE IF NOT EXISTS usuarios (
  *   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
  *   nome TEXT,
@@ -22,7 +22,7 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey);
  *   created_at TIMESTAMPTZ DEFAULT NOW()
  * );
  * 
- * -- 3. Tabela de Leads (Com correção de colunas)
+ * -- 3. Criar tabela de leads
  * CREATE TABLE IF NOT EXISTS leads (
  *   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
  *   nome TEXT,
@@ -32,15 +32,15 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey);
  *   created_at TIMESTAMPTZ DEFAULT NOW()
  * );
  * 
- * -- COMANDO CRÍTICO: Adiciona a coluna assigned_to se ela não existir
+ * -- 4. REPARO CRÍTICO: Adicionar a coluna 'assigned_to' se ela não existir
  * DO $$ 
  * BEGIN 
  *   IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='leads' AND column_name='assigned_to') THEN
- *     ALTER TABLE leads ADD COLUMN assigned_to UUID REFERENCES usuarios(id);
+ *     ALTER TABLE leads ADD COLUMN assigned_to UUID REFERENCES usuarios(id) ON DELETE SET NULL;
  *   END IF;
  * END $$;
  * 
- * -- 4. Tabela de Chamadas
+ * -- 5. Criar tabela de chamadas
  * CREATE TABLE IF NOT EXISTS calls (
  *   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
  *   lead_id UUID REFERENCES leads(id) ON DELETE CASCADE,
@@ -51,7 +51,10 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey);
  *   recording_url TEXT
  * );
  * 
- * -- 5. Habilitar Realtime e Atualizar Cache
- * alter publication supabase_realtime add table usuarios, leads, calls;
+ * -- 6. Configurar Realtime
+ * DROP PUBLICATION IF EXISTS supabase_realtime;
+ * CREATE PUBLICATION supabase_realtime FOR ALL TABLES;
+ * 
+ * -- 7. FORÇAR RECARREGAMENTO DO SCHEMA (MUITO IMPORTANTE!)
  * NOTIFY pgrst, 'reload schema';
  */
