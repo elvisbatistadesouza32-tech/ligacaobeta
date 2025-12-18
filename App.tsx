@@ -162,23 +162,42 @@ const App: React.FC = () => {
   };
 
   const handleDistributeLeads = async () => {
-    const { data: activeSellers } = await supabase.from('usuarios').select('id').eq('online', true).eq('tipo', 'vendedor');
-    const { data: unassignedLeads } = await supabase.from('leads').select('id').is('assigned_to', null).eq('status', 'PENDING');
+    // Busca vendedores ativos (on) do tipo vendedor
+    const { data: activeSellers } = await supabase.from('usuarios')
+      .select('id')
+      .eq('online', true)
+      .eq('tipo', 'vendedor');
 
-    if (!activeSellers || activeSellers.length === 0) return;
-    if (!unassignedLeads || unassignedLeads.length === 0) return;
+    // Busca leads sem atribuição (vendedores que ainda não receberam)
+    const { data: unassignedLeads } = await supabase.from('leads')
+      .select('id')
+      .is('assigned_to', null)
+      .eq('status', 'PENDING');
 
+    if (!activeSellers || activeSellers.length === 0) {
+      alert("Nenhum vendedor está ONLINE no momento para receber leads.");
+      return;
+    }
+
+    if (!unassignedLeads || unassignedLeads.length === 0) {
+      alert("Não há novos leads pendentes para distribuir.");
+      return;
+    }
+
+    // Loop de distribuição balanceada
     for (let i = 0; i < unassignedLeads.length; i++) {
       const sellerId = activeSellers[i % activeSellers.length].id;
-      await supabase.from('leads').update({ assigned_to: sellerId }).eq('id', unassignedLeads[i].id);
+      await supabase.from('leads')
+        .update({ assigned_to: sellerId })
+        .eq('id', unassignedLeads[i].id);
     }
     
+    // Atualiza a interface
     await fetchData();
+    alert(`Sucesso! ${unassignedLeads.length} leads foram distribuídos entre ${activeSellers.length} vendedores ativos.`);
   };
 
   const handleImportLeads = async (newLeads: Lead[]) => {
-    // Utilizando a estrutura exata solicitada (nome, telefone, concurso)
-    // O campo 'status' foi removido para permitir que o banco use o valor padrão
     const leadsToInsert = newLeads.map(({ nome, telefone, concurso }) => ({ 
       nome,
       telefone,
@@ -188,10 +207,11 @@ const App: React.FC = () => {
     const { error } = await supabase.from('leads').insert(leadsToInsert);
     
     if (error) {
-      alert("Erro ao salvar leads no banco: " + error.message + "\n\nIMPORTANTE: Verifique se as colunas 'nome', 'telefone' e 'concurso' existem na sua tabela 'leads'.");
+      alert("Erro ao salvar leads no banco: " + error.message);
     } else {
-      await handleDistributeLeads();
-      alert(`Importação bem-sucedida! ${leadsToInsert.length} leads importados.`);
+      // Notifica e atualiza a lista para o ADM ver os leads importados
+      await fetchData();
+      alert(`Importação concluída! ${leadsToInsert.length} novos leads inseridos. Clique no botão de distribuição para enviá-los aos vendedores.`);
     }
   };
 

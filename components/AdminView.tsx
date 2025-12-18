@@ -7,7 +7,7 @@ import {
 } from 'recharts';
 import { 
   Users, UserPlus, PhoneIncoming, Upload, Database, 
-  Play, CheckCircle, XCircle, AlertTriangle, Search, Filter, Sparkles, RefreshCw, Loader2, Settings, ExternalLink, FileSpreadsheet, Trash2
+  Play, CheckCircle, XCircle, AlertTriangle, Search, Filter, Sparkles, RefreshCw, Loader2, Settings, ExternalLink, FileSpreadsheet, Trash2, ArrowRightLeft
 } from 'lucide-react';
 import { getSalesInsights } from '../services/geminiService';
 import * as XLSX from 'xlsx';
@@ -29,6 +29,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
   const [aiInsights, setAiInsights] = useState<string>('');
   const [isGeneratingInsights, setIsGeneratingInsights] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
+  const [isDistributing, setIsDistributing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const fetchInsights = async () => {
@@ -88,6 +89,12 @@ export const AdminView: React.FC<AdminViewProps> = ({
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
+  const handleManualDistribute = async () => {
+    setIsDistributing(true);
+    await onDistributeLeads();
+    setIsDistributing(false);
+  };
+
   useEffect(() => { 
     setIsImporting(false); 
   }, [leads.length]);
@@ -97,6 +104,8 @@ export const AdminView: React.FC<AdminViewProps> = ({
     { name: 'Não Atendidas', value: calls.filter(c => c.status === CallStatus.NO_ANSWER).length, color: '#EF4444' },
     { name: 'Inválidos', value: calls.filter(c => c.status === CallStatus.INVALID_NUMBER).length, color: '#F59E0B' },
   ];
+
+  const unassignedLeadsCount = leads.filter(l => !l.assignedTo && l.status === 'PENDING').length;
 
   return (
     <div className="space-y-6 pb-20 sm:pb-0">
@@ -144,7 +153,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
         <div className="bg-white rounded-[2.5rem] border-2 border-gray-100 overflow-hidden shadow-sm">
           <div className="p-6 bg-gray-50/50 border-b flex flex-col sm:flex-row justify-between items-center gap-4">
             <div><h3 className="font-black text-lg tracking-tight uppercase">Equipe de Vendas</h3><p className="text-xs text-gray-500">Controle de vendedores ativos e offline</p></div>
-            <button onClick={onDistributeLeads} className="w-full sm:w-auto bg-indigo-600 text-white px-8 py-3 rounded-2xl font-black text-sm shadow-lg active:scale-95 transition-all flex items-center justify-center gap-2"><RefreshCw className="w-4" /> REDISTRIBUIR LEADS</button>
+            <button onClick={onDistributeLeads} className="w-full sm:w-auto bg-indigo-600 text-white px-8 py-3 rounded-2xl font-black text-sm shadow-lg active:scale-95 transition-all flex items-center justify-center gap-2"><RefreshCw className="w-4" /> REDISTRIBUIR TUDO</button>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-left">
@@ -165,17 +174,29 @@ export const AdminView: React.FC<AdminViewProps> = ({
 
       {activeTab === 'leads' && (
         <div className="space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div className="bg-white p-8 rounded-[2.5rem] border-2 border-gray-100 flex flex-col items-center justify-center text-center space-y-4 group cursor-pointer hover:border-indigo-600 transition-all relative" onClick={() => !isImporting && fileInputRef.current?.click()}>
               {isImporting && <div className="absolute inset-0 bg-white/80 z-20 flex items-center justify-center rounded-[2.5rem]"><Loader2 className="w-10 h-10 text-indigo-600 animate-spin" /></div>}
               <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept=".xlsx,.xls,.csv" className="hidden" />
               <div className="w-16 h-16 bg-indigo-50 rounded-3xl flex items-center justify-center group-hover:bg-indigo-600 transition-all"><Upload className="w-8 h-8 text-indigo-600 group-hover:text-white" /></div>
-              <div><h4 className="font-black text-gray-900 uppercase">Importar Planilha</h4><p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">Col 1: Nome | Col 2: Concurso | Col 3: Telefone</p></div>
+              <div><h4 className="font-black text-gray-900 uppercase text-sm">1. Importar</h4><p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">Planilha Excel/CSV</p></div>
             </div>
-            <div className="bg-white p-8 rounded-[2.5rem] border-2 border-gray-100 flex flex-col items-center justify-center text-center space-y-4">
+
+            <div className={`bg-white p-8 rounded-[2.5rem] border-2 border-gray-100 flex flex-col items-center justify-center text-center space-y-4 transition-all ${unassignedLeadsCount > 0 ? 'border-orange-200 bg-orange-50/30' : ''}`}>
                <div className="w-16 h-16 bg-green-50 rounded-3xl flex items-center justify-center"><Database className="w-8 h-8 text-green-600" /></div>
-               <div><h4 className="font-black text-gray-900 uppercase">{leads.length} LEADS NA BASE</h4><p className="text-xs text-gray-400">{leads.filter(l => !l.assignedTo).length} aguardando distribuição</p></div>
+               <div><h4 className="font-black text-gray-900 uppercase text-sm">{leads.length} TOTAL</h4><p className="text-[10px] text-orange-600 font-black uppercase tracking-widest">{unassignedLeadsCount} PARA DISTRIBUIR</p></div>
             </div>
+
+            <button 
+              onClick={handleManualDistribute}
+              disabled={isDistributing || unassignedLeadsCount === 0}
+              className={`p-8 rounded-[2.5rem] border-2 flex flex-col items-center justify-center text-center space-y-4 transition-all active:scale-95 ${unassignedLeadsCount > 0 ? 'bg-indigo-600 border-indigo-600 text-white shadow-xl shadow-indigo-200' : 'bg-gray-100 border-gray-200 text-gray-400 grayscale opacity-50 cursor-not-allowed'}`}
+            >
+              <div className={`w-16 h-16 rounded-3xl flex items-center justify-center ${unassignedLeadsCount > 0 ? 'bg-white/20' : 'bg-gray-200'}`}>
+                {isDistributing ? <Loader2 className="w-8 h-8 animate-spin" /> : <ArrowRightLeft className="w-8 h-8" />}
+              </div>
+              <div><h4 className="font-black uppercase text-sm">2. Distribuir</h4><p className="text-[10px] font-bold uppercase tracking-widest">Entre vendedores ON</p></div>
+            </button>
           </div>
 
           <div className="bg-white rounded-[2.5rem] border-2 border-gray-100 overflow-hidden shadow-sm">
@@ -189,9 +210,14 @@ export const AdminView: React.FC<AdminViewProps> = ({
                       <td className="px-8 py-4"><p className="text-sm font-bold text-gray-900">{l.nome}</p><span className="text-[10px] text-gray-400 font-bold uppercase tracking-tighter">{l.concurso}</span></td>
                       <td className="px-8 py-4 font-mono text-xs font-black text-indigo-600">{l.telefone}</td>
                       <td className="px-8 py-4"><span className={`px-2 py-1 rounded-lg text-[10px] font-black ${l.status === 'CALLED' ? 'bg-indigo-100 text-indigo-700' : 'bg-gray-100 text-gray-400'}`}>{l.status}</span></td>
-                      <td className="px-8 py-4 text-xs font-black text-gray-500">{users.find(u => u.id === l.assignedTo)?.nome || 'Não atribuído'}</td>
+                      <td className="px-8 py-4 text-xs font-black text-gray-500">{users.find(u => u.id === l.assignedTo)?.nome || <span className="text-orange-500">Não distribuído</span>}</td>
                     </tr>
                   ))}
+                  {leads.length === 0 && (
+                    <tr>
+                      <td colSpan={4} className="px-8 py-20 text-center text-gray-400 font-medium italic">Nenhum lead importado até o momento.</td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
@@ -219,6 +245,11 @@ export const AdminView: React.FC<AdminViewProps> = ({
                       <td className="px-8 py-4 text-right"><button className="bg-gray-100 p-2 rounded-xl hover:bg-indigo-600 hover:text-white transition-all"><Play className="w-4 h-4" /></button></td>
                     </tr>
                   ))}
+                  {calls.length === 0 && (
+                    <tr>
+                      <td colSpan={4} className="px-8 py-20 text-center text-gray-400 font-medium italic">Nenhuma chamada registrada.</td>
+                    </tr>
+                  )}
                 </tbody>
              </table>
           </div>
