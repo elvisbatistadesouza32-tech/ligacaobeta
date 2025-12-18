@@ -53,8 +53,8 @@ const App: React.FC = () => {
       if (leadData) {
         setLeads(leadData.map((l: any) => ({
           id: l.id,
-          nome: l.nome, // Mapeia da coluna 'nome' do DB
-          phone: l.phone,
+          nome: l.nome,
+          telefone: l.telefone, // Coluna telefone
           concurso: l.concurso,
           assignedTo: l.assigned_to,
           status: l.status,
@@ -178,8 +178,8 @@ const App: React.FC = () => {
 
   const handleImportLeads = async (newLeads: Lead[]) => {
     const leadsToInsert = newLeads.map(l => ({ 
-      nome: l.nome,      // Coluna 'nome' no banco
-      phone: l.phone, 
+      nome: l.nome,
+      telefone: l.telefone, // Coluna telefone
       concurso: l.concurso, 
       status: 'PENDING' 
     }));
@@ -187,7 +187,7 @@ const App: React.FC = () => {
     const { error } = await supabase.from('leads').insert(leadsToInsert);
     
     if (error) {
-      alert("Erro ao salvar leads no banco: " + error.message + "\n\nCertifique-se de que as colunas 'nome' e 'concurso' existem na tabela 'leads'.");
+      alert("Erro ao salvar leads no banco: " + error.message + "\n\nIMPORTANTE: Verifique se as colunas 'nome', 'telefone' e 'concurso' existem na sua tabela 'leads'.");
     } else {
       await handleDistributeLeads();
       alert(`Importação bem-sucedida! ${leadsToInsert.length} leads importados.`);

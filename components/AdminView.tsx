@@ -60,9 +60,9 @@ export const AdminView: React.FC<AdminViewProps> = ({
           .filter(row => row[2] && String(row[2]).trim().length >= 8)
           .map((row, index): Lead => ({
             id: `temp-${Date.now()}-${index}`,
-            nome: row[0] ? String(row[0]).trim() : 'Sem Nome', // Mapeia para 'nome'
+            nome: row[0] ? String(row[0]).trim() : 'Sem Nome',
             concurso: row[1] ? String(row[1]).trim() : 'Geral',
-            phone: String(row[2]).trim(),
+            telefone: String(row[2]).trim(), // Mapeia para telefone
             status: 'PENDING',
             createdAt: new Date().toISOString()
           }));
@@ -93,6 +93,25 @@ export const AdminView: React.FC<AdminViewProps> = ({
         <button onClick={() => setActiveTab('history')} className={`flex items-center gap-2 px-6 py-3 rounded-xl font-bold transition-all whitespace-nowrap ${activeTab === 'history' ? 'bg-indigo-600 text-white shadow-lg' : 'text-gray-500 hover:bg-gray-50'}`}><PhoneIncoming className="w-4" /> Histórico</button>
       </div>
 
+      {activeTab === 'stats' && (
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+             <div className="bg-white p-6 rounded-[2rem] border-2 border-gray-100"><p className="text-gray-400 text-[10px] font-black uppercase tracking-widest">Total Chamadas</p><p className="text-4xl font-black text-gray-900 mt-1">{calls.length}</p></div>
+             <div className="bg-white p-6 rounded-[2rem] border-2 border-gray-100"><p className="text-gray-400 text-[10px] font-black uppercase tracking-widest">Minutos Totais</p><p className="text-4xl font-black text-indigo-600 mt-1">{(calls.reduce((a,b)=>a+b.durationSeconds,0)/60).toFixed(0)}</p></div>
+             <div className="bg-white p-6 rounded-[2rem] border-2 border-gray-100"><p className="text-gray-400 text-[10px] font-black uppercase tracking-widest">Leads Restantes</p><p className="text-4xl font-black text-orange-500 mt-1">{leads.filter(l => l.status === 'PENDING').length}</p></div>
+             <div className="bg-white p-6 rounded-[2rem] border-2 border-gray-100"><p className="text-gray-400 text-[10px] font-black uppercase tracking-widest">Conversão</p><p className="text-4xl font-black text-green-600 mt-1">{calls.length > 0 ? ((calls.filter(c=>c.status===CallStatus.ANSWERED).length/calls.length)*100).toFixed(0) : 0}%</p></div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="bg-indigo-600 text-white p-8 rounded-[2.5rem] shadow-xl relative overflow-hidden group">
+               <div className="absolute -right-10 -top-10 w-40 h-40 bg-white/10 rounded-full blur-3xl group-hover:scale-150 transition-transform duration-1000" />
+               <div className="flex justify-between items-start mb-4 relative z-10"><h4 className="font-black text-xl flex items-center gap-2 tracking-tighter italic"><Sparkles className="w-6 h-6 text-indigo-200" /> INSIGHTS DA IA</h4><button onClick={fetchInsights} disabled={isGeneratingInsights} className="p-2 bg-white/10 hover:bg-white/20 rounded-xl transition-all"><RefreshCw className={`w-5 h-5 ${isGeneratingInsights ? 'animate-spin' : ''}`} /></button></div>
+               <p className="text-sm opacity-90 leading-relaxed font-medium relative z-10 italic">"{aiInsights || 'Analise o desempenho da sua equipe com um clique.'}"</p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {activeTab === 'leads' && (
         <div className="space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -101,10 +120,6 @@ export const AdminView: React.FC<AdminViewProps> = ({
               <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept=".xlsx,.xls,.csv" className="hidden" />
               <div className="w-16 h-16 bg-indigo-50 rounded-3xl flex items-center justify-center group-hover:bg-indigo-600 transition-all"><Upload className="w-8 h-8 text-indigo-600 group-hover:text-white" /></div>
               <div><h4 className="font-black text-gray-900 uppercase">Importar Leads</h4><p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">Col 1: Nome | Col 2: Concurso | Col 3: Telefone</p></div>
-            </div>
-            <div className="bg-white p-8 rounded-[2.5rem] border-2 border-gray-100 flex flex-col items-center justify-center text-center space-y-4">
-               <div className="w-16 h-16 bg-green-50 rounded-3xl flex items-center justify-center"><Database className="w-8 h-8 text-green-600" /></div>
-               <div><h4 className="font-black text-gray-900 uppercase">{leads.length} LEADS NO TOTAL</h4><p className="text-xs text-gray-400">{leads.filter(l => !l.assignedTo).length} aguardando distribuição</p></div>
             </div>
           </div>
 
@@ -117,7 +132,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
                   {leads.map(l => (
                     <tr key={l.id} className="hover:bg-gray-50 transition-colors">
                       <td className="px-8 py-4"><p className="text-sm font-bold text-gray-900">{l.nome}</p><span className="text-[10px] text-gray-400 font-bold uppercase tracking-tighter">{l.concurso}</span></td>
-                      <td className="px-8 py-4 font-mono text-xs font-black text-indigo-600">{l.phone}</td>
+                      <td className="px-8 py-4 font-mono text-xs font-black text-indigo-600">{l.telefone}</td>
                       <td className="px-8 py-4"><span className={`px-2 py-1 rounded-lg text-[10px] font-black ${l.status === 'CALLED' ? 'bg-indigo-100 text-indigo-700' : 'bg-gray-100 text-gray-400'}`}>{l.status}</span></td>
                     </tr>
                   ))}
@@ -127,7 +142,6 @@ export const AdminView: React.FC<AdminViewProps> = ({
           </div>
         </div>
       )}
-      {/* ... demais abas ... */}
     </div>
   );
 };

@@ -26,8 +26,8 @@ export interface User {
 
 export interface Lead {
   id: string;
-  nome: string; // Alterado de 'name' para 'nome'
-  phone: string;
+  nome: string;
+  telefone: string; // Alterado de 'phone' para 'telefone'
   concurso?: string;
   assignedTo?: string; // User ID
   status: 'PENDING' | 'CALLED';

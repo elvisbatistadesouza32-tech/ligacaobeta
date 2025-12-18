@@ -16,7 +16,7 @@ export const INITIAL_LEADS: Lead[] = [
   {
     id: 'l1',
     nome: 'Carlos Oliveira',
-    phone: '11999887766',
+    telefone: '11999887766',
     concurso: 'Mega Sena',
     status: 'PENDING',
     createdAt: new Date().toISOString()

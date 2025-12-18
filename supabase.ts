@@ -7,21 +7,21 @@ const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYm
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 /**
- * 🛠️ SQL PARA CORRIGIR O BANCO DE DADOS:
- * Copie e cole este comando no "SQL Editor" do seu Supabase:
+ * 🛠️ SQL FINAL PARA O BANCO DE DADOS (EXECUTE NO SQL EDITOR):
  * 
- * -- 1. Ajustar ou Criar tabela de leads
+ * -- 1. Criar ou Recriar tabela de leads com colunas em português
  * CREATE TABLE IF NOT EXISTS leads (
  *   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
- *   nome TEXT,          -- Alterado para 'nome'
- *   phone TEXT NOT NULL,
- *   concurso TEXT,      -- Campo de concurso
+ *   nome TEXT,
+ *   telefone TEXT NOT NULL, -- Coluna renomeada de phone para telefone
+ *   concurso TEXT,
  *   status TEXT DEFAULT 'PENDING',
  *   assigned_to UUID REFERENCES usuarios(id),
  *   created_at TIMESTAMPTZ DEFAULT NOW()
  * );
  * 
- * -- 2. Se a tabela já existir, rode estes comandos para garantir as colunas:
+ * -- 2. Se a tabela já existir e você precisar apenas renomear as colunas:
  * -- ALTER TABLE leads RENAME COLUMN name TO nome;
+ * -- ALTER TABLE leads RENAME COLUMN phone TO telefone;
  * -- ALTER TABLE leads ADD COLUMN IF NOT EXISTS concurso TEXT;
  */

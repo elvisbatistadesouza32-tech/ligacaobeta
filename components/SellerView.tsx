@@ -18,7 +18,7 @@ export const SellerView: React.FC<SellerViewProps> = ({ user, leads, onLogCall }
   const startCall = (lead: Lead) => {
     setActiveCallLead(lead);
     setStartTime(Date.now());
-    window.location.href = `tel:${lead.phone}`;
+    window.location.href = `tel:${lead.telefone}`;
   };
 
   const handleStatusSelect = (status: CallStatus) => {
@@ -50,7 +50,7 @@ export const SellerView: React.FC<SellerViewProps> = ({ user, leads, onLogCall }
           <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-2xl animate-in zoom-in-95 duration-200">
             <div className="text-center space-y-4">
               <div className="w-20 h-20 bg-indigo-100 rounded-full flex items-center justify-center mx-auto animate-pulse"><Phone className="w-10 h-10 text-indigo-600" /></div>
-              <div><h3 className="text-xl font-bold">Chamada em Andamento</h3><p className="text-gray-500">{activeCallLead.nome}</p><p className="text-indigo-600 font-mono mt-1">{activeCallLead.phone}</p></div>
+              <div><h3 className="text-xl font-bold">Chamada em Andamento</h3><p className="text-gray-500">{activeCallLead.nome}</p><p className="text-indigo-600 font-mono mt-1">{activeCallLead.telefone}</p></div>
               <div className="pt-4 border-t space-y-3">
                 <div className="grid grid-cols-1 gap-3">
                   <button onClick={() => handleStatusSelect(CallStatus.ANSWERED)} className="flex items-center justify-center gap-2 w-full py-4 bg-green-500 text-white rounded-xl font-bold active:scale-95 transition-all"><CheckCircle className="w-5 h-5" /> Atendeu</button>
@@ -66,7 +66,7 @@ export const SellerView: React.FC<SellerViewProps> = ({ user, leads, onLogCall }
       <div className="grid gap-4">
         {myLeads.length > 0 ? (myLeads.map(lead => (
           <div key={lead.id} className="bg-white border rounded-xl p-4 shadow-sm flex items-center justify-between">
-            <div className="space-y-1"><p className="font-bold text-gray-800 text-lg">{lead.nome}</p><div className="flex items-center gap-2 text-sm text-gray-500"><span className="bg-gray-100 px-2 py-0.5 rounded text-xs font-semibold uppercase tracking-tighter">{lead.concurso || 'Geral'}</span><span>•</span><span>{lead.phone}</span></div></div>
+            <div className="space-y-1"><p className="font-bold text-gray-800 text-lg">{lead.nome}</p><div className="flex items-center gap-2 text-sm text-gray-500"><span className="bg-gray-100 px-2 py-0.5 rounded text-xs font-semibold uppercase tracking-tighter">{lead.concurso || 'Geral'}</span><span>•</span><span>{lead.telefone}</span></div></div>
             <button onClick={() => startCall(lead)} className="bg-indigo-600 text-white p-4 rounded-full shadow-lg active:scale-90 transition-all"><Phone className="w-6 h-6" /></button>
           </div>
         ))) : (<div className="text-center py-20 bg-gray-50 border-2 border-dashed rounded-3xl"><p className="text-gray-400 font-medium">Parabéns! Você concluiu todos os seus leads.</p></div>)}
