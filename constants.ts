@@ -1,29 +1,30 @@
 
-import { User, UserRole, UserStatus, Lead } from './types';
+import { User, Lead } from './types';
 
+// Updated INITIAL_USERS to use the new property names from the User interface
 export const INITIAL_USERS: User[] = [
   {
     id: 'u1',
-    name: 'Admin Principal',
+    nome: 'Admin Principal',
     email: 'admin@callmaster.com',
-    role: UserRole.ADMIN,
-    status: UserStatus.ONLINE,
+    tipo: 'adm',
+    online: true,
     avatar: 'https://picsum.photos/seed/admin/100'
   },
   {
     id: 'u2',
-    name: 'João Vendedor',
+    nome: 'João Vendedor',
     email: 'joao@callmaster.com',
-    role: UserRole.SELLER,
-    status: UserStatus.ONLINE,
+    tipo: 'vendedor',
+    online: true,
     avatar: 'https://picsum.photos/seed/joao/100'
   },
   {
     id: 'u3',
-    name: 'Maria Vendas',
+    nome: 'Maria Vendas',
     email: 'maria@callmaster.com',
-    role: UserRole.SELLER,
-    status: UserStatus.OFFLINE,
+    tipo: 'vendedor',
+    online: false,
     avatar: 'https://picsum.photos/seed/maria/100'
   }
 ];

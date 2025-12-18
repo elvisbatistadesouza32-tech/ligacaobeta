@@ -17,11 +17,10 @@ export enum CallStatus {
 
 export interface User {
   id: string;
-  name: string;
+  nome: string; // Alterado de 'name' para 'nome'
   email: string;
-  password?: string; // Adicionado para controle de acesso
-  role: UserRole;
-  status: UserStatus;
+  tipo: 'adm' | 'vendedor'; // Alterado de 'role' para 'tipo'
+  online: boolean; // Alterado de 'status' para 'online'
   avatar?: string;
 }
 
