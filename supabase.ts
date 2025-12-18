@@ -7,19 +7,50 @@ const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYm
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 /**
- * 🛠️ SQL FINAL - COPIE E COLE NO SQL EDITOR DO SUPABASE:
+ * 🛠️ SETUP DO BANCO DE DADOS (SQL EDITOR DO SUPABASE):
  * 
+ * -- 1. Habilitar UUID
+ * CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+ * 
+ * -- 2. Tabela de Usuários
+ * CREATE TABLE IF NOT EXISTS usuarios (
+ *   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+ *   nome TEXT,
+ *   email TEXT UNIQUE,
+ *   tipo TEXT DEFAULT 'vendedor',
+ *   online BOOLEAN DEFAULT false,
+ *   created_at TIMESTAMPTZ DEFAULT NOW()
+ * );
+ * 
+ * -- 3. Tabela de Leads
+ * -- O campo 'status' possui um DEFAULT 'PENDING' para não precisar ser enviado no INSERT.
  * CREATE TABLE IF NOT EXISTS leads (
  *   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
  *   nome TEXT,
- *   telefone TEXT NOT NULL,
+ *   telefone TEXT,
  *   concurso TEXT,
  *   status TEXT DEFAULT 'PENDING',
  *   assigned_to UUID REFERENCES usuarios(id),
  *   created_at TIMESTAMPTZ DEFAULT NOW()
  * );
  * 
- * -- Caso a tabela já exista com nomes antigos, execute:
- * -- ALTER TABLE leads RENAME COLUMN name TO nome;
- * -- ALTER TABLE leads RENAME COLUMN phone TO telefone;
+ * -- 4. Tabela de Chamadas (Calls)
+ * CREATE TABLE IF NOT EXISTS calls (
+ *   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+ *   lead_id UUID REFERENCES leads(id) ON DELETE CASCADE,
+ *   seller_id UUID REFERENCES usuarios(id) ON DELETE SET NULL,
+ *   status TEXT NOT NULL,
+ *   duration_seconds INTEGER DEFAULT 0,
+ *   timestamp TIMESTAMPTZ DEFAULT NOW(),
+ *   recording_url TEXT,
+ *   created_at TIMESTAMPTZ DEFAULT NOW()
+ * );
+ * 
+ * -- 5. Habilitar Realtime
+ * alter publication supabase_realtime add table usuarios;
+ * alter publication supabase_realtime add table leads;
+ * alter publication supabase_realtime add table calls;
+ * 
+ * -- 6. CRÍTICO: Recarregar o cache do schema para resolver erros de "table not found"
+ * NOTIFY pgrst, 'reload schema';
  */

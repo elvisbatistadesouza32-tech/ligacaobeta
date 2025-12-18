@@ -69,19 +69,18 @@ export const AdminView: React.FC<AdminViewProps> = ({
             id: `temp-${Date.now()}-${index}`,
             nome: row[0] ? String(row[0]).trim() : 'Sem Nome',
             concurso: row[1] ? String(row[1]).trim() : 'Geral',
-            telefone: String(row[2]).trim(),
-            status: 'PENDING',
-            createdAt: new Date().toISOString()
+            telefone: String(row[2]).trim()
+            // REMOVIDO: status e createdAt deixados para o banco de dados
           }));
 
         if (newLeads.length > 0) {
           onImportLeads(newLeads);
         } else {
-          alert("Nenhum lead válido encontrado.");
+          alert("Nenhum lead válido encontrado na planilha.");
           setIsImporting(false);
         }
       } catch (err) {
-        alert("Erro ao ler o arquivo.");
+        alert("Erro ao ler o arquivo Excel.");
         setIsImporting(false);
       }
     };
@@ -105,7 +104,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
     { name: 'Inválidos', value: calls.filter(c => c.status === CallStatus.INVALID_NUMBER).length, color: '#F59E0B' },
   ];
 
-  const unassignedLeadsCount = leads.filter(l => !l.assignedTo && l.status === 'PENDING').length;
+  const unassignedLeadsCount = leads.filter(l => !l.assignedTo && (l.status === 'PENDING' || !l.status)).length;
 
   return (
     <div className="space-y-6 pb-20 sm:pb-0">
@@ -121,7 +120,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
              <div className="bg-white p-6 rounded-[2rem] border-2 border-gray-100"><p className="text-gray-400 text-[10px] font-black uppercase tracking-widest">Total Chamadas</p><p className="text-4xl font-black text-gray-900 mt-1">{calls.length}</p></div>
              <div className="bg-white p-6 rounded-[2rem] border-2 border-gray-100"><p className="text-gray-400 text-[10px] font-black uppercase tracking-widest">Minutos Totais</p><p className="text-4xl font-black text-indigo-600 mt-1">{(calls.reduce((a,b)=>a+b.durationSeconds,0)/60).toFixed(0)}</p></div>
-             <div className="bg-white p-6 rounded-[2rem] border-2 border-gray-100"><p className="text-gray-400 text-[10px] font-black uppercase tracking-widest">Leads Restantes</p><p className="text-4xl font-black text-orange-500 mt-1">{leads.filter(l => l.status === 'PENDING').length}</p></div>
+             <div className="bg-white p-6 rounded-[2rem] border-2 border-gray-100"><p className="text-gray-400 text-[10px] font-black uppercase tracking-widest">Leads Restantes</p><p className="text-4xl font-black text-orange-500 mt-1">{leads.filter(l => l.status === 'PENDING' || !l.status).length}</p></div>
              <div className="bg-white p-6 rounded-[2rem] border-2 border-gray-100"><p className="text-gray-400 text-[10px] font-black uppercase tracking-widest">Conversão</p><p className="text-4xl font-black text-green-600 mt-1">{calls.length > 0 ? ((calls.filter(c=>c.status===CallStatus.ANSWERED).length/calls.length)*100).toFixed(0) : 0}%</p></div>
           </div>
 
@@ -152,8 +151,8 @@ export const AdminView: React.FC<AdminViewProps> = ({
       {activeTab === 'users' && (
         <div className="bg-white rounded-[2.5rem] border-2 border-gray-100 overflow-hidden shadow-sm">
           <div className="p-6 bg-gray-50/50 border-b flex flex-col sm:flex-row justify-between items-center gap-4">
-            <div><h3 className="font-black text-lg tracking-tight uppercase">Equipe de Vendas</h3><p className="text-xs text-gray-500">Controle de vendedores ativos e offline</p></div>
-            <button onClick={onDistributeLeads} className="w-full sm:w-auto bg-indigo-600 text-white px-8 py-3 rounded-2xl font-black text-sm shadow-lg active:scale-95 transition-all flex items-center justify-center gap-2"><RefreshCw className="w-4" /> REDISTRIBUIR TUDO</button>
+            <div><h3 className="font-black text-lg tracking-tight uppercase text-indigo-900">Equipe de Vendas</h3><p className="text-xs text-gray-500 font-bold">Gerencie vendedores ativos no sistema</p></div>
+            <button onClick={onDistributeLeads} className="w-full sm:w-auto bg-indigo-600 text-white px-8 py-3 rounded-2xl font-black text-sm shadow-lg active:scale-95 transition-all flex items-center justify-center gap-2 hover:bg-indigo-700"><RefreshCw className="w-4" /> FORÇAR REDISTRIBUIÇÃO</button>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-left">
@@ -182,40 +181,46 @@ export const AdminView: React.FC<AdminViewProps> = ({
               <div><h4 className="font-black text-gray-900 uppercase text-sm">1. Importar</h4><p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">Planilha Excel/CSV</p></div>
             </div>
 
-            <div className={`bg-white p-8 rounded-[2.5rem] border-2 border-gray-100 flex flex-col items-center justify-center text-center space-y-4 transition-all ${unassignedLeadsCount > 0 ? 'border-orange-200 bg-orange-50/30' : ''}`}>
-               <div className="w-16 h-16 bg-green-50 rounded-3xl flex items-center justify-center"><Database className="w-8 h-8 text-green-600" /></div>
-               <div><h4 className="font-black text-gray-900 uppercase text-sm">{leads.length} TOTAL</h4><p className="text-[10px] text-orange-600 font-black uppercase tracking-widest">{unassignedLeadsCount} PARA DISTRIBUIR</p></div>
+            <div className={`bg-white p-8 rounded-[2.5rem] border-2 border-gray-100 flex flex-col items-center justify-center text-center space-y-4 transition-all ${unassignedLeadsCount > 0 ? 'border-orange-200 bg-orange-50/30 shadow-lg shadow-orange-100' : ''}`}>
+               <div className="w-16 h-16 bg-green-50 rounded-3xl flex items-center justify-center"><Database className={`w-8 h-8 ${unassignedLeadsCount > 0 ? 'text-orange-600' : 'text-green-600'}`} /></div>
+               <div><h4 className="font-black text-gray-900 uppercase text-sm">{leads.length} TOTAL</h4><p className={`text-[10px] font-black uppercase tracking-widest ${unassignedLeadsCount > 0 ? 'text-orange-600 animate-pulse' : 'text-gray-400'}`}>{unassignedLeadsCount} PARA DISTRIBUIR</p></div>
             </div>
 
             <button 
               onClick={handleManualDistribute}
               disabled={isDistributing || unassignedLeadsCount === 0}
-              className={`p-8 rounded-[2.5rem] border-2 flex flex-col items-center justify-center text-center space-y-4 transition-all active:scale-95 ${unassignedLeadsCount > 0 ? 'bg-indigo-600 border-indigo-600 text-white shadow-xl shadow-indigo-200' : 'bg-gray-100 border-gray-200 text-gray-400 grayscale opacity-50 cursor-not-allowed'}`}
+              className={`p-8 rounded-[2.5rem] border-2 flex flex-col items-center justify-center text-center space-y-4 transition-all active:scale-95 ${unassignedLeadsCount > 0 ? 'bg-indigo-600 border-indigo-600 text-white shadow-xl shadow-indigo-100' : 'bg-gray-100 border-gray-200 text-gray-400 grayscale opacity-50 cursor-not-allowed'}`}
             >
               <div className={`w-16 h-16 rounded-3xl flex items-center justify-center ${unassignedLeadsCount > 0 ? 'bg-white/20' : 'bg-gray-200'}`}>
                 {isDistributing ? <Loader2 className="w-8 h-8 animate-spin" /> : <ArrowRightLeft className="w-8 h-8" />}
               </div>
-              <div><h4 className="font-black uppercase text-sm">2. Distribuir</h4><p className="text-[10px] font-bold uppercase tracking-widest">Entre vendedores ON</p></div>
+              <div><h4 className="font-black uppercase text-sm">2. Distribuir</h4><p className="text-[10px] font-bold uppercase tracking-widest">Envio automático para ONs</p></div>
             </button>
           </div>
 
           <div className="bg-white rounded-[2.5rem] border-2 border-gray-100 overflow-hidden shadow-sm">
-            <div className="p-6 bg-gray-50/50 border-b flex justify-between items-center"><h3 className="font-black text-lg">BASE COMPLETA</h3></div>
-            <div className="max-h-[400px] overflow-y-auto">
+            <div className="p-6 bg-gray-50/50 border-b flex justify-between items-center"><h3 className="font-black text-lg text-indigo-900">BASE DE LEADS</h3><div className="text-[10px] bg-white border px-3 py-1 rounded-full font-black text-gray-400 uppercase tracking-widest">Tempo Real Ativado</div></div>
+            <div className="max-h-[600px] overflow-y-auto">
               <table className="w-full text-left">
-                <thead className="sticky top-0 bg-white z-10"><tr className="bg-gray-50 text-[10px] uppercase text-gray-400"><th className="px-8 py-3 font-black">Lead</th><th className="px-8 py-3 font-black">Telefone</th><th className="px-8 py-3 font-black">Status</th><th className="px-8 py-3 font-black">Atribuído a</th></tr></thead>
+                <thead className="sticky top-0 bg-white z-10 border-b shadow-sm"><tr className="bg-gray-50 text-[10px] uppercase text-gray-400"><th className="px-8 py-4 font-black">Lead / Concurso</th><th className="px-8 py-4 font-black">Telefone</th><th className="px-8 py-4 font-black">Status</th><th className="px-8 py-4 font-black">Vendedor Atribuído</th></tr></thead>
                 <tbody className="divide-y divide-gray-100">
                   {leads.map(l => (
                     <tr key={l.id} className="hover:bg-gray-50 transition-colors">
-                      <td className="px-8 py-4"><p className="text-sm font-bold text-gray-900">{l.nome}</p><span className="text-[10px] text-gray-400 font-bold uppercase tracking-tighter">{l.concurso}</span></td>
-                      <td className="px-8 py-4 font-mono text-xs font-black text-indigo-600">{l.telefone}</td>
-                      <td className="px-8 py-4"><span className={`px-2 py-1 rounded-lg text-[10px] font-black ${l.status === 'CALLED' ? 'bg-indigo-100 text-indigo-700' : 'bg-gray-100 text-gray-400'}`}>{l.status}</span></td>
-                      <td className="px-8 py-4 text-xs font-black text-gray-500">{users.find(u => u.id === l.assignedTo)?.nome || <span className="text-orange-500">Não distribuído</span>}</td>
+                      <td className="px-8 py-5"><p className="text-sm font-bold text-gray-900">{l.nome}</p><span className="text-[10px] text-indigo-500 font-black uppercase tracking-tighter">{l.concurso}</span></td>
+                      <td className="px-8 py-5 font-mono text-xs font-black text-indigo-600">{l.telefone}</td>
+                      <td className="px-8 py-5"><span className={`px-3 py-1.5 rounded-xl text-[10px] font-black ${l.status === 'CALLED' ? 'bg-indigo-100 text-indigo-700' : 'bg-gray-100 text-gray-400'}`}>{l.status === 'CALLED' ? 'CHAMADA OK' : 'PENDENTE'}</span></td>
+                      <td className="px-8 py-5 text-xs font-black text-gray-500">{users.find(u => u.id === l.assignedTo)?.nome || <span className="text-orange-500 flex items-center gap-1"><AlertTriangle className="w-3" /> Aguardando</span>}</td>
                     </tr>
                   ))}
                   {leads.length === 0 && (
                     <tr>
-                      <td colSpan={4} className="px-8 py-20 text-center text-gray-400 font-medium italic">Nenhum lead importado até o momento.</td>
+                      <td colSpan={4} className="px-8 py-32 text-center">
+                        <div className="flex flex-col items-center opacity-30 italic">
+                          <Database className="w-12 h-12 mb-4" />
+                          <p className="font-black uppercase text-sm tracking-widest">Base de Dados Vazia</p>
+                          <p className="text-xs">Importe uma planilha para começar</p>
+                        </div>
+                      </td>
                     </tr>
                   )}
                 </tbody>
@@ -227,10 +232,10 @@ export const AdminView: React.FC<AdminViewProps> = ({
 
       {activeTab === 'history' && (
         <div className="bg-white rounded-[2.5rem] border-2 border-gray-100 overflow-hidden shadow-sm">
-          <div className="p-6 border-b bg-gray-50/50"><h3 className="font-black text-lg">RELAÇÃO DE CHAMADAS</h3></div>
+          <div className="p-6 border-b bg-gray-50/50"><h3 className="font-black text-lg text-indigo-900 tracking-tight">RELATÓRIO GERAL DE CHAMADAS</h3></div>
           <div className="overflow-x-auto">
              <table className="w-full text-left">
-                <thead><tr className="bg-gray-50 text-[10px] uppercase text-gray-400"><th className="px-8 py-4 font-black">Data/Hora</th><th className="px-8 py-4 font-black">Vendedor</th><th className="px-8 py-4 font-black">Resultado</th><th className="px-8 py-4 font-black text-right">Gravação</th></tr></thead>
+                <thead><tr className="bg-gray-50 text-[10px] uppercase text-gray-400"><th className="px-8 py-4 font-black">Data / Hora</th><th className="px-8 py-4 font-black">Vendedor</th><th className="px-8 py-4 font-black">Resultado</th><th className="px-8 py-4 font-black text-right">Ações</th></tr></thead>
                 <tbody className="divide-y divide-gray-100">
                   {calls.sort((a,b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()).map(c => (
                     <tr key={c.id} className="hover:bg-gray-50">
@@ -245,11 +250,6 @@ export const AdminView: React.FC<AdminViewProps> = ({
                       <td className="px-8 py-4 text-right"><button className="bg-gray-100 p-2 rounded-xl hover:bg-indigo-600 hover:text-white transition-all"><Play className="w-4 h-4" /></button></td>
                     </tr>
                   ))}
-                  {calls.length === 0 && (
-                    <tr>
-                      <td colSpan={4} className="px-8 py-20 text-center text-gray-400 font-medium italic">Nenhuma chamada registrada.</td>
-                    </tr>
-                  )}
                 </tbody>
              </table>
           </div>

@@ -27,11 +27,11 @@ export interface User {
 export interface Lead {
   id: string;
   nome: string;
-  telefone: string; // Alterado de 'phone' para 'telefone'
+  telefone: string;
   concurso?: string;
   assignedTo?: string; // User ID
-  status: 'PENDING' | 'CALLED';
-  createdAt: string;
+  status?: 'PENDING' | 'CALLED';
+  createdAt?: string;
 }
 
 export interface CallRecord {
