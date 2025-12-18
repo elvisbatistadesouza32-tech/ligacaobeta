@@ -7,7 +7,7 @@ import { AdminView } from './components/AdminView';
 import { ShieldCheck, LogIn, Loader2, Mail, Lock, UserPlus, ArrowRight, AlertCircle, Database, CheckCircle2 } from 'lucide-react';
 import { supabase } from './supabase';
 
-// CONFIGURAÇÃO DE ACESSO MESTRE - USE ESTES DADOS PARA ENTRAR AGORA
+// CONFIGURAÇÃO DE ACESSO MESTRE
 const MASTER_ADMIN_EMAIL = "admin@callmaster.com";
 const ADMIN_MASTER_PASSWORD = "gestor_master_2024";
 
@@ -30,7 +30,7 @@ const App: React.FC = () => {
   const fetchData = async () => {
     try {
       const { data: userData, error: userError } = await supabase.from('usuarios').select('id, nome, email, tipo, online');
-      const { data: leadData } = await supabase.from('leads').select('*');
+      const { data: leadData } = await supabase.from('leads').select('*').order('created_at', { ascending: false });
       const { data: callData } = await supabase.from('calls').select('*');
 
       if (userError) {
@@ -63,6 +63,7 @@ const App: React.FC = () => {
       }
 
       if (callData) {
+        // Fix: Mapping snake_case database fields to camelCase CallRecord interface properties
         setCalls(callData.map((c: any) => ({
           id: c.id,
           leadId: c.lead_id,
@@ -70,7 +71,7 @@ const App: React.FC = () => {
           status: c.status,
           durationSeconds: c.duration_seconds,
           timestamp: c.timestamp,
-          recording_url: c.recording_url
+          recordingUrl: c.recording_url
         })));
       }
     } catch (error) {
@@ -83,7 +84,11 @@ const App: React.FC = () => {
   useEffect(() => {
     fetchData();
     const userSub = supabase.channel('users_changes').on('postgres_changes', { event: '*', schema: 'public', table: 'usuarios' }, () => fetchData()).subscribe();
-    return () => { supabase.removeChannel(userSub); };
+    const leadsSub = supabase.channel('leads_changes').on('postgres_changes', { event: '*', schema: 'public', table: 'leads' }, () => fetchData()).subscribe();
+    return () => { 
+      supabase.removeChannel(userSub);
+      supabase.removeChannel(leadsSub);
+    };
   }, []);
 
   const handleAuth = async (e: React.FormEvent) => {
@@ -95,7 +100,6 @@ const App: React.FC = () => {
     try {
       const lowerEmail = email.toLowerCase().trim();
 
-      // BYPASS MESTRE: IGNORA O SUPABASE AUTH PARA O E-MAIL DO ADMIN
       if (lowerEmail === MASTER_ADMIN_EMAIL && password === ADMIN_MASTER_PASSWORD) {
         const userInDb = users.find(u => u.email.toLowerCase() === lowerEmail);
         setCurrentUser({
@@ -118,21 +122,15 @@ const App: React.FC = () => {
 
         await supabase.from('usuarios').insert([{ nome: name, email: lowerEmail, tipo: 'vendedor', online: false }]);
         
-        setSuccessMsg("Vendedor cadastrado! Agora o administrador deve desativar a confirmação de e-mail no Supabase.");
+        setSuccessMsg("Vendedor cadastrado com sucesso!");
         setIsRegistering(false);
         fetchData();
       } else {
         const { error: loginError } = await supabase.auth.signInWithPassword({ email: lowerEmail, password: password });
-
-        if (loginError) {
-          if (loginError.message.includes("Email not confirmed")) {
-            throw new Error("⚠️ BLOQUEADO: Confirmação de e-mail ativada no Supabase. O administrador deve desativar 'Confirm Email' no painel de controle.");
-          }
-          throw loginError;
-        }
+        if (loginError) throw loginError;
 
         const user = users.find(u => u.email.toLowerCase() === lowerEmail);
-        if (!user) throw new Error("Usuário não encontrado na tabela 'usuarios'.");
+        if (!user) throw new Error("Usuário não encontrado na base de dados.");
 
         setCurrentUser(user);
         await supabase.from('usuarios').update({ online: true }).eq('email', lowerEmail);
@@ -164,25 +162,47 @@ const App: React.FC = () => {
     });
   };
 
-  const handleImportLeads = async (newLeads: Lead[]) => {
-    const leadsToInsert = newLeads.map(l => ({ name: l.name, phone: l.phone, contest: l.contest, status: 'PENDING' }));
-    await supabase.from('leads').insert(leadsToInsert);
-    fetchData();
-  };
-
   const handleDistributeLeads = async () => {
-    const onlineSellers = users.filter(u => u.online && u.tipo === 'vendedor');
-    if (onlineSellers.length === 0) return alert("Nenhum vendedor online.");
-    const unassignedLeads = leads.filter(l => !l.assignedTo && l.status === 'PENDING');
-    
-    for (let i = 0; i < unassignedLeads.length; i++) {
-      await supabase.from('leads').update({ assigned_to: onlineSellers[i % onlineSellers.length].id }).eq('id', unassignedLeads[i].id);
+    // Busca vendedores online no momento exato da distribuição
+    const { data: activeSellers } = await supabase.from('usuarios').select('id').eq('online', true).eq('tipo', 'vendedor');
+    const { data: unassignedLeads } = await supabase.from('leads').select('id').is('assigned_to', null).eq('status', 'PENDING');
+
+    if (!activeSellers || activeSellers.length === 0) {
+      alert("Importação concluída, mas não há vendedores ONLINE para receber os leads agora.");
+      return;
     }
-    fetchData();
-    alert("Distribuição concluída!");
+
+    if (!unassignedLeads || unassignedLeads.length === 0) return;
+
+    // Distribuição em lote (Round Robin)
+    for (let i = 0; i < unassignedLeads.length; i++) {
+      const sellerId = activeSellers[i % activeSellers.length].id;
+      await supabase.from('leads').update({ assigned_to: sellerId }).eq('id', unassignedLeads[i].id);
+    }
+    
+    await fetchData();
+    alert(`Distribuição finalizada! ${unassignedLeads.length} leads foram divididos entre ${activeSellers.length} vendedores.`);
   };
 
-  if (isLoading) return <div className="min-h-screen bg-indigo-950 flex items-center justify-center text-white"><Loader2 className="animate-spin" /></div>;
+  const handleImportLeads = async (newLeads: Lead[]) => {
+    const leadsToInsert = newLeads.map(l => ({ 
+      name: l.name, 
+      phone: l.phone, 
+      contest: l.contest, 
+      status: 'PENDING' 
+    }));
+
+    const { error } = await supabase.from('leads').insert(leadsToInsert);
+    
+    if (error) {
+      alert("Erro ao salvar leads no banco: " + error.message);
+    } else {
+      // Após importar com sucesso, dispara a distribuição automática
+      await handleDistributeLeads();
+    }
+  };
+
+  if (isLoading) return <div className="min-h-screen bg-indigo-950 flex items-center justify-center text-white font-black italic">CALLMASTER PRO <Loader2 className="ml-2 animate-spin" /></div>;
 
   if (!currentUser) {
     return (
@@ -231,14 +251,25 @@ const App: React.FC = () => {
             </button>
           </form>
         </div>
-        <p className="mt-4 text-indigo-300 text-[10px] font-bold uppercase tracking-widest opacity-50">Admin Bypass Ativo para admin@callmaster.com</p>
       </div>
     );
   }
 
   return (
     <Layout user={currentUser} onLogout={handleLogout}>
-      {currentUser.tipo === 'adm' ? <AdminView users={users} leads={leads} calls={calls} onImportLeads={handleImportLeads} onDistributeLeads={handleDistributeLeads} onToggleUserStatus={id => supabase.from('usuarios').update({ online: !users.find(u=>u.id===id)?.online }).eq('id',id).then(fetchData)} onPromoteUser={id => supabase.from('usuarios').update({ tipo: 'adm' }).eq('id',id).then(fetchData)} /> : <SellerView user={currentUser} leads={leads} onLogCall={handleLogCall} />}
+      {currentUser.tipo === 'adm' ? (
+        <AdminView 
+          users={users} 
+          leads={leads} 
+          calls={calls} 
+          onImportLeads={handleImportLeads} 
+          onDistributeLeads={handleDistributeLeads} 
+          onToggleUserStatus={id => supabase.from('usuarios').update({ online: !users.find(u=>u.id===id)?.online }).eq('id',id).then(fetchData)} 
+          onPromoteUser={id => supabase.from('usuarios').update({ tipo: 'adm' }).eq('id',id).then(fetchData)} 
+        />
+      ) : (
+        <SellerView user={currentUser} leads={leads} onLogCall={handleLogCall} />
+      )}
     </Layout>
   );
 };
