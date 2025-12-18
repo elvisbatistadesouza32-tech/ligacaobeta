@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { User, Lead, CallRecord, UserRole, CallStatus } from './types';
 import { Layout } from './components/Layout';
 import { SellerView } from './components/SellerView';
@@ -26,7 +26,7 @@ const App: React.FC = () => {
   const [successMsg, setSuccessMsg] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     try {
       const foundMissing: string[] = [];
 
@@ -74,7 +74,6 @@ const App: React.FC = () => {
           status: c.status,
           durationSeconds: c.duration_seconds,
           timestamp: c.timestamp,
-          // Fixed property name to match CallRecord interface
           recordingUrl: c.recording_url
         })));
       }
@@ -82,13 +81,61 @@ const App: React.FC = () => {
       setMissingTables([...new Set(foundMissing)]);
     } catch (err: any) {
       console.error("Erro ao sincronizar:", err);
-    } finally {
-      setIsLoading(false);
     }
-  };
+  }, []);
 
+  // Efeito para persistência de login
   useEffect(() => {
-    fetchData();
+    const checkSession = async () => {
+      setIsLoading(true);
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      // Busca dados globais primeiro
+      await fetchData();
+
+      if (session?.user) {
+        const userEmail = session.user.email;
+        if (userEmail === MASTER_ADMIN_EMAIL) {
+          setCurrentUser({ id: 'master-admin', nome: 'Admin Gestor', email: MASTER_ADMIN_EMAIL, tipo: 'adm', online: true });
+        } else {
+          // Busca o perfil do usuário no banco
+          const { data: userProfile } = await supabase
+            .from('usuarios')
+            .select('*')
+            .eq('email', userEmail)
+            .single();
+
+          if (userProfile) {
+            setCurrentUser({
+              id: userProfile.id,
+              nome: userProfile.nome,
+              email: userProfile.email,
+              tipo: userProfile.tipo,
+              online: true,
+              avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(userProfile.nome || 'User')}&background=random`
+            });
+            // Marca como online ao recuperar sessão
+            await supabase.from('usuarios').update({ online: true }).eq('id', userProfile.id);
+          }
+        }
+      }
+      setIsLoading(false);
+    };
+
+    checkSession();
+
+    // Listener para mudanças de auth (login/logout em outras abas)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!session) {
+        setCurrentUser(null);
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, [fetchData]);
+
+  // Realtime Subscriptions
+  useEffect(() => {
     const userSub = supabase.channel('users_changes').on('postgres_changes', { event: '*', schema: 'public', table: 'usuarios' }, () => fetchData()).subscribe();
     const leadsSub = supabase.channel('leads_changes').on('postgres_changes', { event: '*', schema: 'public', table: 'leads' }, () => fetchData()).subscribe();
     const callsSub = supabase.channel('calls_changes').on('postgres_changes', { event: '*', schema: 'public', table: 'calls' }, () => fetchData()).subscribe();
@@ -98,7 +145,7 @@ const App: React.FC = () => {
       supabase.removeChannel(leadsSub);
       supabase.removeChannel(callsSub);
     };
-  }, []);
+  }, [fetchData]);
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -106,26 +153,50 @@ const App: React.FC = () => {
     setIsSubmitting(true);
     try {
       const lowerEmail = email.toLowerCase().trim();
+      
       if (lowerEmail === MASTER_ADMIN_EMAIL && password === ADMIN_MASTER_PASSWORD) {
+        const { error: signInError } = await supabase.auth.signInWithPassword({ email: lowerEmail, password: password });
+        if (signInError && !signInError.message.includes("Invalid login credentials")) throw signInError;
+        
         setCurrentUser({ id: 'master-admin', nome: 'Admin Gestor', email: MASTER_ADMIN_EMAIL, tipo: 'adm', online: true });
         return;
       }
+
       if (isRegistering) {
-        const { error: authError } = await supabase.auth.signUp({ email: lowerEmail, password: password });
+        const { data: authData, error: authError } = await supabase.auth.signUp({ email: lowerEmail, password: password });
         if (authError) throw authError;
+        
         await supabase.from('usuarios').insert([{ nome: name, email: lowerEmail, tipo: 'vendedor', online: false }]);
         setSuccessMsg("Conta criada! Já pode entrar.");
         setIsRegistering(false);
         fetchData();
       } else {
-        const { error: loginError } = await supabase.auth.signInWithPassword({ email: lowerEmail, password: password });
+        const { data: authData, error: loginError } = await supabase.auth.signInWithPassword({ email: lowerEmail, password: password });
         if (loginError) throw loginError;
-        const user = users.find(u => u.email.toLowerCase() === lowerEmail);
-        if (!user) throw new Error("Usuário não cadastrado no banco.");
-        setCurrentUser(user);
-        await supabase.from('usuarios').update({ online: true }).eq('id', user.id);
+
+        const { data: userProfile, error: profileError } = await supabase
+          .from('usuarios')
+          .select('*')
+          .eq('email', lowerEmail)
+          .single();
+
+        if (profileError || !userProfile) throw new Error("Usuário não encontrado no banco de dados.");
+        
+        setCurrentUser({
+          id: userProfile.id,
+          nome: userProfile.nome,
+          email: userProfile.email,
+          tipo: userProfile.tipo,
+          online: true,
+          avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(userProfile.nome)}&background=random`
+        });
+        await supabase.from('usuarios').update({ online: true }).eq('id', userProfile.id);
       }
-    } catch (err: any) { setError(err.message); } finally { setIsSubmitting(false); }
+    } catch (err: any) { 
+      setError(err.message === "Invalid login credentials" ? "E-mail ou senha incorretos." : err.message); 
+    } finally { 
+      setIsSubmitting(false); 
+    }
   };
 
   const handleLogout = async () => {
@@ -142,7 +213,6 @@ const App: React.FC = () => {
       seller_id: call.sellerId, 
       status: call.status, 
       duration_seconds: call.durationSeconds, 
-      // Fixed: Property access call.recording_url to call.recordingUrl
       recording_url: call.recordingUrl 
     }]);
 
@@ -150,7 +220,7 @@ const App: React.FC = () => {
       await supabase.from('leads').update({ status: 'CALLED' }).eq('id', call.leadId);
       fetchData();
     } else {
-      alert("Erro ao registrar: " + callError.message);
+      alert("Erro ao registrar chamada: " + callError.message);
     }
   };
 
@@ -161,83 +231,117 @@ const App: React.FC = () => {
       return;
     }
 
-    const { data: unassignedLeads } = await supabase.from('leads').select('id').is('assigned_to', null);
+    const { data: unassignedLeads } = await supabase.from('leads').select('id').is('assigned_to', null).eq('status', 'PENDING');
     if (!unassignedLeads || unassignedLeads.length === 0) { 
-      alert("Sem leads livres na fila."); 
+      alert("Sem leads livres na fila para distribuir."); 
       return; 
     }
 
-    for (let i = 0; i < unassignedLeads.length; i++) {
+    // Processamento em lotes para evitar problemas de performance/limites
+    const updates = unassignedLeads.map((lead, i) => {
       const sellerId = activeSellers[i % activeSellers.length].id;
-      await supabase.from('leads').update({ assigned_to: sellerId }).eq('id', unassignedLeads[i].id);
-    }
+      return supabase.from('leads').update({ assigned_to: sellerId }).eq('id', lead.id);
+    });
 
+    await Promise.all(updates);
     fetchData();
-    alert("Leads distribuídos com sucesso!");
+    alert(`Sucesso! ${unassignedLeads.length} leads foram distribuídos entre ${activeSellers.length} vendedores.`);
   };
 
   const handleImportLeads = async (newLeads: Lead[]) => {
-    const leadsToInsert = newLeads.map(({ nome, telefone, concurso }) => ({ nome, telefone, concurso, status: 'PENDING' }));
+    const leadsToInsert = newLeads.map(({ nome, telefone, concurso }) => ({ 
+      nome, 
+      telefone, 
+      concurso, 
+      status: 'PENDING' 
+    }));
+    
+    // Supabase suporta inserção de grandes arrays. 325 leads é um volume seguro para uma única transação.
     const { error } = await supabase.from('leads').insert(leadsToInsert);
-    if (error) alert("Erro na importação: " + error.message);
+    if (error) {
+      alert("Erro na importação: " + error.message);
+    } else {
+      fetchData();
+    }
+  };
+
+  const handleDeleteUser = async (userId: string) => {
+    if (!confirm("Tem certeza que deseja excluir este usuário? Todos os seus registros serão mantidos, mas ele perderá o acesso.")) return;
+    const { error } = await supabase.from('usuarios').delete().eq('id', userId);
+    if (error) alert("Erro ao excluir usuário: " + error.message);
+    else fetchData();
+  };
+
+  const handleTransferLeads = async (fromUserId: string, toUserId: string) => {
+    const { error } = await supabase.from('leads')
+      .update({ assigned_to: toUserId })
+      .eq('assigned_to', fromUserId)
+      .eq('status', 'PENDING');
+    
+    if (error) alert("Erro ao transferir leads: " + error.message);
     else fetchData();
   };
 
   const copySqlToClipboard = () => {
     const sql = `-- REPARO DE BANCO CALLMASTER\nCREATE EXTENSION IF NOT EXISTS "uuid-ossp";\nCREATE TABLE IF NOT EXISTS usuarios (id UUID PRIMARY KEY DEFAULT uuid_generate_v4(), nome TEXT, email TEXT UNIQUE, tipo TEXT DEFAULT 'vendedor', online BOOLEAN DEFAULT false, created_at TIMESTAMPTZ DEFAULT NOW());\nCREATE TABLE IF NOT EXISTS leads (id UUID PRIMARY KEY DEFAULT uuid_generate_v4(), nome TEXT, telefone TEXT, concurso TEXT, status TEXT DEFAULT 'PENDING', created_at TIMESTAMPTZ DEFAULT NOW());\nDO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='leads' AND column_name='assigned_to') THEN ALTER TABLE leads ADD COLUMN assigned_to UUID REFERENCES usuarios(id) ON DELETE SET NULL; END IF; END $$;\nCREATE TABLE IF NOT EXISTS calls (id UUID PRIMARY KEY DEFAULT uuid_generate_v4(), lead_id UUID REFERENCES leads(id) ON DELETE CASCADE, seller_id UUID REFERENCES usuarios(id) ON DELETE SET NULL, status TEXT NOT NULL, duration_seconds INTEGER DEFAULT 0, timestamp TIMESTAMPTZ DEFAULT NOW(), recording_url TEXT);\nDROP PUBLICATION IF EXISTS supabase_realtime;\nCREATE PUBLICATION supabase_realtime FOR ALL TABLES;\nNOTIFY pgrst, 'reload schema';`;
     navigator.clipboard.writeText(sql);
-    alert("Código SQL de reparo copiado! Execute no Supabase.");
+    alert("Código SQL de reparo copiado! Execute no SQL Editor do Supabase.");
   };
 
   if (isLoading) return (
     <div className="min-h-screen bg-indigo-950 flex flex-col items-center justify-center text-white p-10 text-center">
-      <Loader2 className="w-16 h-16 animate-spin text-indigo-400 mb-6" />
-      <h2 className="font-black italic uppercase text-xl tracking-tighter">Sincronizando CallMaster Pro...</h2>
-      <p className="text-indigo-300 text-xs font-bold mt-2 uppercase tracking-widest opacity-60">Carregando ambiente seguro</p>
+      <div className="relative">
+        <Loader2 className="w-20 h-20 animate-spin text-indigo-400 mb-6" />
+        <div className="absolute inset-0 flex items-center justify-center">
+          <RefreshCw className="w-8 h-8 text-white animate-reverse-spin opacity-50" />
+        </div>
+      </div>
+      <h2 className="font-black italic uppercase text-2xl tracking-tighter animate-pulse">Autenticando CallMaster Pro...</h2>
+      <p className="text-indigo-300 text-[10px] font-bold uppercase tracking-[0.3em] mt-4">Restaurando sua sessão segura</p>
     </div>
   );
 
   if (!currentUser) {
     return (
       <div className="min-h-screen bg-indigo-950 flex flex-col items-center justify-center p-6">
-        <div className="w-full max-w-md bg-white rounded-[3.5rem] shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-700">
+        <div className="w-full max-w-md bg-white rounded-[4rem] shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-700 border-b-[12px] border-indigo-600">
           <div className="bg-indigo-600 p-16 text-white text-center relative overflow-hidden">
-            <div className="absolute -right-10 -top-10 w-32 h-32 bg-white/10 rounded-full blur-3xl"></div>
-            <h1 className="text-5xl font-black italic tracking-tighter">CallMaster <span className="text-indigo-200">PRO</span></h1>
-            <p className="text-[10px] mt-6 opacity-70 font-black uppercase tracking-[0.4em]">Plataforma de Alta Performance</p>
+            <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-16 -mt-16" />
+            <h1 className="text-5xl font-black italic tracking-tighter relative z-10">CallMaster <span className="text-indigo-200">PRO</span></h1>
+            <p className="text-[10px] font-black uppercase tracking-[0.4em] opacity-60 mt-2">Vendas em Alta Performance</p>
           </div>
           <form onSubmit={handleAuth} className="p-12 space-y-8">
-            {error && <div className="bg-red-50 text-red-600 p-4 rounded-3xl text-[10px] font-black uppercase text-center border-2 border-red-100">{error}</div>}
-            {successMsg && <div className="bg-green-50 text-green-700 p-4 rounded-3xl text-[10px] font-black uppercase text-center border-2 border-green-100">{successMsg}</div>}
+            {error && <div className="bg-red-50 text-red-600 p-5 rounded-3xl text-[10px] font-black uppercase text-center border-2 border-red-100 animate-shake">{error}</div>}
+            {successMsg && <div className="bg-green-50 text-green-700 p-5 rounded-3xl text-[10px] font-black uppercase text-center border-2 border-green-100">{successMsg}</div>}
             
             {missingTables.length > 0 && (
-              <div className="bg-orange-50 border-2 border-orange-100 p-6 rounded-[2.5rem] space-y-4">
-                <p className="text-[10px] font-black text-orange-700 uppercase flex items-center gap-2 justify-center"><AlertCircle className="w-4" /> REPARO DE BANCO PENDENTE</p>
-                <button type="button" onClick={copySqlToClipboard} className="w-full bg-orange-600 text-white py-4 rounded-2xl text-[10px] font-black uppercase flex items-center justify-center gap-2 hover:bg-orange-700 transition-all"><Copy className="w-4" /> Copiar SQL</button>
+              <div className="bg-orange-50 border-2 border-orange-200 p-6 rounded-[2.5rem] space-y-4">
+                <p className="text-[10px] font-black text-orange-700 uppercase flex items-center gap-2 justify-center"><AlertCircle className="w-4" /> REPARO DE BANCO NECESSÁRIO</p>
+                <button type="button" onClick={copySqlToClipboard} className="w-full bg-orange-600 text-white py-4 rounded-2xl text-[10px] font-black uppercase flex items-center justify-center gap-2 hover:bg-orange-700 transition-all shadow-lg"><Copy className="w-4" /> Copiar SQL de Reparo</button>
               </div>
             )}
 
-            <div className="space-y-4">
+            <div className="space-y-5">
               {isRegistering && (
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-4">Nome Completo</label>
-                  <input type="text" required value={name} onChange={e => setName(e.target.value)} className="w-full p-6 bg-gray-50 border-2 border-gray-100 rounded-3xl outline-none focus:border-indigo-600 focus:bg-white font-bold" placeholder="EX: LUCAS MENDES" />
+                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-5">Nome Completo</label>
+                  <input type="text" required value={name} onChange={e => setName(e.target.value)} className="w-full p-6 bg-gray-50 border-2 border-gray-100 rounded-3xl outline-none focus:border-indigo-600 focus:bg-white font-bold transition-all" placeholder="EX: LUCAS MENDES" />
                 </div>
               )}
               <div className="space-y-2">
-                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-4">E-mail</label>
-                <input type="email" required value={email} onChange={e => setEmail(e.target.value)} className="w-full p-6 bg-gray-50 border-2 border-gray-100 rounded-3xl outline-none focus:border-indigo-600 focus:bg-white font-bold" placeholder="USUARIO@EMAIL.COM" />
+                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-5">E-mail de Acesso</label>
+                <input type="email" required value={email} onChange={e => setEmail(e.target.value)} className="w-full p-6 bg-gray-50 border-2 border-gray-100 rounded-3xl outline-none focus:border-indigo-600 focus:bg-white font-bold transition-all" placeholder="USUARIO@EMAIL.COM" />
               </div>
               <div className="space-y-2">
-                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-4">Senha</label>
-                <input type="password" required value={password} onChange={e => setPassword(e.target.value)} className="w-full p-6 bg-gray-50 border-2 border-gray-100 rounded-3xl outline-none focus:border-indigo-600 focus:bg-white font-bold" placeholder="••••••••" />
+                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-5">Senha Privada</label>
+                <input type="password" required value={password} onChange={e => setPassword(e.target.value)} className="w-full p-6 bg-gray-50 border-2 border-gray-100 rounded-3xl outline-none focus:border-indigo-600 focus:bg-white font-bold transition-all" placeholder="••••••••" />
               </div>
             </div>
 
-            <button type="submit" disabled={isSubmitting} className="w-full bg-indigo-600 text-white py-7 rounded-[2.5rem] font-black flex items-center justify-center gap-4 active:scale-95 transition-all shadow-2xl shadow-indigo-100 uppercase text-sm tracking-tighter">
-              {isSubmitting ? <Loader2 className="animate-spin" /> : <>{isRegistering ? 'Criar Conta Agora' : 'Acessar Plataforma'} <ArrowRight className="w-5" /></>}
+            <button type="submit" disabled={isSubmitting} className="w-full bg-indigo-600 text-white py-7 rounded-[2.5rem] font-black flex items-center justify-center gap-4 active:scale-95 transition-all shadow-2xl shadow-indigo-100 uppercase text-sm tracking-tighter hover:bg-indigo-700">
+              {isSubmitting ? <Loader2 className="animate-spin" /> : <>{isRegistering ? 'Finalizar Cadastro' : 'Entrar na Operação'} <ArrowRight className="w-5" /></>}
             </button>
-            <button type="button" onClick={() => setIsRegistering(!isRegistering)} className="w-full text-indigo-600 font-black text-[10px] uppercase tracking-[0.2em]">{isRegistering ? '← Já tenho conta' : 'Ainda não sou cadastrado'}</button>
+            <button type="button" onClick={() => setIsRegistering(!isRegistering)} className="w-full text-indigo-600 font-black text-[10px] uppercase tracking-[0.2em] hover:underline">{isRegistering ? '← Voltar para o Login' : 'Ainda não sou cadastrado'}</button>
           </form>
         </div>
       </div>
@@ -253,11 +357,19 @@ const App: React.FC = () => {
           calls={calls} 
           onImportLeads={handleImportLeads} 
           onDistributeLeads={handleDistributeLeads} 
-          onToggleUserStatus={id => {
+          onToggleUserStatus={async (id) => {
             const u = users.find(u => u.id === id);
-            if (u) supabase.from('usuarios').update({ online: !u.online }).eq('id', id).then(fetchData);
+            if (u) {
+              await supabase.from('usuarios').update({ online: !u.online }).eq('id', id);
+              fetchData();
+            }
           }} 
-          onPromoteUser={id => supabase.from('usuarios').update({ tipo: 'adm' }).eq('id', id).then(fetchData)} 
+          onPromoteUser={async (id) => {
+            await supabase.from('usuarios').update({ tipo: 'adm' }).eq('id', id);
+            fetchData();
+          }} 
+          onDeleteUser={handleDeleteUser}
+          onTransferLeads={handleTransferLeads}
         />
       ) : (
         <SellerView user={currentUser} leads={leads} onLogCall={handleLogCall} />
