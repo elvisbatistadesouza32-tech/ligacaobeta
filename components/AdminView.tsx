@@ -1,14 +1,10 @@
 
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { User, Lead, CallRecord, CallStatus } from '../types';
 import { 
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, PieChart, Pie
-} from 'recharts';
-import { 
   Users, PhoneIncoming, Upload, Database, 
-  Play, Sparkles, RefreshCw, Clock, ArrowRightLeft, Power, PowerOff, TrendingUp, CheckCircle, XCircle, AlertTriangle, ChevronRight, UserCircle, BarChart3, Activity
+  Play, Clock, ArrowRightLeft, Power, PowerOff, TrendingUp, CheckCircle, XCircle, AlertTriangle, Calendar, Mic2
 } from 'lucide-react';
-import { getSalesInsights } from '../services/geminiService';
 import * as XLSX from 'xlsx';
 
 interface AdminViewProps {
@@ -22,16 +18,16 @@ interface AdminViewProps {
 }
 
 export const AdminView: React.FC<AdminViewProps> = ({ 
-  users, leads, calls, onImportLeads, onDistributeLeads, onToggleUserStatus 
+  users, leads, calls, onImportLeads, onDistributeLeads, onToggleUserStatus, onPromoteUser
 }) => {
   const [activeTab, setActiveTab] = useState<'stats' | 'users' | 'history' | 'leads'>('stats');
   const [viewMode, setViewMode] = useState<'geral' | 'individual'>('geral');
   const [selectedSellerId, setSelectedSellerId] = useState<string>('');
-  const [aiInsights, setAiInsights] = useState<string>('');
-  const [isGeneratingInsights, setIsGeneratingInsights] = useState(false);
+  const [playingId, setPlayingId] = useState<string | null>(null);
+  // Fix: Added useRef for file input to resolve 'fileInputRef' not found errors
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Filtro de vendedores (exclui admins da listagem de performance)
+  // Filtro de vendedores
   const sellers = useMemo(() => users.filter(u => u.tipo === 'vendedor'), [users]);
 
   // Estatísticas calculadas por vendedor
@@ -45,7 +41,6 @@ export const AdminView: React.FC<AdminViewProps> = ({
         totalCalls: sellerCalls.length,
         answered,
         duration,
-        conversion: sellerCalls.length > 0 ? (answered / sellerCalls.length) * 100 : 0
       };
     }).sort((a, b) => b.totalCalls - a.totalCalls);
   }, [sellers, calls]);
@@ -53,33 +48,12 @@ export const AdminView: React.FC<AdminViewProps> = ({
   // Filtro de chamadas baseado no modo de visualização
   const filteredCalls = useMemo(() => {
     if (viewMode === 'individual' && selectedSellerId) {
-      return calls.filter(c => c.sellerId === selectedSellerId);
+      return calls
+        .filter(c => c.sellerId === selectedSellerId)
+        .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
     }
-    return calls;
+    return calls.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
   }, [calls, viewMode, selectedSellerId]);
-
-  const statsByStatus = useMemo(() => [
-    { name: 'Atendidas', value: filteredCalls.filter(c => c.status === CallStatus.ANSWERED).length, color: '#10B981' },
-    { name: 'Não Atendidas', value: filteredCalls.filter(c => c.status === CallStatus.NO_ANSWER).length, color: '#EF4444' },
-    { name: 'Inválidos', value: filteredCalls.filter(c => c.status === CallStatus.INVALID_NUMBER).length, color: '#F59E0B' },
-  ], [filteredCalls]);
-
-  const fetchInsights = async () => {
-    if (filteredCalls.length === 0) return;
-    setIsGeneratingInsights(true);
-    try {
-      const insights = await getSalesInsights(filteredCalls);
-      setAiInsights(insights);
-    } catch (error) { 
-      setAiInsights('Gere mais chamadas para obter insights profundos da IA.'); 
-    } finally { 
-      setIsGeneratingInsights(false); 
-    }
-  };
-
-  useEffect(() => { 
-    if (activeTab === 'stats') fetchInsights(); 
-  }, [activeTab, selectedSellerId, viewMode]);
 
   const formatDuration = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -94,17 +68,17 @@ export const AdminView: React.FC<AdminViewProps> = ({
     <div className="space-y-6 pb-20 animate-in fade-in duration-700">
       {/* Menu Principal */}
       <div className="flex bg-white p-2 rounded-[2.5rem] shadow-sm border overflow-x-auto scrollbar-hide">
-        <button onClick={() => setActiveTab('stats')} className={`flex items-center gap-2 px-8 py-4 rounded-3xl font-black text-xs uppercase transition-all ${activeTab === 'stats' ? 'bg-indigo-600 text-white shadow-lg' : 'text-gray-400 hover:bg-gray-50'}`}><BarChart3 className="w-4" /> Dashboard</button>
-        <button onClick={() => setActiveTab('users')} className={`flex items-center gap-2 px-8 py-4 rounded-3xl font-black text-xs uppercase transition-all ${activeTab === 'users' ? 'bg-indigo-600 text-white shadow-lg' : 'text-gray-400 hover:bg-gray-50'}`}><Users className="w-4" /> Equipe</button>
-        <button onClick={() => setActiveTab('leads')} className={`flex items-center gap-2 px-8 py-4 rounded-3xl font-black text-xs uppercase transition-all ${activeTab === 'leads' ? 'bg-indigo-600 text-white shadow-lg' : 'text-gray-400 hover:bg-gray-50'}`}><Database className="w-4" /> Fila de Leads</button>
-        <button onClick={() => setActiveTab('history')} className={`flex items-center gap-2 px-8 py-4 rounded-3xl font-black text-xs uppercase transition-all ${activeTab === 'history' ? 'bg-indigo-600 text-white shadow-lg' : 'text-gray-400 hover:bg-gray-50'}`}><PhoneIncoming className="w-4" /> Log Completo</button>
+        <button onClick={() => setActiveTab('stats')} className={`flex items-center gap-2 px-8 py-4 rounded-3xl font-black text-xs uppercase transition-all ${activeTab === 'stats' ? 'bg-indigo-600 text-white shadow-lg' : 'text-gray-400 hover:bg-gray-50'}`}><TrendingUp className="w-4" /> Painel de Controle</button>
+        <button onClick={() => setActiveTab('users')} className={`flex items-center gap-2 px-8 py-4 rounded-3xl font-black text-xs uppercase transition-all ${activeTab === 'users' ? 'bg-indigo-600 text-white shadow-lg' : 'text-gray-400 hover:bg-gray-50'}`}><Users className="w-4" /> Gestão de Equipe</button>
+        <button onClick={() => setActiveTab('leads')} className={`flex items-center gap-2 px-8 py-4 rounded-3xl font-black text-xs uppercase transition-all ${activeTab === 'leads' ? 'bg-indigo-600 text-white shadow-lg' : 'text-gray-400 hover:bg-gray-50'}`}><Database className="w-4" /> Banco de Leads</button>
+        <button onClick={() => setActiveTab('history')} className={`flex items-center gap-2 px-8 py-4 rounded-3xl font-black text-xs uppercase transition-all ${activeTab === 'history' ? 'bg-indigo-600 text-white shadow-lg' : 'text-gray-400 hover:bg-gray-50'}`}><PhoneIncoming className="w-4" /> Log de Sistema</button>
       </div>
 
       {activeTab === 'stats' && (
         <div className="space-y-6 animate-in slide-in-from-bottom-4 duration-500">
           {/* Submenu de Visão */}
-          <div className="flex items-center justify-between bg-white px-10 py-6 rounded-[3rem] border-2 border-gray-100">
-            <div className="flex bg-gray-100 p-1 rounded-2xl">
+          <div className="flex flex-col md:flex-row md:items-center justify-between bg-white px-10 py-6 rounded-[3rem] border-2 border-gray-100 gap-4">
+            <div className="flex bg-gray-100 p-1 rounded-2xl w-fit">
               <button 
                 onClick={() => setViewMode('geral')} 
                 className={`px-6 py-2.5 rounded-xl font-black text-[10px] uppercase transition-all ${viewMode === 'geral' ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-400 hover:text-gray-600'}`}
@@ -115,7 +89,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
                 onClick={() => setViewMode('individual')} 
                 className={`px-6 py-2.5 rounded-xl font-black text-[10px] uppercase transition-all ${viewMode === 'individual' ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-400 hover:text-gray-600'}`}
               >
-                Performance Individual
+                Visão Individual
               </button>
             </div>
 
@@ -123,9 +97,9 @@ export const AdminView: React.FC<AdminViewProps> = ({
               <select 
                 value={selectedSellerId} 
                 onChange={(e) => setSelectedSellerId(e.target.value)}
-                className="bg-indigo-50 border-2 border-indigo-100 text-indigo-900 font-black text-[10px] uppercase py-2.5 px-6 rounded-2xl outline-none focus:ring-2 ring-indigo-200"
+                className="bg-indigo-50 border-2 border-indigo-100 text-indigo-900 font-black text-[10px] uppercase py-2.5 px-6 rounded-2xl outline-none focus:ring-4 ring-indigo-200/50"
               >
-                <option value="">Selecione um Vendedor</option>
+                <option value="">Selecione o Vendedor para análise</option>
                 {sellers.map(s => (
                   <option key={s.id} value={s.id}>{s.nome}</option>
                 ))}
@@ -133,110 +107,45 @@ export const AdminView: React.FC<AdminViewProps> = ({
             )}
           </div>
 
-          {/* Cards de Métricas Principais */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-             <div className="bg-white p-8 rounded-[2.5rem] border-2 border-gray-100 shadow-sm hover:border-indigo-200 transition-all group">
-                <div className="flex justify-between items-start">
-                  <p className="text-gray-400 text-[10px] font-black uppercase tracking-widest">Atendimentos</p>
-                  <Activity className="w-4 h-4 text-gray-300 group-hover:text-indigo-400 transition-colors" />
-                </div>
-                <p className="text-4xl font-black text-gray-900 mt-2 tracking-tighter">{filteredCalls.length}</p>
+          {/* Cards de Métricas */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+             <div className="bg-white p-8 rounded-[2.5rem] border-2 border-gray-100 shadow-sm group">
+                <p className="text-gray-400 text-[10px] font-black uppercase tracking-widest">Chamadas Efetuadas</p>
+                <p className="text-5xl font-black text-gray-900 mt-2 tracking-tighter">{filteredCalls.length}</p>
              </div>
-             <div className="bg-white p-8 rounded-[2.5rem] border-2 border-gray-100 shadow-sm hover:border-indigo-200 transition-all group">
-                <div className="flex justify-between items-start">
-                  <p className="text-gray-400 text-[10px] font-black uppercase tracking-widest">Tempo Total</p>
-                  <Clock className="w-4 h-4 text-gray-300 group-hover:text-indigo-400 transition-colors" />
-                </div>
-                <p className="text-4xl font-black text-indigo-600 mt-2 tracking-tighter">{formatDuration(totalDurationSeconds)}</p>
+             <div className="bg-white p-8 rounded-[2.5rem] border-2 border-gray-100 shadow-sm group">
+                <p className="text-gray-400 text-[10px] font-black uppercase tracking-widest">Tempo Total em Linha</p>
+                <p className="text-5xl font-black text-indigo-600 mt-2 tracking-tighter">{formatDuration(totalDurationSeconds)}</p>
              </div>
-             <div className="bg-white p-8 rounded-[2.5rem] border-2 border-gray-100 shadow-sm hover:border-indigo-200 transition-all group">
-                <div className="flex justify-between items-start">
-                  <p className="text-gray-400 text-[10px] font-black uppercase tracking-widest">Conversão</p>
-                  <TrendingUp className="w-4 h-4 text-gray-300 group-hover:text-green-400 transition-colors" />
-                </div>
-                <p className="text-4xl font-black text-green-600 mt-2 tracking-tighter">
-                  {filteredCalls.length > 0 ? ((filteredCalls.filter(c=>c.status===CallStatus.ANSWERED).length/filteredCalls.length)*100).toFixed(0) : 0}%
-                </p>
-             </div>
-             <div className="bg-white p-8 rounded-[2.5rem] border-2 border-gray-100 shadow-sm hover:border-orange-200 transition-all group">
-                <div className="flex justify-between items-start">
-                  <p className="text-gray-400 text-[10px] font-black uppercase tracking-widest">Fila de Leads</p>
-                  <Database className="w-4 h-4 text-gray-300 group-hover:text-orange-400 transition-colors" />
-                </div>
-                <p className="text-4xl font-black text-orange-500 mt-2 tracking-tighter">{unassignedLeadsCount}</p>
+             <div className="bg-white p-8 rounded-[2.5rem] border-2 border-gray-100 shadow-sm group">
+                <p className="text-gray-400 text-[10px] font-black uppercase tracking-widest">Leads Disponíveis</p>
+                <p className="text-5xl font-black text-orange-500 mt-2 tracking-tighter">{unassignedLeadsCount}</p>
              </div>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Insights IA */}
-            <div className="lg:col-span-2 bg-indigo-600 text-white p-10 rounded-[3.5rem] shadow-2xl shadow-indigo-100 relative overflow-hidden flex flex-col justify-between">
-               <div className="absolute top-0 right-0 p-8 opacity-10"><Sparkles className="w-40 h-40" /></div>
-               <div className="relative z-10">
-                 <div className="flex justify-between items-center mb-6">
-                    <h4 className="font-black text-xl flex items-center gap-3 italic uppercase tracking-tighter"><Sparkles className="w-6 h-6 text-indigo-300" /> Diagnóstico do Gestor</h4>
-                    <button onClick={fetchInsights} disabled={isGeneratingInsights} className="p-3 bg-white/10 hover:bg-white/20 rounded-2xl transition-all"><RefreshCw className={`w-5 h-5 ${isGeneratingInsights ? 'animate-spin' : ''}`} /></button>
-                 </div>
-                 <div className="text-sm font-bold italic leading-relaxed bg-white/5 p-8 rounded-[2.5rem] border border-white/10 min-h-[120px] flex items-center">
-                   {isGeneratingInsights ? (
-                     <div className="flex items-center gap-4 animate-pulse"><RefreshCw className="w-5 h-5 animate-spin" /> Processando dados...</div>
-                   ) : (
-                     <div className="whitespace-pre-line">"{aiInsights || 'Analise a performance clicando no botão de atualizar.'}"</div>
-                   )}
-                 </div>
-               </div>
-            </div>
-
-            {/* Gráfico Circular de Conversão */}
-            <div className="bg-white p-10 rounded-[3.5rem] border-2 border-gray-100 shadow-sm flex flex-col items-center justify-center">
-              <h3 className="text-[10px] font-black uppercase text-gray-400 mb-6 tracking-widest">Resultado das Chamadas</h3>
-              <div className="w-full h-[200px]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie data={statsByStatus} cx="50%" cy="50%" innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value">
-                      {statsByStatus.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.color} />
-                      ))}
-                    </Pie>
-                    <Tooltip />
-                  </PieChart>
-                </ResponsiveContainer>
-              </div>
-              <div className="flex gap-4 mt-4">
-                {statsByStatus.map(s => (
-                  <div key={s.name} className="flex items-center gap-2">
-                    <div className="w-2 h-2 rounded-full" style={{backgroundColor: s.color}} />
-                    <span className="text-[9px] font-black text-gray-500 uppercase">{s.name}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          {/* Ranking de Vendedores */}
-          {viewMode === 'geral' && (
+          {/* Seção Principal: Ranking ou Detalhes Individuais */}
+          {viewMode === 'geral' ? (
             <div className="bg-white rounded-[3.5rem] border-2 border-gray-100 overflow-hidden shadow-sm">
-              <div className="px-10 py-8 border-b flex justify-between items-center">
-                <h3 className="font-black text-xl uppercase tracking-tighter text-indigo-900 italic">Performance de Equipe</h3>
-                <span className="text-[10px] font-black text-indigo-600 bg-indigo-50 px-4 py-1.5 rounded-full uppercase">Top Performers</span>
+              <div className="px-10 py-8 border-b bg-gray-50/50">
+                <h3 className="font-black text-xl uppercase tracking-tighter text-indigo-900 italic">Desempenho da Operação</h3>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full">
-                  <thead className="bg-gray-50 text-[10px] uppercase text-gray-400 tracking-widest font-black">
+                  <thead className="bg-gray-50/30 text-[10px] uppercase text-gray-400 tracking-widest font-black">
                     <tr>
                       <th className="px-10 py-6 text-left">Vendedor</th>
-                      <th className="px-10 py-6 text-center">Ligações</th>
-                      <th className="px-10 py-6 text-center">Contatos</th>
-                      <th className="px-10 py-6 text-center">Conversão</th>
-                      <th className="px-10 py-6 text-right">Tempo em Linha</th>
+                      <th className="px-10 py-6 text-center">Volume Total</th>
+                      <th className="px-10 py-6 text-center">Contatos Efetivos</th>
+                      <th className="px-10 py-6 text-right">Produtividade (Tempo)</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
                     {sellerStats.map((s, idx) => (
-                      <tr key={s.id} className="hover:bg-gray-50/50 transition-colors group">
+                      <tr key={s.id} className="hover:bg-indigo-50/30 transition-colors group">
                         <td className="px-10 py-6">
                           <div className="flex items-center gap-4">
-                            <span className="text-xs font-black text-gray-300 w-4">{idx + 1}.</span>
-                            <div className="w-10 h-10 rounded-xl bg-indigo-50 flex items-center justify-center overflow-hidden border-2 border-white shadow-sm">
+                            <span className="text-[10px] font-black text-gray-300 w-4">{idx + 1}.</span>
+                            <div className="w-10 h-10 rounded-xl bg-indigo-100 flex items-center justify-center overflow-hidden border-2 border-white shadow-sm">
                               <img src={s.avatar} className="w-full h-full object-cover" />
                             </div>
                             <span className="font-black text-sm uppercase tracking-tighter text-gray-700">{s.nome}</span>
@@ -244,14 +153,6 @@ export const AdminView: React.FC<AdminViewProps> = ({
                         </td>
                         <td className="px-10 py-6 text-center font-black text-gray-900">{s.totalCalls}</td>
                         <td className="px-10 py-6 text-center font-black text-green-600">{s.answered}</td>
-                        <td className="px-10 py-6 text-center">
-                          <div className="flex flex-col items-center">
-                            <span className="font-black text-sm text-gray-900">{s.conversion.toFixed(1)}%</span>
-                            <div className="w-16 h-1.5 bg-gray-100 rounded-full mt-1 overflow-hidden">
-                              <div className="h-full bg-green-500 rounded-full" style={{width: `${s.conversion}%`}} />
-                            </div>
-                          </div>
-                        </td>
                         <td className="px-10 py-6 text-right font-mono font-black text-indigo-600 italic text-xs">{formatDuration(s.duration)}</td>
                       </tr>
                     ))}
@@ -259,11 +160,94 @@ export const AdminView: React.FC<AdminViewProps> = ({
                 </table>
               </div>
             </div>
+          ) : (
+            <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+              {/* Timeline de Chamadas do Vendedor */}
+              <div className="xl:col-span-2 bg-white rounded-[3.5rem] border-2 border-gray-100 overflow-hidden shadow-sm">
+                <div className="px-10 py-8 border-b bg-indigo-50/30 flex justify-between items-center">
+                  <h3 className="font-black text-xl uppercase tracking-tighter text-indigo-900 italic">Atividades do Dia</h3>
+                  <Calendar className="w-5 h-5 text-indigo-300" />
+                </div>
+                <div className="overflow-x-auto max-h-[600px] scrollbar-hide">
+                  <table className="w-full">
+                    <thead className="bg-gray-50/50 text-[10px] uppercase text-gray-400 tracking-widest font-black sticky top-0 z-10">
+                      <tr>
+                        <th className="px-10 py-6 text-left">Dia / Horário</th>
+                        <th className="px-10 py-6 text-left">Resultado</th>
+                        <th className="px-10 py-6 text-right">Duração</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-50">
+                      {filteredCalls.length > 0 ? (
+                        filteredCalls.map(c => (
+                          <tr key={c.id} className={`hover:bg-gray-50/80 transition-colors cursor-pointer ${playingId === c.id ? 'bg-indigo-50/50' : ''}`} onClick={() => setPlayingId(c.id)}>
+                            <td className="px-10 py-6">
+                              <p className="font-black text-xs uppercase tracking-tighter text-gray-800">
+                                {new Date(c.timestamp).toLocaleDateString('pt-BR')}
+                              </p>
+                              <p className="text-[10px] font-bold text-indigo-600 uppercase">
+                                {new Date(c.timestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                              </p>
+                            </td>
+                            <td className="px-10 py-6">
+                              <span className={`text-[9px] font-black px-4 py-1.5 rounded-full uppercase border ${c.status === CallStatus.ANSWERED ? 'bg-green-50 border-green-100 text-green-600' : 'bg-red-50 border-red-100 text-red-600'}`}>
+                                {c.status === CallStatus.ANSWERED ? 'Contato Efetivado' : 'Sem Resposta'}
+                              </span>
+                            </td>
+                            <td className="px-10 py-6 text-right font-mono text-xs font-black text-gray-400 italic">
+                              {formatDuration(c.durationSeconds)}
+                            </td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr><td colSpan={3} className="p-20 text-center font-black text-gray-300 uppercase text-xs">Nenhuma atividade registrada para este vendedor.</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Sidebar de Gravação */}
+              <div className="bg-indigo-900 rounded-[3.5rem] p-10 text-white shadow-2xl relative overflow-hidden flex flex-col items-center justify-center text-center">
+                <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-b from-white/10 to-transparent pointer-events-none" />
+                
+                {playingId ? (
+                  <div className="relative z-10 space-y-8 w-full animate-in zoom-in-95 duration-300">
+                    <div className="w-24 h-24 bg-indigo-500 rounded-[2.5rem] flex items-center justify-center mx-auto shadow-2xl animate-pulse">
+                      <Mic2 className="w-12 h-12 text-white" />
+                    </div>
+                    <div>
+                      <h4 className="text-2xl font-black italic uppercase tracking-tighter">Gravação da Chamada</h4>
+                      <p className="text-[10px] font-black text-indigo-300 uppercase tracking-widest mt-2">ID: {playingId.slice(-6)}</p>
+                    </div>
+                    <div className="bg-white/10 p-6 rounded-[2.5rem] border border-white/5 space-y-4">
+                       <div className="h-1 bg-white/20 rounded-full overflow-hidden">
+                          <div className="h-full bg-indigo-400 w-1/3 animate-progress" />
+                       </div>
+                       <div className="flex justify-between items-center text-[10px] font-black uppercase text-indigo-200">
+                          <span>00:45</span>
+                          <span>{formatDuration(filteredCalls.find(c => c.id === playingId)?.durationSeconds || 0)}</span>
+                       </div>
+                       <button className="bg-white text-indigo-900 w-16 h-16 rounded-full flex items-center justify-center mx-auto shadow-xl hover:scale-110 active:scale-90 transition-all">
+                          <Play className="w-6 h-6 fill-indigo-900" />
+                       </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="relative z-10 space-y-6 opacity-40">
+                    <div className="w-20 h-20 border-4 border-dashed border-white/20 rounded-[2rem] flex items-center justify-center mx-auto">
+                      <Play className="w-8 h-8" />
+                    </div>
+                    <p className="text-xs font-black uppercase tracking-widest leading-relaxed">Selecione uma chamada<br/>para ouvir a gravação</p>
+                  </div>
+                )}
+              </div>
+            </div>
           )}
         </div>
       )}
 
-      {/* Outras Tabs (Uso de layout similar) */}
+      {/* Tabs de Gestão (Mantidas para funcionalidade administrativa) */}
       {activeTab === 'users' && (
         <div className="bg-white rounded-[3.5rem] border-2 border-gray-100 overflow-hidden shadow-sm animate-in slide-in-from-bottom-4 duration-500">
           <div className="p-10 border-b flex justify-between items-center bg-gray-50/50">
@@ -311,36 +295,35 @@ export const AdminView: React.FC<AdminViewProps> = ({
       {activeTab === 'history' && (
         <div className="bg-white rounded-[3.5rem] border-2 border-gray-100 overflow-hidden shadow-sm animate-in slide-in-from-bottom-4 duration-500">
           <div className="p-10 border-b flex justify-between items-center bg-gray-50/50">
-            <h3 className="font-black text-2xl uppercase tracking-tighter text-indigo-900 italic">Logs de Atendimento</h3>
+            <h3 className="font-black text-2xl uppercase tracking-tighter text-indigo-900 italic">Logs de Sistema</h3>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-left">
               <thead className="bg-gray-50 text-[10px] uppercase text-gray-400 tracking-widest font-black">
-                <tr><th className="px-10 py-6">Vendedor</th><th className="px-10 py-6">Duração</th><th className="px-10 py-6">Resultado</th><th className="px-10 py-6 text-right">Gravação</th></tr>
+                <tr><th className="px-10 py-6">Operador</th><th className="px-10 py-6">Registro Temporal</th><th className="px-10 py-6">Resultado</th><th className="px-10 py-6 text-right">Duração</th></tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {calls.length > 0 ? (
                   [...calls].reverse().map(c => (
-                    <tr key={c.id} className="hover:bg-gray-50/50 transition-colors group">
+                    <tr key={c.id} className="hover:bg-gray-50/50 transition-colors">
                       <td className="px-10 py-6">
                         <p className="font-black text-sm text-gray-900 uppercase tracking-tighter">{users.find(u => u.id === c.sellerId)?.nome || 'Sistema'}</p>
-                        <p className="text-[9px] font-bold text-gray-400 uppercase">{new Date(c.timestamp).toLocaleString('pt-BR')}</p>
                       </td>
-                      <td className="px-10 py-6 font-mono text-xs font-black text-indigo-600 italic">
-                        <div className="flex items-center gap-2"><Clock className="w-3 h-3" /> {formatDuration(c.durationSeconds)}</div>
+                      <td className="px-10 py-6">
+                        <p className="text-[10px] font-bold text-gray-400 uppercase">{new Date(c.timestamp).toLocaleString('pt-BR')}</p>
                       </td>
                       <td className="px-10 py-6">
                         <span className={`text-[10px] font-black px-4 py-1.5 rounded-full uppercase border ${c.status === CallStatus.ANSWERED ? 'bg-green-50 border-green-100 text-green-600' : 'bg-red-50 border-red-100 text-red-600'}`}>
-                          {c.status === CallStatus.ANSWERED ? 'CONTATO' : c.status === CallStatus.NO_ANSWER ? 'AUSENTE' : 'INVÁLIDO'}
+                          {c.status === CallStatus.ANSWERED ? 'CONCLUÍDO' : 'FALHA'}
                         </span>
                       </td>
-                      <td className="px-10 py-6 text-right">
-                        <button className="bg-indigo-600 text-white p-4 rounded-2xl shadow-xl hover:scale-110 active:scale-95 transition-all group-hover:bg-indigo-700"><Play className="w-4 h-4 fill-white" /></button>
+                      <td className="px-10 py-6 text-right font-mono text-xs font-black text-indigo-600 italic">
+                        {formatDuration(c.durationSeconds)}
                       </td>
                     </tr>
                   ))
                 ) : (
-                  <tr><td colSpan={4} className="p-20 text-center text-gray-400 font-bold uppercase text-xs">Nenhuma ligação registrada hoje.</td></tr>
+                  <tr><td colSpan={4} className="p-20 text-center text-gray-400 font-bold uppercase text-xs">Aguardando novos registros.</td></tr>
                 )}
               </tbody>
             </table>
