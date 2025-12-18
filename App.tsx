@@ -36,7 +36,6 @@ const App: React.FC = () => {
       // 1. Carregar Usuários
       const { data: userData, error: userError } = await supabase.from('usuarios').select('id, nome, email, tipo, online');
       if (userError) {
-        console.error("Erro Usuarios:", userError.message);
         if (userError.message.toLowerCase().includes("schema cache") || userError.message.toLowerCase().includes("does not exist")) {
           foundMissing.push('usuarios');
         }
@@ -54,11 +53,9 @@ const App: React.FC = () => {
       // 2. Carregar Leads
       const { data: leadData, error: leadError } = await supabase.from('leads').select('*');
       if (leadError) {
-        console.error("Erro Leads:", leadError.message);
         if (leadError.message.toLowerCase().includes("schema cache") || leadError.message.toLowerCase().includes("does not exist")) {
           foundMissing.push('leads');
         }
-        setDbError(`Configuração de banco de dados necessária.`);
       } else if (leadData) {
         const sortedLeads = leadData.sort((a: any, b: any) => {
           const dateA = a.created_at ? new Date(a.created_at).getTime() : 0;
@@ -80,7 +77,6 @@ const App: React.FC = () => {
       // 3. Carregar Chamadas
       const { data: callData, error: callError } = await supabase.from('calls').select('*');
       if (callError) {
-        console.error("Erro Chamadas:", callError.message);
         if (callError.message.toLowerCase().includes("schema cache") || callError.message.toLowerCase().includes("does not exist")) {
           foundMissing.push('calls');
         }
@@ -99,8 +95,7 @@ const App: React.FC = () => {
       setMissingTables(foundMissing);
 
     } catch (err: any) {
-      console.error("Erro geral no fetchData:", err);
-      setDbError("Falha na conexão com o Supabase.");
+      setDbError("Falha na conexão.");
     } finally {
       setIsLoading(false);
     }
@@ -119,24 +114,13 @@ const App: React.FC = () => {
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    setSuccessMsg('');
     setIsSubmitting(true);
-
     try {
       const lowerEmail = email.toLowerCase().trim();
-
       if (lowerEmail === MASTER_ADMIN_EMAIL && password === ADMIN_MASTER_PASSWORD) {
-        setCurrentUser({
-          id: 'master-admin',
-          nome: 'Administrador Mestre',
-          email: MASTER_ADMIN_EMAIL,
-          tipo: 'adm',
-          online: true,
-          avatar: `https://ui-avatars.com/api/?name=Admin&background=6366f1&color=fff`
-        });
+        setCurrentUser({ id: 'master-admin', nome: 'Administrador Mestre', email: MASTER_ADMIN_EMAIL, tipo: 'adm', online: true, avatar: `https://ui-avatars.com/api/?name=Admin&background=6366f1&color=fff` });
         return;
       }
-
       if (isRegistering) {
         const { error: authError } = await supabase.auth.signUp({ email: lowerEmail, password: password });
         if (authError) throw authError;
@@ -148,15 +132,11 @@ const App: React.FC = () => {
         const { error: loginError } = await supabase.auth.signInWithPassword({ email: lowerEmail, password: password });
         if (loginError) throw loginError;
         const user = users.find(u => u.email.toLowerCase() === lowerEmail);
-        if (!user) throw new Error("Usuário não encontrado na base de dados.");
+        if (!user) throw new Error("Usuário não encontrado.");
         setCurrentUser(user);
         await supabase.from('usuarios').update({ online: true }).eq('email', lowerEmail);
       }
-    } catch (err: any) {
-      setError(err.message);
-    } finally {
-      setIsSubmitting(false);
-    }
+    } catch (err: any) { setError(err.message); } finally { setIsSubmitting(false); }
   };
 
   const handleLogout = async () => {
@@ -168,147 +148,91 @@ const App: React.FC = () => {
   };
 
   const handleLogCall = (call: CallRecord) => {
-    supabase.from('calls').insert([{
-      lead_id: call.leadId,
-      seller_id: call.sellerId,
-      status: call.status,
-      duration_seconds: call.durationSeconds,
-      recording_url: call.recordingUrl
-    }]).then(({ error }) => {
-      if (error) alert("Erro ao registrar chamada: Verifique se a tabela 'calls' existe no seu Supabase.");
+    supabase.from('calls').insert([{ lead_id: call.leadId, seller_id: call.sellerId, status: call.status, duration_seconds: call.durationSeconds, recording_url: call.recordingUrl }]).then(({ error }) => {
       supabase.from('leads').update({ status: 'CALLED' }).eq('id', call.leadId).then(fetchData);
     });
   };
 
   const handleDistributeLeads = async () => {
-    const { data: activeSellers } = await supabase.from('usuarios').select('id').eq('online', true).eq('tipo', 'vendedor');
-    const { data: unassignedLeads } = await supabase.from('leads').select('id').is('assigned_to', null).eq('status', 'PENDING');
+    // 1. Vendedores ONLINE
+    const activeSellers = users.filter(u => u.online && u.tipo === 'vendedor');
+    if (activeSellers.length === 0) {
+      alert("ERRO: Nenhum vendedor está ONLINE no momento. Use a aba 'Equipe' para ligar os vendedores.");
+      return;
+    }
 
-    if (!activeSellers || activeSellers.length === 0) { alert("Nenhum vendedor ONLINE."); return; }
-    if (!unassignedLeads || unassignedLeads.length === 0) { alert("Sem leads pendentes."); return; }
+    // 2. Leads que não tem ninguém atribuído (independentemente do status escrito)
+    const { data: unassignedLeads, error: leadErr } = await supabase
+      .from('leads')
+      .select('id')
+      .is('assigned_to', null);
 
+    if (leadErr) { alert("Erro ao buscar leads: " + leadErr.message); return; }
+    if (!unassignedLeads || unassignedLeads.length === 0) { alert("Não há leads aguardando distribuição."); return; }
+
+    // 3. Distribuir Round-Robin
+    let count = 0;
     for (let i = 0; i < unassignedLeads.length; i++) {
       const sellerId = activeSellers[i % activeSellers.length].id;
-      await supabase.from('leads').update({ assigned_to: sellerId }).eq('id', unassignedLeads[i].id);
+      const { error: updErr } = await supabase.from('leads').update({ assigned_to: sellerId }).eq('id', unassignedLeads[i].id);
+      if (!updErr) count++;
     }
+
     await fetchData();
-    alert(`Sucesso! ${unassignedLeads.length} leads distribuídos.`);
+    alert(`Sucesso! ${count} leads foram distribuídos entre ${activeSellers.length} vendedores.`);
   };
 
   const handleImportLeads = async (newLeads: Lead[]) => {
-    // CRITICAL: REMOVENDO COMPLETAMENTE O CAMPO 'status' DA INSERÇÃO PARA EVITAR ERROS NO SUPABASE
-    const leadsToInsert = newLeads.map(({ nome, telefone, concurso }) => ({ 
-      nome, 
-      telefone, 
-      concurso 
-    }));
-
+    const leadsToInsert = newLeads.map(({ nome, telefone, concurso }) => ({ nome, telefone, concurso }));
     const { error } = await supabase.from('leads').insert(leadsToInsert);
-    
-    if (error) { 
-      alert("Erro ao salvar leads: " + error.message); 
-    } else {
-      setTimeout(async () => { 
-        await fetchData(); 
-        alert(`Importação concluída!`); 
-      }, 500);
+    if (error) { alert("Erro ao salvar leads: " + error.message); } else {
+      setTimeout(async () => { await fetchData(); alert(`Importação concluída!`); }, 500);
     }
   };
 
   const copySqlToClipboard = () => {
     const sql = `
--- 1. Habilitar UUID
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-
--- 2. Tabela de Usuários
-CREATE TABLE IF NOT EXISTS usuarios (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  nome TEXT,
-  email TEXT UNIQUE,
-  tipo TEXT DEFAULT 'vendedor',
-  online BOOLEAN DEFAULT false,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- 3. Tabela de Leads
-CREATE TABLE IF NOT EXISTS leads (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  nome TEXT,
-  telefone TEXT,
-  concurso TEXT,
-  status TEXT DEFAULT 'PENDING',
-  assigned_to UUID REFERENCES usuarios(id),
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- 4. Tabela de Chamadas (Calls)
-CREATE TABLE IF NOT EXISTS calls (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  lead_id UUID REFERENCES leads(id) ON DELETE CASCADE,
-  seller_id UUID REFERENCES usuarios(id) ON DELETE SET NULL,
-  status TEXT NOT NULL,
-  duration_seconds INTEGER DEFAULT 0,
-  timestamp TIMESTAMPTZ DEFAULT NOW(),
-  recording_url TEXT,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- 5. Habilitar Realtime
-alter publication supabase_realtime add table usuarios;
-alter publication supabase_realtime add table leads;
-alter publication supabase_realtime add table calls;
-
--- 6. Forçar atualização do cache do schema para que o Supabase reconheça as novas tabelas
-NOTIFY pgrst, 'reload schema';
-    `;
+CREATE TABLE IF NOT EXISTS usuarios ( id UUID PRIMARY KEY DEFAULT uuid_generate_v4(), nome TEXT, email TEXT UNIQUE, tipo TEXT DEFAULT 'vendedor', online BOOLEAN DEFAULT false, created_at TIMESTAMPTZ DEFAULT NOW());
+CREATE TABLE IF NOT EXISTS leads ( id UUID PRIMARY KEY DEFAULT uuid_generate_v4(), nome TEXT, telefone TEXT, concurso TEXT, status TEXT DEFAULT 'PENDING', assigned_to UUID REFERENCES usuarios(id), created_at TIMESTAMPTZ DEFAULT NOW());
+CREATE TABLE IF NOT EXISTS calls ( id UUID PRIMARY KEY DEFAULT uuid_generate_v4(), lead_id UUID REFERENCES leads(id) ON DELETE CASCADE, seller_id UUID REFERENCES usuarios(id) ON DELETE SET NULL, status TEXT NOT NULL, duration_seconds INTEGER DEFAULT 0, timestamp TIMESTAMPTZ DEFAULT NOW(), recording_url TEXT, created_at TIMESTAMPTZ DEFAULT NOW());
+alter publication supabase_realtime add table usuarios, leads, calls;
+NOTIFY pgrst, 'reload schema';`;
     navigator.clipboard.writeText(sql.trim());
-    alert("Código SQL copiado! Cole no SQL Editor do seu Supabase.");
+    alert("SQL Copiado!");
   };
 
-  if (isLoading) return <div className="min-h-screen bg-indigo-950 flex items-center justify-center text-white font-black italic uppercase">CallMaster Pro <Loader2 className="ml-2 animate-spin" /></div>;
+  if (isLoading) return <div className="min-h-screen bg-indigo-950 flex items-center justify-center text-white font-black italic uppercase tracking-tighter">Carregando... <Loader2 className="ml-2 animate-spin" /></div>;
 
   if (!currentUser) {
     return (
       <div className="min-h-screen bg-indigo-950 flex flex-col items-center justify-center p-4">
-        <div className="w-full max-w-md bg-white rounded-[2.5rem] shadow-2xl overflow-hidden">
-          <div className="bg-indigo-600 p-8 text-white text-center">
-            <h1 className="text-2xl font-black italic">CallMaster <span className="text-indigo-200">PRO</span></h1>
-            <p className="text-xs mt-1 opacity-70 font-bold uppercase tracking-wider">Acesso ao Sistema</p>
+        <div className="w-full max-w-md bg-white rounded-[2.5rem] shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-500">
+          <div className="bg-indigo-600 p-10 text-white text-center">
+            <h1 className="text-3xl font-black italic tracking-tighter">CallMaster <span className="text-indigo-200">PRO</span></h1>
+            <p className="text-[10px] mt-1 opacity-70 font-black uppercase tracking-[0.2em]">Painel de Gestão de Leads</p>
           </div>
-
-          <form onSubmit={handleAuth} className="p-8 space-y-5">
-            {error && <div className="bg-red-50 text-red-600 p-4 rounded-2xl text-xs font-bold border border-red-100">{error}</div>}
-            {successMsg && <div className="bg-green-50 text-green-700 p-4 rounded-2xl text-xs font-bold border border-green-100">{successMsg}</div>}
-            
+          <form onSubmit={handleAuth} className="p-10 space-y-6">
+            {error && <div className="bg-red-50 text-red-600 p-4 rounded-2xl text-[10px] font-black border border-red-100 uppercase tracking-wider">{error}</div>}
+            {successMsg && <div className="bg-green-50 text-green-700 p-4 rounded-2xl text-[10px] font-black border border-green-100 uppercase tracking-wider">{successMsg}</div>}
             {missingTables.length > 0 && (
-              <div className="bg-orange-50 border-2 border-orange-100 p-4 rounded-2xl">
-                <p className="text-[10px] font-black text-orange-600 uppercase mb-2 flex items-center gap-1"><AlertCircle className="w-3" /> Configuração do Banco Pendente</p>
-                <p className="text-[10px] text-orange-800 leading-tight mb-3">Tabelas não encontradas ou em cache: <strong>{missingTables.join(', ')}</strong>. Você precisa criá-las ou rodar o comando 'NOTIFY' no editor SQL do Supabase.</p>
+              <div className="bg-orange-50 border-2 border-orange-100 p-5 rounded-3xl">
+                <p className="text-[10px] font-black text-orange-600 uppercase mb-3 flex items-center gap-2"><AlertCircle className="w-4" /> Banco de Dados Pendente</p>
                 <div className="flex flex-col gap-2">
-                  <button type="button" onClick={copySqlToClipboard} className="w-full bg-orange-600 text-white py-2 rounded-xl text-[10px] font-black uppercase flex items-center justify-center gap-2 shadow-sm transition-all active:scale-95"><Copy className="w-3" /> Copiar SQL de Setup</button>
-                  <button type="button" onClick={fetchData} className="w-full bg-white border border-orange-200 text-orange-600 py-2 rounded-xl text-[10px] font-black uppercase flex items-center justify-center gap-2 transition-all active:scale-95"><RefreshCw className="w-3" /> Tentar Novamente</button>
+                  <button type="button" onClick={copySqlToClipboard} className="w-full bg-orange-600 text-white py-3 rounded-xl text-[10px] font-black uppercase flex items-center justify-center gap-2 active:scale-95 transition-all"><Copy className="w-3" /> Copiar Código SQL</button>
+                  <button type="button" onClick={fetchData} className="w-full bg-white border border-orange-200 text-orange-600 py-3 rounded-xl text-[10px] font-black uppercase flex items-center justify-center gap-2 active:scale-95 transition-all"><RefreshCw className="w-3" /> Sincronizar Agora</button>
                 </div>
               </div>
             )}
-
             {isRegistering && (
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-gray-400 uppercase">Nome Completo</label>
-                <input type="text" required value={name} onChange={e => setName(e.target.value)} className="w-full p-4 bg-gray-50 border rounded-2xl outline-none focus:border-indigo-600 transition-all" />
-              </div>
+              <div className="space-y-1"><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Nome Completo</label><input type="text" required value={name} onChange={e => setName(e.target.value)} className="w-full p-4 bg-gray-50 border-2 border-gray-100 rounded-2xl outline-none focus:border-indigo-600 transition-all font-bold" placeholder="Ex: João Silva" /></div>
             )}
-            <div className="space-y-1">
-              <label className="text-[10px] font-bold text-gray-400 uppercase">Seu E-mail</label>
-              <input type="email" required value={email} onChange={e => setEmail(e.target.value)} className="w-full p-4 bg-gray-50 border rounded-2xl outline-none focus:border-indigo-600 transition-all" />
-            </div>
-            <div className="space-y-1">
-              <label className="text-[10px] font-bold text-gray-400 uppercase">Sua Senha</label>
-              <input type="password" required value={password} onChange={e => setPassword(e.target.value)} className="w-full p-4 bg-gray-50 border rounded-2xl outline-none focus:border-indigo-600 transition-all" />
-            </div>
-            <button type="submit" disabled={isSubmitting} className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-bold flex items-center justify-center gap-2 active:scale-95 transition-all shadow-lg shadow-indigo-100 uppercase tracking-tighter">
-              {isSubmitting ? <Loader2 className="animate-spin" /> : <>{isRegistering ? 'Cadastrar Agora' : 'Entrar no Painel'} <ArrowRight className="w-4" /></>}
+            <div className="space-y-1"><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">E-mail de Acesso</label><input type="email" required value={email} onChange={e => setEmail(e.target.value)} className="w-full p-4 bg-gray-50 border-2 border-gray-100 rounded-2xl outline-none focus:border-indigo-600 transition-all font-bold" placeholder="seu@email.com" /></div>
+            <div className="space-y-1"><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Senha</label><input type="password" required value={password} onChange={e => setPassword(e.target.value)} className="w-full p-4 bg-gray-50 border-2 border-gray-100 rounded-2xl outline-none focus:border-indigo-600 transition-all font-bold" placeholder="••••••••" /></div>
+            <button type="submit" disabled={isSubmitting} className="w-full bg-indigo-600 text-white py-5 rounded-2xl font-black flex items-center justify-center gap-3 active:scale-95 transition-all shadow-xl shadow-indigo-100 uppercase tracking-tighter text-sm">
+              {isSubmitting ? <Loader2 className="animate-spin" /> : <>{isRegistering ? 'Criar Minha Conta' : 'Entrar no Sistema'} <ArrowRight className="w-5" /></>}
             </button>
-            <button type="button" onClick={() => setIsRegistering(!isRegistering)} className="w-full text-indigo-600 font-bold text-xs hover:underline">{isRegistering ? 'Voltar ao Login' : 'Criar conta de vendedor'}</button>
+            <button type="button" onClick={() => setIsRegistering(!isRegistering)} className="w-full text-indigo-600 font-black text-[10px] uppercase tracking-widest hover:underline">{isRegistering ? 'Voltar para Login' : 'Não tem conta? Registre-se aqui'}</button>
           </form>
         </div>
       </div>
@@ -317,19 +241,6 @@ NOTIFY pgrst, 'reload schema';
 
   return (
     <Layout user={currentUser} onLogout={handleLogout}>
-      {missingTables.length > 0 && (
-        <div className="mb-6 bg-red-50 border-2 border-red-100 p-6 rounded-[2rem] flex flex-col sm:flex-row items-center gap-4 text-red-900 shadow-sm">
-          <div className="bg-red-600 p-3 rounded-2xl text-white shadow-lg"><Database className="w-6 h-6" /></div>
-          <div className="flex-1">
-            <h3 className="font-black uppercase text-sm tracking-tighter">Erro de Schema Detectado</h3>
-            <p className="text-xs font-bold opacity-70">Detectamos que as tabelas <strong>{missingTables.join(', ')}</strong> ainda não estão no cache do projeto Supabase ou não foram criadas.</p>
-          </div>
-          <div className="flex gap-2 w-full sm:w-auto">
-            <button onClick={copySqlToClipboard} className="flex-1 sm:flex-none bg-white border-2 border-red-200 text-red-600 px-6 py-2 rounded-xl text-xs font-black uppercase flex items-center justify-center gap-2 hover:bg-red-600 hover:text-white transition-all"><Copy className="w-4" /> Copiar SQL</button>
-            <button onClick={fetchData} className="flex-1 sm:flex-none bg-red-600 text-white px-6 py-2 rounded-xl text-xs font-black uppercase flex items-center justify-center gap-2 shadow-lg hover:bg-red-700 transition-all"><RefreshCw className="w-4" /> Atualizar</button>
-          </div>
-        </div>
-      )}
       {currentUser.tipo === 'adm' ? (
         <AdminView 
           users={users} 
@@ -337,8 +248,11 @@ NOTIFY pgrst, 'reload schema';
           calls={calls} 
           onImportLeads={handleImportLeads} 
           onDistributeLeads={handleDistributeLeads} 
-          onToggleUserStatus={id => supabase.from('usuarios').update({ online: !users.find(u=>u.id===id)?.online }).eq('id',id).then(fetchData)} 
-          onPromoteUser={id => supabase.from('usuarios').update({ tipo: 'adm' }).eq('id',id).then(fetchData)} 
+          onToggleUserStatus={id => {
+            const u = users.find(u => u.id === id);
+            if (u) supabase.from('usuarios').update({ online: !u.online }).eq('id', id).then(fetchData);
+          }} 
+          onPromoteUser={id => supabase.from('usuarios').update({ tipo: 'adm' }).eq('id', id).then(fetchData)} 
         />
       ) : (
         <SellerView user={currentUser} leads={leads} onLogCall={handleLogCall} />
