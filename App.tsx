@@ -53,9 +53,9 @@ const App: React.FC = () => {
       if (leadData) {
         setLeads(leadData.map((l: any) => ({
           id: l.id,
-          name: l.name,
+          nome: l.nome, // Mapeia da coluna 'nome' do DB
           phone: l.phone,
-          concurso: l.concurso, // Atualizado para concurso
+          concurso: l.concurso,
           assignedTo: l.assigned_to,
           status: l.status,
           createdAt: l.created_at
@@ -165,11 +165,7 @@ const App: React.FC = () => {
     const { data: activeSellers } = await supabase.from('usuarios').select('id').eq('online', true).eq('tipo', 'vendedor');
     const { data: unassignedLeads } = await supabase.from('leads').select('id').is('assigned_to', null).eq('status', 'PENDING');
 
-    if (!activeSellers || activeSellers.length === 0) {
-      console.log("Nenhum vendedor online para distribuição.");
-      return;
-    }
-
+    if (!activeSellers || activeSellers.length === 0) return;
     if (!unassignedLeads || unassignedLeads.length === 0) return;
 
     for (let i = 0; i < unassignedLeads.length; i++) {
@@ -182,20 +178,19 @@ const App: React.FC = () => {
 
   const handleImportLeads = async (newLeads: Lead[]) => {
     const leadsToInsert = newLeads.map(l => ({ 
-      name: l.name, 
+      nome: l.nome,      // Coluna 'nome' no banco
       phone: l.phone, 
-      concurso: l.concurso, // Alterado para concurso
+      concurso: l.concurso, 
       status: 'PENDING' 
     }));
 
     const { error } = await supabase.from('leads').insert(leadsToInsert);
     
     if (error) {
-      alert("Erro ao salvar leads no banco: " + error.message + "\n\nCertifique-se de que a coluna 'concurso' existe na tabela 'leads'.");
+      alert("Erro ao salvar leads no banco: " + error.message + "\n\nCertifique-se de que as colunas 'nome' e 'concurso' existem na tabela 'leads'.");
     } else {
-      // Distribuição imediata após importação bem-sucedida
       await handleDistributeLeads();
-      alert(`Importação bem-sucedida! ${leadsToInsert.length} leads foram importados e distribuídos.`);
+      alert(`Importação bem-sucedida! ${leadsToInsert.length} leads importados.`);
     }
   };
 
@@ -211,41 +206,26 @@ const App: React.FC = () => {
           </div>
 
           <form onSubmit={handleAuth} className="p-8 space-y-5">
-            {error && (
-              <div className="bg-red-50 text-red-600 p-4 rounded-2xl text-xs font-bold border border-red-100 animate-pulse">
-                {error}
-              </div>
-            )}
-            {successMsg && (
-              <div className="bg-green-50 text-green-700 p-4 rounded-2xl text-xs font-bold border border-green-100">
-                {successMsg}
-              </div>
-            )}
-
+            {error && <div className="bg-red-50 text-red-600 p-4 rounded-2xl text-xs font-bold border border-red-100">{error}</div>}
+            {successMsg && <div className="bg-green-50 text-green-700 p-4 rounded-2xl text-xs font-bold border border-green-100">{successMsg}</div>}
             {isRegistering && (
               <div className="space-y-1">
                 <label className="text-[10px] font-bold text-gray-400 uppercase">Nome</label>
-                <input type="text" required value={name} onChange={e => setName(e.target.value)} className="w-full p-4 bg-gray-50 border rounded-2xl outline-none focus:border-indigo-600" />
+                <input type="text" required value={name} onChange={e => setName(e.target.value)} className="w-full p-4 bg-gray-50 border rounded-2xl outline-none" />
               </div>
             )}
-
             <div className="space-y-1">
               <label className="text-[10px] font-bold text-gray-400 uppercase">E-mail</label>
-              <input type="email" required value={email} onChange={e => setEmail(e.target.value)} className="w-full p-4 bg-gray-50 border rounded-2xl outline-none focus:border-indigo-600" />
+              <input type="email" required value={email} onChange={e => setEmail(e.target.value)} className="w-full p-4 bg-gray-50 border rounded-2xl outline-none" />
             </div>
-
             <div className="space-y-1">
               <label className="text-[10px] font-bold text-gray-400 uppercase">Senha</label>
-              <input type="password" required value={password} onChange={e => setPassword(e.target.value)} className="w-full p-4 bg-gray-50 border rounded-2xl outline-none focus:border-indigo-600" />
+              <input type="password" required value={password} onChange={e => setPassword(e.target.value)} className="w-full p-4 bg-gray-50 border rounded-2xl outline-none" />
             </div>
-
             <button type="submit" disabled={isSubmitting} className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-bold flex items-center justify-center gap-2">
               {isSubmitting ? <Loader2 className="animate-spin" /> : <>{isRegistering ? 'Cadastrar' : 'Entrar'} <ArrowRight className="w-4" /></>}
             </button>
-
-            <button type="button" onClick={() => setIsRegistering(!isRegistering)} className="w-full text-indigo-600 font-bold text-xs">
-              {isRegistering ? 'Já tenho conta' : 'Criar conta de vendedor'}
-            </button>
+            <button type="button" onClick={() => setIsRegistering(!isRegistering)} className="w-full text-indigo-600 font-bold text-xs">{isRegistering ? 'Já tenho conta' : 'Criar conta de vendedor'}</button>
           </form>
         </div>
       </div>
