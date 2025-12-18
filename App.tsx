@@ -54,7 +54,7 @@ const App: React.FC = () => {
         setLeads(leadData.map((l: any) => ({
           id: l.id,
           nome: l.nome,
-          telefone: l.telefone, // Coluna telefone
+          telefone: l.telefone,
           concurso: l.concurso,
           assignedTo: l.assigned_to,
           status: l.status,
@@ -177,11 +177,12 @@ const App: React.FC = () => {
   };
 
   const handleImportLeads = async (newLeads: Lead[]) => {
-    const leadsToInsert = newLeads.map(l => ({ 
-      nome: l.nome,
-      telefone: l.telefone, // Coluna telefone
-      concurso: l.concurso, 
-      status: 'PENDING' 
+    // Utilizando a estrutura exata solicitada (nome, telefone, concurso)
+    // O campo 'status' foi removido para permitir que o banco use o valor padrão
+    const leadsToInsert = newLeads.map(({ nome, telefone, concurso }) => ({ 
+      nome,
+      telefone,
+      concurso
     }));
 
     const { error } = await supabase.from('leads').insert(leadsToInsert);
