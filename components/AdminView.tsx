@@ -65,7 +65,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
     reader.onload = (e) => {
       try {
         const data = e.target?.result;
-        const workbook = XLSX.read(data, { type: 'binary' });
+        const workbook = XLSX.read(data, { type: 'array' });
         const firstSheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[firstSheetName];
         
@@ -75,11 +75,12 @@ export const AdminView: React.FC<AdminViewProps> = ({
         const importedLeads: Lead[] = jsonData
           .filter((row, index) => index > 0 && row.length > 0) // Pula cabeçalho e linhas vazias
           .map((row, index) => {
-            const name = row[0] ? String(row[0]) : 'Lead Importado';
-            const contest = row[1] ? String(row[1]) : '';
+            // Mapeamento: Coluna 1: Nome, Coluna 2: Concurso, Coluna 3: Telefone
+            const name = row[0] ? String(row[0]).trim() : 'Lead Importado';
+            const contest = row[1] ? String(row[1]).trim() : '';
             const phone = row[2] ? String(row[2]).replace(/\D/g, '') : '';
 
-            if (!phone) return null;
+            if (!phone || phone.length < 8) return null;
 
             return {
               id: `temp-${Date.now()}-${index}`,
@@ -94,20 +95,20 @@ export const AdminView: React.FC<AdminViewProps> = ({
 
         if (importedLeads.length > 0) {
           onImportLeads(importedLeads);
-          alert(`${importedLeads.length} leads importados com sucesso!`);
+          alert(`${importedLeads.length} leads preparados para importação!`);
         } else {
           alert("Nenhum lead válido encontrado. Verifique se a 3ª coluna possui os números de telefone.");
         }
       } catch (error) {
         console.error("Erro no processamento do arquivo:", error);
-        alert("Erro ao processar arquivo. Verifique o formato.");
+        alert("Erro ao ler o arquivo. Certifique-se de que é uma planilha válida (.xlsx, .csv, etc).");
       } finally {
         setIsImporting(false);
         if (fileInputRef.current) fileInputRef.current.value = '';
       }
     };
 
-    reader.readAsBinaryString(file);
+    reader.readAsArrayBuffer(file);
   };
 
   const statsByStatus = [
@@ -341,7 +342,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
               <button 
                 onClick={() => fileInputRef.current?.click()}
                 disabled={isImporting}
-                className="flex items-center gap-2 border border-gray-300 px-4 py-2 rounded-lg text-sm font-semibold hover:bg-gray-50 disabled:opacity-50"
+                className="flex items-center gap-2 border border-gray-300 px-4 py-2 rounded-lg text-sm font-semibold hover:bg-gray-50 disabled:opacity-50 transition-colors"
               >
                 {isImporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
                 Importar Planilha

@@ -6,6 +6,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>CallMaster Pro</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      // Shim para evitar erro de 'process is not defined' no navegador
+      window.process = window.process || { env: {} };
+    </script>
 <script type="importmap">
 {
   "imports": {
@@ -25,5 +29,7 @@
 </head>
 <body class="bg-gray-50 text-gray-900 font-sans">
     <div id="root"></div>
+    <!-- Script principal que monta a aplicação -->
+    <script type="module" src="./index.tsx"></script>
 </body>
 </html>
