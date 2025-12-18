@@ -37,10 +37,16 @@ export const AdminView: React.FC<AdminViewProps> = ({
     try {
       const insights = await getSalesInsights(calls);
       setAiInsights(insights);
-    } catch (error) { setAiInsights('Erro ao gerar insights.'); } finally { setIsGeneratingInsights(false); }
+    } catch (error) { 
+      setAiInsights('Mantenha o ritmo de chamadas para atingir suas metas.'); 
+    } finally { 
+      setIsGeneratingInsights(false); 
+    }
   };
 
-  useEffect(() => { if (activeTab === 'stats' && !aiInsights) fetchInsights(); }, [activeTab]);
+  useEffect(() => { 
+    if (activeTab === 'stats' && !aiInsights) fetchInsights(); 
+  }, [activeTab]);
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -62,7 +68,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
             id: `temp-${Date.now()}-${index}`,
             nome: row[0] ? String(row[0]).trim() : 'Sem Nome',
             concurso: row[1] ? String(row[1]).trim() : 'Geral',
-            telefone: String(row[2]).trim(), // Mapeia para telefone
+            telefone: String(row[2]).trim(),
             status: 'PENDING',
             createdAt: new Date().toISOString()
           }));
@@ -82,7 +88,15 @@ export const AdminView: React.FC<AdminViewProps> = ({
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  useEffect(() => { setIsImporting(false); }, [leads.length]);
+  useEffect(() => { 
+    setIsImporting(false); 
+  }, [leads.length]);
+
+  const statsByStatus = [
+    { name: 'Atendidas', value: calls.filter(c => c.status === CallStatus.ANSWERED).length, color: '#10B981' },
+    { name: 'Não Atendidas', value: calls.filter(c => c.status === CallStatus.NO_ANSWER).length, color: '#EF4444' },
+    { name: 'Inválidos', value: calls.filter(c => c.status === CallStatus.INVALID_NUMBER).length, color: '#F59E0B' },
+  ];
 
   return (
     <div className="space-y-6 pb-20 sm:pb-0">
@@ -108,6 +122,43 @@ export const AdminView: React.FC<AdminViewProps> = ({
                <div className="flex justify-between items-start mb-4 relative z-10"><h4 className="font-black text-xl flex items-center gap-2 tracking-tighter italic"><Sparkles className="w-6 h-6 text-indigo-200" /> INSIGHTS DA IA</h4><button onClick={fetchInsights} disabled={isGeneratingInsights} className="p-2 bg-white/10 hover:bg-white/20 rounded-xl transition-all"><RefreshCw className={`w-5 h-5 ${isGeneratingInsights ? 'animate-spin' : ''}`} /></button></div>
                <p className="text-sm opacity-90 leading-relaxed font-medium relative z-10 italic">"{aiInsights || 'Analise o desempenho da sua equipe com um clique.'}"</p>
             </div>
+            
+            <div className="bg-white p-6 rounded-[2.5rem] border-2 border-gray-100 flex items-center justify-center min-h-[200px]">
+               <div className="text-center">
+                 <p className="text-xs font-bold text-gray-400 uppercase mb-4">Status das Chamadas</p>
+                 <div className="flex gap-6 justify-center">
+                   {statsByStatus.map(s => (
+                     <div key={s.name} className="flex flex-col items-center">
+                       <div className="w-12 h-12 rounded-2xl flex items-center justify-center mb-1 shadow-sm" style={{backgroundColor: s.color + '20', color: s.color}}><Database className="w-6 h-6" /></div>
+                       <span className="text-[10px] font-black text-gray-500">{s.value}</span>
+                     </div>
+                   ))}
+                 </div>
+               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'users' && (
+        <div className="bg-white rounded-[2.5rem] border-2 border-gray-100 overflow-hidden shadow-sm">
+          <div className="p-6 bg-gray-50/50 border-b flex flex-col sm:flex-row justify-between items-center gap-4">
+            <div><h3 className="font-black text-lg tracking-tight uppercase">Equipe de Vendas</h3><p className="text-xs text-gray-500">Controle de vendedores ativos e offline</p></div>
+            <button onClick={onDistributeLeads} className="w-full sm:w-auto bg-indigo-600 text-white px-8 py-3 rounded-2xl font-black text-sm shadow-lg active:scale-95 transition-all flex items-center justify-center gap-2"><RefreshCw className="w-4" /> REDISTRIBUIR LEADS</button>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left">
+              <thead><tr className="bg-gray-50/50 text-[10px] uppercase text-gray-400"><th className="px-8 py-4 font-black">Vendedor</th><th className="px-8 py-4 font-black">Status</th><th className="px-8 py-4 font-black text-right">Ações</th></tr></thead>
+              <tbody className="divide-y divide-gray-100">
+                {users.map(u => (
+                  <tr key={u.id} className="hover:bg-gray-50 transition-colors">
+                    <td className="px-8 py-5"><div className="flex items-center gap-4"><img src={u.avatar} className="w-10 h-10 rounded-2xl shadow-sm border-2 border-white" /><div className="text-sm font-bold text-gray-900">{u.nome}<br/><span className="text-[10px] font-medium text-gray-400 lowercase">{u.email}</span></div></div></td>
+                    <td className="px-8 py-5"><button onClick={() => onToggleUserStatus(u.id)} className={`px-4 py-1.5 rounded-xl text-[10px] font-black transition-all ${u.online ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-400'}`}>{u.online ? 'ONLINE' : 'OFFLINE'}</button></td>
+                    <td className="px-8 py-5 text-right">{u.tipo !== 'adm' && <button onClick={() => onPromoteUser(u.id)} className="text-indigo-600 font-black text-[10px] uppercase tracking-wider hover:underline">Promover para ADM</button>}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
       )}
@@ -119,26 +170,57 @@ export const AdminView: React.FC<AdminViewProps> = ({
               {isImporting && <div className="absolute inset-0 bg-white/80 z-20 flex items-center justify-center rounded-[2.5rem]"><Loader2 className="w-10 h-10 text-indigo-600 animate-spin" /></div>}
               <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept=".xlsx,.xls,.csv" className="hidden" />
               <div className="w-16 h-16 bg-indigo-50 rounded-3xl flex items-center justify-center group-hover:bg-indigo-600 transition-all"><Upload className="w-8 h-8 text-indigo-600 group-hover:text-white" /></div>
-              <div><h4 className="font-black text-gray-900 uppercase">Importar Leads</h4><p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">Col 1: Nome | Col 2: Concurso | Col 3: Telefone</p></div>
+              <div><h4 className="font-black text-gray-900 uppercase">Importar Planilha</h4><p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">Col 1: Nome | Col 2: Concurso | Col 3: Telefone</p></div>
+            </div>
+            <div className="bg-white p-8 rounded-[2.5rem] border-2 border-gray-100 flex flex-col items-center justify-center text-center space-y-4">
+               <div className="w-16 h-16 bg-green-50 rounded-3xl flex items-center justify-center"><Database className="w-8 h-8 text-green-600" /></div>
+               <div><h4 className="font-black text-gray-900 uppercase">{leads.length} LEADS NA BASE</h4><p className="text-xs text-gray-400">{leads.filter(l => !l.assignedTo).length} aguardando distribuição</p></div>
             </div>
           </div>
 
           <div className="bg-white rounded-[2.5rem] border-2 border-gray-100 overflow-hidden shadow-sm">
-            <div className="p-6 bg-gray-50/50 border-b flex justify-between items-center"><h3 className="font-black text-lg">BASE DE LEADS</h3></div>
+            <div className="p-6 bg-gray-50/50 border-b flex justify-between items-center"><h3 className="font-black text-lg">BASE COMPLETA</h3></div>
             <div className="max-h-[400px] overflow-y-auto">
               <table className="w-full text-left">
-                <thead className="sticky top-0 bg-white z-10"><tr className="bg-gray-50 text-[10px] uppercase text-gray-400"><th className="px-8 py-3 font-black">Lead</th><th className="px-8 py-3 font-black">Telefone</th><th className="px-8 py-3 font-black">Status</th></tr></thead>
+                <thead className="sticky top-0 bg-white z-10"><tr className="bg-gray-50 text-[10px] uppercase text-gray-400"><th className="px-8 py-3 font-black">Lead</th><th className="px-8 py-3 font-black">Telefone</th><th className="px-8 py-3 font-black">Status</th><th className="px-8 py-3 font-black">Atribuído a</th></tr></thead>
                 <tbody className="divide-y divide-gray-100">
                   {leads.map(l => (
                     <tr key={l.id} className="hover:bg-gray-50 transition-colors">
                       <td className="px-8 py-4"><p className="text-sm font-bold text-gray-900">{l.nome}</p><span className="text-[10px] text-gray-400 font-bold uppercase tracking-tighter">{l.concurso}</span></td>
                       <td className="px-8 py-4 font-mono text-xs font-black text-indigo-600">{l.telefone}</td>
                       <td className="px-8 py-4"><span className={`px-2 py-1 rounded-lg text-[10px] font-black ${l.status === 'CALLED' ? 'bg-indigo-100 text-indigo-700' : 'bg-gray-100 text-gray-400'}`}>{l.status}</span></td>
+                      <td className="px-8 py-4 text-xs font-black text-gray-500">{users.find(u => u.id === l.assignedTo)?.nome || 'Não atribuído'}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'history' && (
+        <div className="bg-white rounded-[2.5rem] border-2 border-gray-100 overflow-hidden shadow-sm">
+          <div className="p-6 border-b bg-gray-50/50"><h3 className="font-black text-lg">RELAÇÃO DE CHAMADAS</h3></div>
+          <div className="overflow-x-auto">
+             <table className="w-full text-left">
+                <thead><tr className="bg-gray-50 text-[10px] uppercase text-gray-400"><th className="px-8 py-4 font-black">Data/Hora</th><th className="px-8 py-4 font-black">Vendedor</th><th className="px-8 py-4 font-black">Resultado</th><th className="px-8 py-4 font-black text-right">Gravação</th></tr></thead>
+                <tbody className="divide-y divide-gray-100">
+                  {calls.sort((a,b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()).map(c => (
+                    <tr key={c.id} className="hover:bg-gray-50">
+                      <td className="px-8 py-4 text-xs font-bold text-gray-500">{new Date(c.timestamp).toLocaleString('pt-BR')}</td>
+                      <td className="px-8 py-4 text-sm font-bold text-gray-900">{users.find(u => u.id === c.sellerId)?.nome}</td>
+                      <td className="px-8 py-4">
+                        <span className={`flex items-center gap-1.5 text-[10px] font-black ${c.status === CallStatus.ANSWERED ? 'text-green-600' : c.status === CallStatus.NO_ANSWER ? 'text-red-500' : 'text-orange-500'}`}>
+                          {c.status === CallStatus.ANSWERED ? <CheckCircle className="w-3" /> : c.status === CallStatus.NO_ANSWER ? <XCircle className="w-3" /> : <AlertTriangle className="w-3" />}
+                          {c.status === CallStatus.ANSWERED ? 'ATENDEU' : c.status === CallStatus.NO_ANSWER ? 'NÃO ATENDEU' : 'INVÁLIDO'}
+                        </span>
+                      </td>
+                      <td className="px-8 py-4 text-right"><button className="bg-gray-100 p-2 rounded-xl hover:bg-indigo-600 hover:text-white transition-all"><Play className="w-4 h-4" /></button></td>
+                    </tr>
+                  ))}
+                </tbody>
+             </table>
           </div>
         </div>
       )}
