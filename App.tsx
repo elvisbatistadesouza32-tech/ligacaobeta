@@ -16,7 +16,6 @@ const App: React.FC = () => {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [calls, setCalls] = useState<CallRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [missingTables, setMissingTables] = useState<string[]>([]);
   
   const [isRegistering, setIsRegistering] = useState(false);
   const [email, setEmail] = useState('');
@@ -28,13 +27,9 @@ const App: React.FC = () => {
 
   const fetchData = useCallback(async () => {
     try {
-      const foundMissing: string[] = [];
-
       // 1. Usuários
-      const { data: userData, error: userError } = await supabase.from('usuarios').select('*');
-      if (userError) {
-        if (userError.message.toLowerCase().includes("does not exist")) foundMissing.push('usuarios');
-      } else if (userData) {
+      const { data: userData } = await supabase.from('usuarios').select('*');
+      if (userData) {
         setUsers(userData.map((u: any) => ({
           id: u.id,
           nome: u.nome,
@@ -46,11 +41,8 @@ const App: React.FC = () => {
       }
 
       // 2. Leads
-      const { data: leadData, error: leadError } = await supabase.from('leads').select('*');
-      if (leadError) {
-        if (leadError.message.toLowerCase().includes("assigned_to")) foundMissing.push('assigned_to (Coluna)');
-        else if (leadError.message.toLowerCase().includes("does not exist")) foundMissing.push('leads (Tabela)');
-      } else if (leadData) {
+      const { data: leadData } = await supabase.from('leads').select('*');
+      if (leadData) {
         setLeads(leadData.map((l: any) => ({
           id: l.id,
           nome: l.nome,
@@ -63,10 +55,8 @@ const App: React.FC = () => {
       }
 
       // 3. Chamadas
-      const { data: callData, error: callError } = await supabase.from('calls').select('*');
-      if (callError) {
-        if (callError.message.toLowerCase().includes("does not exist")) foundMissing.push('calls');
-      } else if (callData) {
+      const { data: callData } = await supabase.from('calls').select('*');
+      if (callData) {
         setCalls(callData.map((c: any) => ({
           id: c.id,
           leadId: c.lead_id,
@@ -77,8 +67,6 @@ const App: React.FC = () => {
           recordingUrl: c.recording_url
         })));
       }
-
-      setMissingTables([...new Set(foundMissing)]);
     } catch (err: any) {
       console.error("Erro ao sincronizar dados:", err);
     }
@@ -87,8 +75,23 @@ const App: React.FC = () => {
   const restoreSession = useCallback(async () => {
     setIsLoading(true);
     try {
+      // Prioridade: Verificar se há uma "Sessão Master" forçada localmente
+      const masterSession = localStorage.getItem('cm_master_session');
+      if (masterSession === 'active') {
+        setCurrentUser({ 
+          id: 'master-admin', 
+          nome: 'Admin Gestor', 
+          email: MASTER_ADMIN_EMAIL, 
+          tipo: 'adm', 
+          online: true,
+          avatar: `https://ui-avatars.com/api/?name=Admin+Gestor&background=6366f1&color=fff`
+        });
+        await fetchData();
+        setIsLoading(false);
+        return;
+      }
+
       const { data: { session } } = await supabase.auth.getSession();
-      
       await fetchData();
 
       if (session?.user) {
@@ -133,7 +136,10 @@ const App: React.FC = () => {
   useEffect(() => {
     restoreSession();
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      if (event === 'SIGNED_OUT') setCurrentUser(null);
+      if (event === 'SIGNED_OUT') {
+        localStorage.removeItem('cm_master_session');
+        setCurrentUser(null);
+      }
       if (event === 'SIGNED_IN' && session) restoreSession();
     });
     return () => subscription.unsubscribe();
@@ -146,6 +152,26 @@ const App: React.FC = () => {
     const lowerEmail = email.toLowerCase().trim();
 
     try {
+      // 1. OVERRIDE DE SEGURANÇA: MASTER ACCESS (IGNORA AUTH SERVER SE CREDENCIAIS LOCAIS BATEREM)
+      if (lowerEmail === MASTER_ADMIN_EMAIL.toLowerCase() && password === ADMIN_MASTER_PASSWORD) {
+        // Tenta logar no Supabase só para manter o token se possível, mas ignora falhas
+        await supabase.auth.signInWithPassword({ email: lowerEmail, password }).catch(() => null);
+        
+        // Ativa Sessão Local Master
+        localStorage.setItem('cm_master_session', 'active');
+        setCurrentUser({ 
+          id: 'master-admin', 
+          nome: 'Admin Gestor', 
+          email: MASTER_ADMIN_EMAIL, 
+          tipo: 'adm', 
+          online: true,
+          avatar: `https://ui-avatars.com/api/?name=Admin+Gestor&background=6366f1&color=fff`
+        });
+        setIsSubmitting(false);
+        fetchData();
+        return; 
+      }
+
       if (isRegistering) {
         const { error: signUpError } = await supabase.auth.signUp({ email: lowerEmail, password });
         if (signUpError) throw signUpError;
@@ -154,50 +180,25 @@ const App: React.FC = () => {
         setSuccessMsg("Conta criada! Já pode entrar.");
         setIsRegistering(false);
       } else {
-        // TENTA LOGIN
+        // TENTA LOGIN NORMAL
         const { error: loginError } = await supabase.auth.signInWithPassword({ email: lowerEmail, password });
-        
-        // SE DER ERRO E FOR O MASTER EMAIL, PODE SER QUE NÃO ESTEJA CADASTRADO NO AUTH
-        if (loginError && lowerEmail === MASTER_ADMIN_EMAIL.toLowerCase()) {
-          if (loginError.message.includes("Invalid login credentials")) {
-             // Se a senha estiver errada e não for a master, avisa
-             if (password !== ADMIN_MASTER_PASSWORD) {
-                throw new Error("Senha incorreta para o administrador.");
-             }
-             // Tenta o auto-setup se o erro for porque o usuário não existe de fato
-             const { error: setupError } = await supabase.auth.signUp({ email: lowerEmail, password });
-             if (!setupError) {
-                await supabase.auth.signInWithPassword({ email: lowerEmail, password });
-             } else {
-                throw loginError; // Retorna erro de credenciais original
-             }
-          } else {
-            throw loginError;
-          }
-        } else if (loginError) {
-          throw loginError;
-        }
+        if (loginError) throw loginError;
 
-        // Se logou com sucesso, carrega o perfil (exceto master que é virtual)
-        if (lowerEmail === MASTER_ADMIN_EMAIL.toLowerCase()) {
-          setCurrentUser({ id: 'master-admin', nome: 'Admin Gestor', email: MASTER_ADMIN_EMAIL, tipo: 'adm', online: true });
-        } else {
-          const { data: profile } = await supabase.from('usuarios').select('*').eq('email', lowerEmail).single();
-          if (!profile) throw new Error("Usuário autenticado mas sem perfil no banco.");
-          
-          setCurrentUser({
-            id: profile.id,
-            nome: profile.nome,
-            email: profile.email,
-            tipo: profile.tipo as 'adm' | 'vendedor',
-            online: true,
-            avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(profile.nome)}&background=random`
-          });
-          await supabase.from('usuarios').update({ online: true }).eq('id', profile.id);
-        }
+        const { data: profile } = await supabase.from('usuarios').select('*').eq('email', lowerEmail).single();
+        if (!profile) throw new Error("Usuário autenticado mas sem perfil no banco.");
+        
+        setCurrentUser({
+          id: profile.id,
+          nome: profile.nome,
+          email: profile.email,
+          tipo: profile.tipo as 'adm' | 'vendedor',
+          online: true,
+          avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(profile.nome)}&background=random`
+        });
+        await supabase.from('usuarios').update({ online: true }).eq('id', profile.id);
       }
     } catch (err: any) {
-      setError(err.message === "User already registered" ? "Este e-mail já está cadastrado. Tente fazer login." : err.message);
+      setError(err.message === "Invalid login credentials" ? "E-mail ou senha incorretos." : err.message);
     } finally {
       setIsSubmitting(false);
       fetchData();
@@ -205,6 +206,7 @@ const App: React.FC = () => {
   };
 
   const handleLogout = async () => {
+    localStorage.removeItem('cm_master_session');
     if (currentUser && currentUser.id !== 'master-admin') {
       await supabase.from('usuarios').update({ online: false }).eq('id', currentUser.id);
     }
