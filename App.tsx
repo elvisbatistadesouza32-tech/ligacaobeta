@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { User, Lead, CallRecord, CallStatus } from './types';
 import { Layout } from './components/Layout';
 import { SellerView } from './components/SellerView';
@@ -15,7 +15,8 @@ const App: React.FC = () => {
   const [users, setUsers] = useState<User[]>([]);
   const [leads, setLeads] = useState<Lead[]>([]);
   const [calls, setCalls] = useState<CallRecord[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isInitialLoading, setIsInitialLoading] = useState(true);
+  const [isSyncing, setIsSyncing] = useState(false);
   
   const [isRegistering, setIsRegistering] = useState(false);
   const [email, setEmail] = useState('');
@@ -25,11 +26,23 @@ const App: React.FC = () => {
   const [successMsg, setSuccessMsg] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // Ref para evitar loops de sincronização
+  const isFetchingRef = useRef(false);
+
   const fetchData = useCallback(async () => {
+    if (isFetchingRef.current) return;
+    isFetchingRef.current = true;
+    setIsSyncing(true);
+    
     try {
-      const { data: userData } = await supabase.from('usuarios').select('*');
-      if (userData) {
-        setUsers(userData.map((u: any) => ({
+      const [userData, leadData, callData] = await Promise.all([
+        supabase.from('usuarios').select('*'),
+        supabase.from('leads').select('*'),
+        supabase.from('calls').select('*')
+      ]);
+
+      if (userData.data) {
+        setUsers(userData.data.map((u: any) => ({
           id: u.id,
           nome: u.nome,
           email: u.email,
@@ -39,9 +52,8 @@ const App: React.FC = () => {
         })));
       }
 
-      const { data: leadData } = await supabase.from('leads').select('*');
-      if (leadData) {
-        setLeads(leadData.map((l: any) => ({
+      if (leadData.data) {
+        setLeads(leadData.data.map((l: any) => ({
           id: l.id,
           nome: l.nome,
           telefone: l.telefone,
@@ -52,44 +64,47 @@ const App: React.FC = () => {
         })));
       }
 
-      const { data: callData } = await supabase.from('calls').select('*');
-      if (callData) {
-        setCalls(callData.map((c: any) => ({
+      if (callData.data) {
+        setCalls(callData.data.map((c: any) => ({
           id: c.id,
           leadId: c.lead_id,
           sellerId: c.seller_id,
           status: c.status,
           durationSeconds: c.duration_seconds,
           timestamp: c.timestamp,
-          recordingUrl: c.recording_url
+          recording_url: c.recording_url
         })));
       }
     } catch (err: any) {
       console.error("Erro ao sincronizar dados:", err);
+    } finally {
+      setIsSyncing(false);
+      isFetchingRef.current = false;
     }
   }, []);
 
-  const restoreSession = useCallback(async () => {
-    setIsLoading(true);
+  const restoreSession = useCallback(async (isFirstLoad = false) => {
+    if (isFirstLoad) setIsInitialLoading(true);
+
     try {
       const masterSession = localStorage.getItem('cm_master_session');
       if (masterSession === 'active') {
-        setCurrentUser({ 
-          id: 'master-admin', 
-          nome: 'Admin Gestor', 
-          email: MASTER_ADMIN_EMAIL, 
-          tipo: 'adm', 
-          online: true,
-          avatar: `https://ui-avatars.com/api/?name=Admin+Gestor&background=6366f1&color=fff`
-        });
+        if (!currentUser) {
+          setCurrentUser({ 
+            id: 'master-admin', 
+            nome: 'Admin Gestor', 
+            email: MASTER_ADMIN_EMAIL, 
+            tipo: 'adm', 
+            online: true,
+            avatar: `https://ui-avatars.com/api/?name=Admin+Gestor&background=6366f1&color=fff`
+          });
+        }
         await fetchData();
-        setIsLoading(false);
         return;
       }
 
       const { data: { session } } = await supabase.auth.getSession();
-      await fetchData();
-
+      
       if (session?.user) {
         const userEmail = session.user.email?.toLowerCase();
         
@@ -118,28 +133,41 @@ const App: React.FC = () => {
               online: true,
               avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(profile.nome)}&background=random`
             });
-            await supabase.from('usuarios').update({ online: true }).eq('id', profile.id);
+            // Update online status only if necessary
+            if (!profile.online) {
+              await supabase.from('usuarios').update({ online: true }).eq('id', profile.id);
+            }
           }
         }
+        await fetchData();
       }
     } catch (err) {
       console.error("Erro na restauração:", err);
     } finally {
-      setIsLoading(false);
+      if (isFirstLoad) setIsInitialLoading(false);
     }
-  }, [fetchData]);
+  }, [fetchData, currentUser]);
 
   useEffect(() => {
-    restoreSession();
+    restoreSession(true);
+    
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'SIGNED_OUT') {
         localStorage.removeItem('cm_master_session');
         setCurrentUser(null);
+      } else if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+        restoreSession(false);
       }
-      if (event === 'SIGNED_IN' && session) restoreSession();
     });
-    return () => subscription.unsubscribe();
-  }, [restoreSession]);
+
+    // Sincronização periódica suave em background (cada 60s)
+    const interval = setInterval(() => fetchData(), 60000);
+
+    return () => {
+      subscription.unsubscribe();
+      clearInterval(interval);
+    };
+  }, [restoreSession, fetchData]);
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -217,6 +245,8 @@ const App: React.FC = () => {
     if (!callError) {
       await supabase.from('leads').update({ status: 'CALLED' }).eq('id', call.leadId);
       fetchData();
+    } else {
+      throw callError;
     }
   };
 
@@ -270,10 +300,11 @@ const App: React.FC = () => {
     else { fetchData(); alert("Fila transferida!"); }
   };
 
-  if (isLoading) return (
+  // Loader inicial apenas se não houver usuário e estiver carregando
+  if (isInitialLoading && !currentUser) return (
     <div className="min-h-screen bg-indigo-950 flex flex-col items-center justify-center text-white text-center">
       <Loader2 className="w-12 h-12 animate-spin text-indigo-400 mb-4" />
-      <p className="font-black uppercase tracking-tighter">Sincronizando Sessão...</p>
+      <p className="font-black uppercase tracking-tighter">Iniciando CallMaster Pro...</p>
     </div>
   );
 
@@ -313,6 +344,14 @@ const App: React.FC = () => {
 
   return (
     <Layout user={currentUser} onLogout={handleLogout}>
+      {/* Indicador discreto de sincronização em background */}
+      {isSyncing && (
+        <div className="fixed bottom-24 right-8 z-[200] bg-white/80 backdrop-blur-sm px-4 py-2 rounded-full border shadow-sm flex items-center gap-2 animate-pulse">
+          <Loader2 className="w-3 h-3 animate-spin text-indigo-600" />
+          <span className="text-[8px] font-black uppercase text-gray-400 tracking-widest">Atualizando...</span>
+        </div>
+      )}
+      
       {currentUser.tipo === 'adm' ? (
         <AdminView 
           users={users} leads={leads} calls={calls} 
