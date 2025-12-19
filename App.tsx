@@ -16,7 +16,6 @@ const App: React.FC = () => {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [calls, setCalls] = useState<CallRecord[]>([]);
   const [isInitialLoading, setIsInitialLoading] = useState(true);
-  const [isSyncing, setIsSyncing] = useState(false);
   
   const [isRegistering, setIsRegistering] = useState(false);
   const [email, setEmail] = useState('');
@@ -32,7 +31,6 @@ const App: React.FC = () => {
   const fetchData = useCallback(async () => {
     if (isFetchingRef.current) return;
     isFetchingRef.current = true;
-    setIsSyncing(true);
     
     try {
       const [userData, leadData, callData] = await Promise.all([
@@ -78,7 +76,6 @@ const App: React.FC = () => {
     } catch (err: any) {
       console.error("Erro ao sincronizar dados:", err);
     } finally {
-      setIsSyncing(false);
       isFetchingRef.current = false;
     }
   }, []);
@@ -315,7 +312,7 @@ const App: React.FC = () => {
           <h1 className="text-4xl font-black italic tracking-tighter">CallMaster <span className="text-indigo-200">PRO</span></h1>
         </div>
         <form onSubmit={handleAuth} className="p-10 space-y-6">
-          {error && <div className="bg-red-50 text-red-600 p-4 rounded-3xl text-[10px] font-black uppercase text-center border-2 border-red-100">{error}</div>}
+          {error && <div className="bg-red-50 text-red-600 p-4 rounded-3xl text-[10px] font-black uppercase text-center border-2 border-red-100">{error}0</div>}
           {successMsg && <div className="bg-green-50 text-green-700 p-4 rounded-3xl text-[10px] font-black uppercase text-center border-2 border-green-100">{successMsg}</div>}
           <div className="space-y-4">
             {isRegistering && (
@@ -344,14 +341,6 @@ const App: React.FC = () => {
 
   return (
     <Layout user={currentUser} onLogout={handleLogout}>
-      {/* Indicador discreto de sincronização em background */}
-      {isSyncing && (
-        <div className="fixed bottom-24 right-8 z-[200] bg-white/80 backdrop-blur-sm px-4 py-2 rounded-full border shadow-sm flex items-center gap-2 animate-pulse">
-          <Loader2 className="w-3 h-3 animate-spin text-indigo-600" />
-          <span className="text-[8px] font-black uppercase text-gray-400 tracking-widest">Atualizando...</span>
-        </div>
-      )}
-      
       {currentUser.tipo === 'adm' ? (
         <AdminView 
           users={users} leads={leads} calls={calls} 
