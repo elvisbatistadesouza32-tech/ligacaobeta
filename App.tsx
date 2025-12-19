@@ -27,7 +27,6 @@ const App: React.FC = () => {
 
   const fetchData = useCallback(async () => {
     try {
-      // 1. Usuários
       const { data: userData } = await supabase.from('usuarios').select('*');
       if (userData) {
         setUsers(userData.map((u: any) => ({
@@ -40,7 +39,6 @@ const App: React.FC = () => {
         })));
       }
 
-      // 2. Leads
       const { data: leadData } = await supabase.from('leads').select('*');
       if (leadData) {
         setLeads(leadData.map((l: any) => ({
@@ -54,7 +52,6 @@ const App: React.FC = () => {
         })));
       }
 
-      // 3. Chamadas
       const { data: callData } = await supabase.from('calls').select('*');
       if (callData) {
         setCalls(callData.map((c: any) => ({
@@ -75,7 +72,6 @@ const App: React.FC = () => {
   const restoreSession = useCallback(async () => {
     setIsLoading(true);
     try {
-      // Prioridade: Verificar se há uma "Sessão Master" forçada localmente
       const masterSession = localStorage.getItem('cm_master_session');
       if (masterSession === 'active') {
         setCurrentUser({ 
@@ -152,12 +148,8 @@ const App: React.FC = () => {
     const lowerEmail = email.toLowerCase().trim();
 
     try {
-      // 1. OVERRIDE DE SEGURANÇA: MASTER ACCESS (IGNORA AUTH SERVER SE CREDENCIAIS LOCAIS BATEREM)
       if (lowerEmail === MASTER_ADMIN_EMAIL.toLowerCase() && password === ADMIN_MASTER_PASSWORD) {
-        // Tenta logar no Supabase só para manter o token se possível, mas ignora falhas
         await supabase.auth.signInWithPassword({ email: lowerEmail, password }).catch(() => null);
-        
-        // Ativa Sessão Local Master
         localStorage.setItem('cm_master_session', 'active');
         setCurrentUser({ 
           id: 'master-admin', 
@@ -180,7 +172,6 @@ const App: React.FC = () => {
         setSuccessMsg("Conta criada! Já pode entrar.");
         setIsRegistering(false);
       } else {
-        // TENTA LOGIN NORMAL
         const { error: loginError } = await supabase.auth.signInWithPassword({ email: lowerEmail, password });
         if (loginError) throw loginError;
 
@@ -246,9 +237,30 @@ const App: React.FC = () => {
     alert("Distribuição concluída!");
   };
 
-  const handleImportLeads = async (newLeads: Lead[]) => {
-    const leadsToInsert = newLeads.map(l => ({ ...l, status: 'PENDING', telefone: l.telefone.replace(/\D/g, '') }));
-    await supabase.from('leads').insert(leadsToInsert);
+  const handleImportLeads = async (newLeads: Lead[], distributionMode: 'none' | 'balanced' | string) => {
+    const activeSellers = users.filter(u => u.online && u.tipo === 'vendedor');
+    
+    const leadsToInsert = newLeads.map((l, i) => {
+      let assignedTo = null;
+      
+      if (distributionMode === 'balanced' && activeSellers.length > 0) {
+        assignedTo = activeSellers[i % activeSellers.length].id;
+      } else if (distributionMode !== 'none' && distributionMode !== 'balanced') {
+        assignedTo = distributionMode;
+      }
+
+      return {
+        nome: l.nome,
+        concurso: l.concurso,
+        telefone: l.telefone.replace(/\D/g, ''),
+        status: 'PENDING',
+        assigned_to: assignedTo
+      };
+    });
+
+    const { error } = await supabase.from('leads').insert(leadsToInsert);
+    if (error) throw error;
+    
     fetchData();
   };
 

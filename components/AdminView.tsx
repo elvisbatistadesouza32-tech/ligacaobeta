@@ -3,7 +3,7 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { User, Lead, CallRecord, CallStatus } from '../types';
 import { 
   Users, PhoneIncoming, Upload, Database, 
-  Play, Clock, ArrowRightLeft, Power, PowerOff, TrendingUp, CheckCircle, XCircle, AlertTriangle, Calendar, Mic2, Loader2, X, ListChecks, Trash2, ShieldCheck, UserPlus, MoveRight
+  Play, Clock, ArrowRightLeft, Power, PowerOff, TrendingUp, CheckCircle, XCircle, AlertTriangle, Calendar, Mic2, Loader2, X, ListChecks, Trash2, ShieldCheck, UserPlus, MoveRight, UserCheck, LayoutGrid
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
@@ -11,7 +11,7 @@ interface AdminViewProps {
   users: User[];
   leads: Lead[];
   calls: CallRecord[];
-  onImportLeads: (leads: Lead[]) => void;
+  onImportLeads: (leads: Lead[], distributionMode: 'none' | 'balanced' | string) => Promise<void>;
   onDistributeLeads: () => void;
   onToggleUserStatus: (userId: string) => void;
   onPromoteUser: (userId: string) => void;
@@ -27,7 +27,12 @@ export const AdminView: React.FC<AdminViewProps> = ({
   const [selectedSellerId, setSelectedSellerId] = useState<string>('');
   const [playingCall, setPlayingCall] = useState<CallRecord | null>(null);
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  
+  // States para Importação
   const [isImporting, setIsImporting] = useState(false);
+  const [pendingLeads, setPendingLeads] = useState<Lead[] | null>(null);
+  const [importDistributionMode, setImportDistributionMode] = useState<'none' | 'balanced' | string>('none');
+  
   const [transferModal, setTransferModal] = useState<{ fromId: string; fromName: string } | null>(null);
   const [targetSellerId, setTargetSellerId] = useState<string>('');
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -40,6 +45,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
   }, [notification]);
 
   const sellers = useMemo(() => users.filter(u => u.tipo === 'vendedor'), [users]);
+  const onlineSellers = useMemo(() => sellers.filter(s => s.online), [sellers]);
 
   const sellerPerformance = useMemo(() => {
     return sellers.map(seller => {
@@ -78,7 +84,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
       : calls;
     const activeLeadsCount = viewMode === 'individual' && selectedSellerId
       ? leads.filter(l => l.assignedTo === selectedSellerId && l.status === 'PENDING').length
-      : leads.filter(l => !l.assignedTo).length;
+      : leads.filter(l => !l.assignedTo && l.status === 'PENDING').length;
     const duration = activeCalls.reduce((acc, curr) => acc + (curr.durationSeconds || 0), 0);
     return { total: activeCalls.length, duration, leads: activeLeadsCount };
   }, [calls, leads, viewMode, selectedSellerId]);
@@ -97,7 +103,6 @@ export const AdminView: React.FC<AdminViewProps> = ({
         const ws = wb.Sheets[wb.SheetNames[0]];
         const data = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
 
-        // Processa todas as linhas, mesmo as com colunas vazias
         const rawData = data.slice(1).filter(row => row.length > 0 && (row[0] || row[2]));
         
         if (rawData.length === 0) {
@@ -113,7 +118,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
           
           if (fone.length >= 8) {
             return {
-              id: `imp-${Date.now()}-${i}`,
+              id: `temp-${i}`,
               nome,
               concurso,
               telefone: fone,
@@ -121,26 +126,37 @@ export const AdminView: React.FC<AdminViewProps> = ({
             };
           }
           return null;
-        }).filter(Boolean);
+        }).filter(Boolean) as Lead[];
 
         if (newLeads.length === 0) {
-          setNotification({ message: "Nenhum telefone válido encontrado na planilha.", type: 'error' });
+          setNotification({ message: "Nenhum telefone válido encontrado.", type: 'error' });
         } else {
-          onImportLeads(newLeads as any);
-          setNotification({ 
-            message: `Importados ${newLeads.length} de ${rawData.length} leads processados.`, 
-            type: 'success' 
-          });
+          setPendingLeads(newLeads);
         }
         
         if (fileInputRef.current) fileInputRef.current.value = '';
       } catch (err) {
-        setNotification({ message: "Erro crítico ao processar XLSX.", type: 'error' });
+        setNotification({ message: "Erro ao processar XLSX.", type: 'error' });
       } finally {
         setIsImporting(false);
       }
     };
     reader.readAsBinaryString(file);
+  };
+
+  const confirmImport = async () => {
+    if (!pendingLeads) return;
+    setIsImporting(true);
+    try {
+      await onImportLeads(pendingLeads, importDistributionMode);
+      setNotification({ message: `Sucesso! ${pendingLeads.length} leads injetados na operação.`, type: 'success' });
+      setPendingLeads(null);
+      setImportDistributionMode('none');
+    } catch (err) {
+      setNotification({ message: "Erro ao salvar no banco.", type: 'error' });
+    } finally {
+      setIsImporting(false);
+    }
   };
 
   const executeTransfer = () => {
@@ -153,12 +169,93 @@ export const AdminView: React.FC<AdminViewProps> = ({
 
   return (
     <div className="space-y-6 pb-20 animate-in fade-in duration-500">
-      {/* Toast */}
+      {/* Toast Notification */}
       {notification && (
         <div className={`fixed top-24 left-1/2 -translate-x-1/2 z-[200] px-10 py-5 rounded-[2.5rem] shadow-2xl flex items-center gap-4 animate-in slide-in-from-top-10 duration-300 border-2 ${notification.type === 'success' ? 'bg-indigo-600 border-indigo-400 text-white' : 'bg-red-600 border-red-400 text-white'}`}>
           {notification.type === 'success' ? <CheckCircle className="w-6 h-6" /> : <AlertTriangle className="w-6 h-6" />}
           <span className="font-black uppercase text-xs tracking-tighter italic">{notification.message}</span>
           <button onClick={() => setNotification(null)} className="ml-4 p-1 hover:bg-white/20 rounded-full transition-all"><X className="w-4 h-4" /></button>
+        </div>
+      )}
+
+      {/* Modal de Configuração de Importação */}
+      {pendingLeads && (
+        <div className="fixed inset-0 z-[220] bg-indigo-950/95 backdrop-blur-2xl flex items-center justify-center p-6">
+          <div className="bg-white rounded-[4rem] w-full max-w-lg p-12 shadow-2xl animate-in zoom-in-95 duration-300 relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-50 rounded-full -mr-16 -mt-16 blur-3xl opacity-50" />
+            
+            <div className="text-center space-y-2 mb-10">
+              <h3 className="text-3xl font-black text-gray-900 uppercase tracking-tighter italic">Destino dos Leads</h3>
+              <p className="text-gray-400 font-bold uppercase text-[10px] tracking-widest">{pendingLeads.length} contatos processados com sucesso</p>
+            </div>
+
+            <div className="space-y-4">
+              {/* Opção 1: Fila Geral */}
+              <button 
+                onClick={() => setImportDistributionMode('none')}
+                className={`w-full flex items-center gap-6 p-6 rounded-[2rem] border-2 transition-all group ${importDistributionMode === 'none' ? 'border-indigo-600 bg-indigo-50/50' : 'border-gray-100 hover:border-gray-200 bg-white'}`}
+              >
+                <div className={`w-14 h-14 rounded-2xl flex items-center justify-center transition-all ${importDistributionMode === 'none' ? 'bg-indigo-600 text-white shadow-lg' : 'bg-gray-50 text-gray-400'}`}>
+                  <LayoutGrid className="w-6 h-6" />
+                </div>
+                <div className="text-left">
+                  <p className="font-black text-sm uppercase tracking-tighter">Fila Geral</p>
+                  <p className="text-[10px] font-bold text-gray-400 uppercase">Ficam sem dono, aguardando distribuição</p>
+                </div>
+              </button>
+
+              {/* Opção 2: Distribuição Equilibrada */}
+              <button 
+                onClick={() => setImportDistributionMode('balanced')}
+                className={`w-full flex items-center gap-6 p-6 rounded-[2rem] border-2 transition-all group ${importDistributionMode === 'balanced' ? 'border-indigo-600 bg-indigo-50/50' : 'border-gray-100 hover:border-gray-200 bg-white'}`}
+              >
+                <div className={`w-14 h-14 rounded-2xl flex items-center justify-center transition-all ${importDistributionMode === 'balanced' ? 'bg-indigo-600 text-white shadow-lg' : 'bg-gray-50 text-gray-400'}`}>
+                  <ArrowRightLeft className="w-6 h-6" />
+                </div>
+                <div className="text-left">
+                  <p className="font-black text-sm uppercase tracking-tighter">Divisão Equilibrada</p>
+                  <p className="text-[10px] font-bold text-gray-400 uppercase">Repartir entre os {onlineSellers.length} vendedores ONLINE</p>
+                </div>
+              </button>
+
+              {/* Opção 3: Vendedor Específico */}
+              <div className={`w-full p-6 rounded-[2rem] border-2 transition-all ${importDistributionMode !== 'none' && importDistributionMode !== 'balanced' ? 'border-indigo-600 bg-indigo-50/50' : 'border-gray-100 bg-white'}`}>
+                <div className="flex items-center gap-6 mb-4">
+                  <div className={`w-14 h-14 rounded-2xl flex items-center justify-center transition-all ${importDistributionMode !== 'none' && importDistributionMode !== 'balanced' ? 'bg-indigo-600 text-white shadow-lg' : 'bg-gray-50 text-gray-400'}`}>
+                    <UserCheck className="w-6 h-6" />
+                  </div>
+                  <div className="text-left">
+                    <p className="font-black text-sm uppercase tracking-tighter">Vendedor Específico</p>
+                    <p className="text-[10px] font-bold text-gray-400 uppercase">Atribuir toda a carga para um operador</p>
+                  </div>
+                </div>
+                <select 
+                  value={importDistributionMode === 'none' || importDistributionMode === 'balanced' ? '' : importDistributionMode}
+                  onChange={(e) => setImportDistributionMode(e.target.value)}
+                  className="w-full bg-white border-2 border-gray-100 p-4 rounded-2xl font-black text-[10px] uppercase outline-none focus:border-indigo-600"
+                >
+                  <option value="">Escolher Vendedor...</option>
+                  {sellers.map(s => <option key={s.id} value={s.id}>{s.nome} ({s.online ? 'ONLINE' : 'OFFLINE'})</option>)}
+                </select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4 mt-10">
+              <button 
+                onClick={() => setPendingLeads(null)}
+                className="py-6 rounded-3xl font-black uppercase text-xs border-2 border-gray-100 text-gray-400 hover:bg-gray-50 transition-all"
+              >
+                Cancelar
+              </button>
+              <button 
+                onClick={confirmImport}
+                disabled={isImporting || (importDistributionMode !== 'none' && importDistributionMode !== 'balanced' && !importDistributionMode)}
+                className="py-6 rounded-3xl bg-indigo-600 text-white font-black uppercase text-xs shadow-xl shadow-indigo-100 hover:bg-indigo-700 transition-all flex items-center justify-center gap-2"
+              >
+                {isImporting ? <Loader2 className="animate-spin w-4 h-4" /> : 'Confirmar Importação'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
