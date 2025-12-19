@@ -97,21 +97,21 @@ export const AdminView: React.FC<AdminViewProps> = ({
         const ws = wb.Sheets[wb.SheetNames[0]];
         const data = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
 
-        // Melhorado para aceitar linhas que podem ter dados parciais
-        const rawData = data.slice(1).filter(row => row.some(cell => cell !== null && cell !== ''));
+        // Processa todas as linhas, mesmo as com colunas vazias
+        const rawData = data.slice(1).filter(row => row.length > 0 && (row[0] || row[2]));
         
         if (rawData.length === 0) {
-          setNotification({ message: "Planilha sem dados detectados.", type: 'error' });
+          setNotification({ message: "Planilha sem dados válidos.", type: 'error' });
           setIsImporting(false);
           return;
         }
 
         const newLeads = rawData.map((row, i) => {
-          const nome = String(row[0] || '').trim();
-          const concurso = String(row[1] || 'Importado').trim();
+          const nome = String(row[0] || `Lead ${i+1}`).trim();
+          const concurso = String(row[1] || 'Geral').trim();
           const fone = String(row[2] || '').replace(/\D/g, '');
           
-          if (nome && fone.length >= 8) {
+          if (fone.length >= 8) {
             return {
               id: `imp-${Date.now()}-${i}`,
               nome,
@@ -124,18 +124,18 @@ export const AdminView: React.FC<AdminViewProps> = ({
         }).filter(Boolean);
 
         if (newLeads.length === 0) {
-          setNotification({ message: "Nenhum lead válido encontrado (Nome e Telefone obrigatórios).", type: 'error' });
+          setNotification({ message: "Nenhum telefone válido encontrado na planilha.", type: 'error' });
         } else {
-          await onImportLeads(newLeads as any);
+          onImportLeads(newLeads as any);
           setNotification({ 
-            message: `Sucesso! Foram importados ${newLeads.length} leads de ${rawData.length} linhas processadas.`, 
+            message: `Importados ${newLeads.length} de ${rawData.length} leads processados.`, 
             type: 'success' 
           });
         }
         
         if (fileInputRef.current) fileInputRef.current.value = '';
       } catch (err) {
-        setNotification({ message: "Erro ao ler XLSX. Verifique o arquivo.", type: 'error' });
+        setNotification({ message: "Erro crítico ao processar XLSX.", type: 'error' });
       } finally {
         setIsImporting(false);
       }
@@ -148,7 +148,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
     onTransferLeads(transferModal.fromId, targetSellerId);
     setTransferModal(null);
     setTargetSellerId('');
-    setNotification({ message: "Leads transferidos com sucesso!", type: 'success' });
+    setNotification({ message: "Fila de leads transferida!", type: 'success' });
   };
 
   return (
@@ -166,8 +166,8 @@ export const AdminView: React.FC<AdminViewProps> = ({
       {transferModal && (
         <div className="fixed inset-0 z-[210] bg-indigo-950/90 backdrop-blur-xl flex items-center justify-center p-6">
           <div className="bg-white rounded-[4rem] w-full max-w-md p-12 shadow-2xl animate-in zoom-in-95 duration-300">
-            <h3 className="text-2xl font-black text-gray-900 uppercase tracking-tighter italic mb-2 text-center">Transferir Leads</h3>
-            <p className="text-gray-400 text-center text-xs font-bold uppercase mb-8">De: {transferModal.fromName}</p>
+            <h3 className="text-2xl font-black text-gray-900 uppercase tracking-tighter italic mb-2 text-center">Transferir Fila</h3>
+            <p className="text-gray-400 text-center text-xs font-bold uppercase mb-8">Passar leads de: {transferModal.fromName}</p>
             
             <div className="space-y-6">
               <select 
@@ -175,15 +175,15 @@ export const AdminView: React.FC<AdminViewProps> = ({
                 onChange={(e) => setTargetSellerId(e.target.value)}
                 className="w-full bg-gray-50 border-2 border-gray-100 p-6 rounded-3xl font-bold text-sm outline-none focus:border-indigo-600"
               >
-                <option value="">Selecione o destino...</option>
+                <option value="">Escolha o novo vendedor...</option>
                 {sellers.filter(s => s.id !== transferModal.fromId).map(s => (
                   <option key={s.id} value={s.id}>{s.nome} ({s.online ? 'Online' : 'Offline'})</option>
                 ))}
               </select>
 
               <div className="flex gap-4">
-                <button onClick={() => setTransferModal(null)} className="flex-1 py-5 rounded-2xl font-black uppercase text-[10px] border-2 border-gray-100 text-gray-400 hover:bg-gray-50">Cancelar</button>
-                <button onClick={executeTransfer} disabled={!targetSellerId} className="flex-1 py-5 rounded-2xl font-black uppercase text-[10px] bg-indigo-600 text-white shadow-lg hover:bg-indigo-700 disabled:opacity-50">Confirmar</button>
+                <button onClick={() => setTransferModal(null)} className="flex-1 py-5 rounded-2xl font-black uppercase text-[10px] border-2 border-gray-100 text-gray-400">Voltar</button>
+                <button onClick={executeTransfer} disabled={!targetSellerId} className="flex-1 py-5 rounded-2xl font-black uppercase text-[10px] bg-indigo-600 text-white shadow-lg disabled:opacity-50">Transferir Agora</button>
               </div>
             </div>
           </div>
@@ -231,16 +231,16 @@ export const AdminView: React.FC<AdminViewProps> = ({
           {viewMode === 'geral' ? (
             <div className="bg-white rounded-[3.5rem] border-2 border-gray-100 overflow-hidden shadow-sm">
               <div className="px-12 py-10 border-b bg-gray-50/30">
-                <h3 className="font-black text-2xl uppercase tracking-tighter text-indigo-900 italic">Desempenho por Operador</h3>
+                <h3 className="font-black text-2xl uppercase tracking-tighter text-indigo-900 italic">Desempenho da Equipe</h3>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full">
                   <thead className="bg-white text-[11px] uppercase text-gray-400 tracking-widest font-black">
                     <tr>
                       <th className="px-12 py-8 text-left">Vendedor</th>
-                      <th className="px-12 py-8 text-center">Contatos</th>
+                      <th className="px-12 py-8 text-center">Ligações</th>
                       <th className="px-12 py-8 text-center text-orange-600">Leads Pendentes</th>
-                      <th className="px-12 py-8 text-right">Ações</th>
+                      <th className="px-12 py-8 text-right">Controle</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
@@ -255,16 +255,16 @@ export const AdminView: React.FC<AdminViewProps> = ({
                         <td className="px-12 py-8 text-center font-black text-gray-900">{s.totalCalls}</td>
                         <td className="px-12 py-8 text-center">
                           <span className={`px-4 py-1.5 rounded-full font-black text-[10px] ${s.pendingLeads > 0 ? 'bg-orange-100 text-orange-600' : 'bg-gray-100 text-gray-400'}`}>
-                            {s.pendingLeads} {s.pendingLeads === 1 ? 'LEAD' : 'LEADS'}
+                            {s.pendingLeads} PENDENTES
                           </span>
                         </td>
                         <td className="px-12 py-8 text-right">
                           {s.pendingLeads > 0 && (
                             <button 
                               onClick={() => setTransferModal({ fromId: s.id, fromName: s.nome })}
-                              className="flex items-center gap-2 ml-auto bg-gray-100 hover:bg-indigo-600 hover:text-white px-5 py-2.5 rounded-xl font-black text-[9px] uppercase transition-all"
+                              className="bg-gray-100 hover:bg-indigo-600 hover:text-white px-5 py-2.5 rounded-xl font-black text-[9px] uppercase transition-all flex items-center gap-2 ml-auto"
                             >
-                              <MoveRight className="w-3.5 h-3.5" /> Transferir Fila
+                              <MoveRight className="w-3.5 h-3.5" /> Transferir Leads
                             </button>
                           )}
                         </td>
@@ -278,12 +278,12 @@ export const AdminView: React.FC<AdminViewProps> = ({
             <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
               <div className="xl:col-span-3 bg-white rounded-[3.5rem] border-2 border-gray-100 overflow-hidden shadow-sm">
                 <div className="px-12 py-10 border-b flex justify-between items-center bg-gray-50/30">
-                  <h3 className="font-black text-2xl uppercase tracking-tighter text-indigo-900 italic">Logs Individuais</h3>
+                  <h3 className="font-black text-2xl uppercase tracking-tighter text-indigo-900 italic">Histórico de Hoje</h3>
                 </div>
                 <div className="overflow-x-auto max-h-[500px] scrollbar-hide">
                   <table className="w-full">
                     <thead className="bg-white text-[10px] uppercase text-gray-400 tracking-widest font-black sticky top-0 border-b">
-                      <tr><th className="px-12 py-6 text-left">Horário</th><th className="px-12 py-6 text-left">Resultado</th><th className="px-12 py-8 text-right">Player</th></tr>
+                      <tr><th className="px-12 py-6 text-left">Hora</th><th className="px-12 py-6 text-left">Status</th><th className="px-12 py-8 text-right">Ouvir</th></tr>
                     </thead>
                     <tbody className="divide-y divide-gray-50">
                       {timelineCalls.map(c => (
@@ -307,11 +307,11 @@ export const AdminView: React.FC<AdminViewProps> = ({
                 {playingCall ? (
                   <div className="space-y-6 animate-in zoom-in-95 duration-300">
                     <div className="w-20 h-20 bg-indigo-600 rounded-3xl flex items-center justify-center mx-auto shadow-2xl animate-pulse"><Mic2 /></div>
-                    <h4 className="font-black italic uppercase tracking-tighter">Escuta Ativa</h4>
-                    <button className="w-16 h-16 bg-white text-indigo-950 rounded-full flex items-center justify-center mx-auto shadow-xl"><Play fill="currentColor" /></button>
+                    <h4 className="font-black italic uppercase tracking-tighter text-sm">Monitoria Ativa</h4>
+                    <button className="w-16 h-16 bg-white text-indigo-950 rounded-full flex items-center justify-center mx-auto shadow-xl hover:scale-110 active:scale-95 transition-all"><Play fill="currentColor" /></button>
                   </div>
                 ) : (
-                  <p className="text-xs font-black uppercase opacity-30 italic">Selecione uma chamada</p>
+                  <p className="text-xs font-black uppercase opacity-30 italic">Nenhum áudio selecionado</p>
                 )}
               </div>
             </div>
@@ -327,7 +327,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead className="bg-gray-50 text-[11px] uppercase text-gray-400 tracking-widest font-black">
-                <tr><th className="px-12 py-8 text-left">Membro</th><th className="px-12 py-8 text-left">Nível</th><th className="px-12 py-8 text-right">Gerenciar</th></tr>
+                <tr><th className="px-12 py-8 text-left">Nome</th><th className="px-12 py-8 text-left">Função</th><th className="px-12 py-8 text-right">Gerenciar</th></tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {users.map(u => (
@@ -342,21 +342,21 @@ export const AdminView: React.FC<AdminViewProps> = ({
                       </div>
                     </td>
                     <td className="px-12 py-8">
-                      <span className={`text-[10px] font-black px-4 py-1.5 rounded-full uppercase border ${u.tipo === 'adm' ? 'bg-purple-50 text-purple-600' : 'bg-blue-50 text-blue-600'}`}>
-                        {u.tipo === 'adm' ? 'Admin Master' : 'Vendedor'}
+                      <span className={`text-[10px] font-black px-4 py-1.5 rounded-full uppercase border ${u.tipo === 'adm' ? 'bg-purple-50 text-purple-600 border-purple-100' : 'bg-blue-50 text-blue-600 border-blue-100'}`}>
+                        {u.tipo === 'adm' ? 'Admin' : 'Vendedor'}
                       </span>
                     </td>
                     <td className="px-12 py-8 text-right flex items-center justify-end gap-3">
-                      <button onClick={() => onToggleUserStatus(u.id)} className={`p-4 rounded-2xl transition-all ${u.online ? 'bg-green-50 text-green-600' : 'bg-gray-50 text-gray-300'}`} title="Status do Operador">
+                      <button onClick={() => onToggleUserStatus(u.id)} className={`p-4 rounded-2xl transition-all ${u.online ? 'bg-green-50 text-green-600' : 'bg-gray-50 text-gray-300'}`} title="Marcar Online/Offline">
                         <Power className="w-5 h-5" />
                       </button>
                       {u.tipo !== 'adm' && (
-                        <button onClick={() => onPromoteUser(u.id)} className="p-4 bg-amber-50 text-amber-600 hover:bg-amber-600 hover:text-white rounded-2xl transition-all" title="Promover a ADM">
+                        <button onClick={() => onPromoteUser(u.id)} className="p-4 bg-amber-50 text-amber-600 hover:bg-amber-600 hover:text-white rounded-2xl transition-all" title="Tornar Admin">
                           <ShieldCheck className="w-5 h-5" />
                         </button>
                       )}
                       {u.id !== 'master-admin' && (
-                        <button onClick={() => onDeleteUser(u.id)} className="p-4 bg-red-50 text-red-600 hover:bg-red-600 hover:text-white rounded-2xl transition-all" title="Excluir Usuário">
+                        <button onClick={() => onDeleteUser(u.id)} className="p-4 bg-red-50 text-red-600 hover:bg-red-600 hover:text-white rounded-2xl transition-all" title="Excluir Definitivamente">
                           <Trash2 className="w-5 h-5" />
                         </button>
                       )}
@@ -386,7 +386,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
              </div>
              <div className="space-y-4">
                <h3 className="font-black text-3xl uppercase tracking-tighter italic text-indigo-950">Alimentar Base</h3>
-               <p className="text-xs font-black text-gray-400 uppercase tracking-[0.3em]">Clique para selecionar planilha XLSX</p>
+               <p className="text-xs font-black text-gray-400 uppercase tracking-[0.3em]">Clique aqui para subir sua planilha</p>
              </div>
              <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept=".xlsx, .xls" className="hidden" />
           </div>
@@ -396,8 +396,8 @@ export const AdminView: React.FC<AdminViewProps> = ({
                 <ArrowRightLeft className="w-12 h-12" />
              </div>
              <div className="space-y-4">
-               <h3 className="font-black text-3xl uppercase tracking-tighter italic">Distribuir Fila</h3>
-               <p className="text-xs font-black text-indigo-200 uppercase tracking-[0.3em]">Repartir leads livres entre vendedores ON</p>
+               <h3 className="font-black text-3xl uppercase tracking-tighter italic">Distribuir Leads</h3>
+               <p className="text-xs font-black text-indigo-200 uppercase tracking-[0.3em]">Repartir entre vendedores online</p>
              </div>
           </div>
         </div>
@@ -406,12 +406,12 @@ export const AdminView: React.FC<AdminViewProps> = ({
       {activeTab === 'history' && (
         <div className="bg-white rounded-[3.5rem] border-2 border-gray-100 overflow-hidden shadow-sm">
           <div className="p-12 border-b bg-gray-50/50">
-            <h3 className="font-black text-3xl uppercase tracking-tighter text-indigo-950 italic">Logs Globais</h3>
+            <h3 className="font-black text-3xl uppercase tracking-tighter text-indigo-950 italic">Log Universal</h3>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-left">
               <thead className="bg-gray-50 text-[11px] uppercase text-gray-400 tracking-widest font-black">
-                <tr><th className="px-12 py-8">Operador</th><th className="px-12 py-8 text-center">Status</th><th className="px-12 py-8 text-right">Data/Hora</th></tr>
+                <tr><th className="px-12 py-8">Vendedor</th><th className="px-12 py-8 text-center">Status</th><th className="px-12 py-8 text-right">Data/Hora</th></tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {calls.map(c => (
