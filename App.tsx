@@ -9,9 +9,6 @@ import { supabase } from './supabase';
 
 const MASTER_ADMIN_EMAIL = "admin@callmaster.com";
 
-// Função de normalização universal: remove hifens, espaços e força minúsculas.
-const norm = (val: any) => String(val || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
-
 const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [users, setUsers] = useState<User[]>([]);
@@ -25,7 +22,6 @@ const App: React.FC = () => {
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Synchronize data with Supabase
   const fetchData = useCallback(async () => {
     setIsSyncing(true);
     try {
@@ -37,7 +33,7 @@ const App: React.FC = () => {
 
       if (userData.data) {
         setUsers(userData.data.map((u: any) => ({
-          id: norm(u.id),
+          id: u.id, // MANTÉM O ID ORIGINAL (UUID COM HIFENS)
           nome: u.nome || 'Operador',
           email: u.email || '',
           tipo: String(u.tipo || 'vendedor').toLowerCase().includes('adm') ? 'adm' : 'vendedor',
@@ -52,9 +48,8 @@ const App: React.FC = () => {
           nome: l.nome,
           telefone: l.telefone,
           concurso: l.concurso,
-          // Normalizamos o ID de atribuição já no mapeamento inicial
-          assignedTo: l.assigned_to ? norm(l.assigned_to) : null,
-          status: String(l.status || 'PENDING').toUpperCase(),
+          assignedTo: l.assigned_to, // MANTÉM O VALOR BRUTO DO BANCO
+          status: l.status || 'PENDING',
           createdAt: l.created_at
         })));
       }
@@ -63,7 +58,7 @@ const App: React.FC = () => {
         setCalls(callData.data.map((c: any) => ({
           id: c.id,
           leadId: c.lead_id,
-          sellerId: norm(c.seller_id),
+          sellerId: c.seller_id,
           status: c.status,
           durationSeconds: c.duration_seconds,
           timestamp: c.timestamp
@@ -76,7 +71,6 @@ const App: React.FC = () => {
     }
   }, []);
 
-  // Restore user session from Supabase or localStorage
   const restoreSession = useCallback(async (isFirstLoad = false) => {
     if (isFirstLoad) setIsInitialLoading(true);
     try {
@@ -90,17 +84,11 @@ const App: React.FC = () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (session?.user) {
         const userEmail = session.user.email?.toLowerCase().trim();
-        
-        // BUSCA FORENSE: Usamos o e-mail do Auth para encontrar o ID real na tabela 'usuarios'
-        const { data: profile } = await supabase
-          .from('usuarios')
-          .select('*')
-          .eq('email', userEmail)
-          .maybeSingle();
+        const { data: profile } = await supabase.from('usuarios').select('*').eq('email', userEmail).maybeSingle();
 
         if (profile) {
           setCurrentUser({
-            id: norm(profile.id), // ESTE É O ID QUE ESTÁ NOS LEADS (usuarios.id)
+            id: profile.id, // ID ORIGINAL DA TABELA USUARIOS
             nome: profile.nome || 'Operador',
             email: profile.email || '',
             tipo: String(profile.tipo || 'vendedor').toLowerCase().includes('adm') ? 'adm' : 'vendedor',
@@ -124,7 +112,6 @@ const App: React.FC = () => {
     restoreSession(true);
   }, [restoreSession]);
 
-  // Log a call and update lead status
   const handleLogCall = async (call: CallRecord) => {
     const { error: callError } = await supabase.from('calls').insert([{ 
       lead_id: call.leadId, 
@@ -138,7 +125,6 @@ const App: React.FC = () => {
     }
   };
 
-  // Import leads and optionally distribute them
   const handleImportLeads = async (newLeads: Lead[], distributionMode: string) => {
     const activeSellers = users.filter(u => u.tipo === 'vendedor' && u.id !== 'master-admin');
     const leadsToInsert = newLeads.map((l, i) => {
@@ -161,7 +147,6 @@ const App: React.FC = () => {
     await fetchData();
   };
 
-  // Distribute unassigned leads to active sellers
   const handleDistributeLeads = async () => {
     const activeSellers = users.filter(u => u.tipo === 'vendedor' && u.id !== 'master-admin');
     if (activeSellers.length === 0) return alert("Nenhum vendedor disponível.");
@@ -177,7 +162,6 @@ const App: React.FC = () => {
     alert("Leads distribuídos!");
   };
 
-  // Admin handlers for user management
   const handleToggleUserStatus = async (userId: string) => {
     const user = users.find(u => u.id === userId);
     if (!user) return;
@@ -191,7 +175,7 @@ const App: React.FC = () => {
   };
 
   const handleDeleteUser = async (userId: string) => {
-    if (!confirm("Excluir este usuário permanentemente?")) return;
+    if (!confirm("Excluir este usuário?")) return;
     const { error } = await supabase.from('usuarios').delete().eq('id', userId);
     if (!error) await fetchData();
   };
@@ -208,7 +192,7 @@ const App: React.FC = () => {
   if (isInitialLoading) return (
     <div className="min-h-screen bg-indigo-950 flex flex-col items-center justify-center text-white font-sans">
       <Loader2 className="w-12 h-12 animate-spin text-indigo-400 mb-4" />
-      <p className="font-black uppercase italic tracking-widest text-[10px]">Verificando Identidade Real...</p>
+      <p className="font-black uppercase italic tracking-widest text-[10px]">Auditando Identidades...</p>
     </div>
   );
 
@@ -225,12 +209,14 @@ const App: React.FC = () => {
         } catch (err: any) { setError(err.message); }
         finally { setIsSubmitting(false); }
       }} className="w-full max-w-md bg-white p-10 rounded-[3rem] shadow-2xl">
-        <h1 className="text-2xl font-black text-center mb-8 uppercase italic">CallMaster Pro</h1>
-        {error && <div className="bg-red-50 text-red-600 p-4 rounded-xl text-[10px] font-black uppercase mb-4">{error}</div>}
-        <input type="email" placeholder="E-mail" value={email} onChange={e => setEmail(e.target.value)} className="w-full p-4 border-2 rounded-2xl mb-4 font-bold" />
-        <input type="password" placeholder="Senha" value={password} onChange={e => setPassword(e.target.value)} className="w-full p-4 border-2 rounded-2xl mb-6 font-bold" />
-        <button disabled={isSubmitting} className="w-full bg-indigo-600 text-white py-5 rounded-2xl font-black uppercase tracking-widest active:scale-95 transition-all">
-          {isSubmitting ? <Loader2 className="animate-spin mx-auto" /> : 'Entrar'}
+        <h1 className="text-2xl font-black text-center mb-8 uppercase italic tracking-tighter">CallMaster <span className="text-indigo-600">Pro</span></h1>
+        {error && <div className="bg-red-50 text-red-600 p-4 rounded-xl text-[10px] font-black uppercase mb-4 text-center border-2 border-red-100">{error}</div>}
+        <div className="space-y-4">
+          <input type="email" placeholder="E-mail" value={email} onChange={e => setEmail(e.target.value)} className="w-full p-5 bg-gray-50 border-2 border-gray-100 rounded-2xl font-bold outline-none focus:border-indigo-600" />
+          <input type="password" placeholder="Senha" value={password} onChange={e => setPassword(e.target.value)} className="w-full p-5 bg-gray-50 border-2 border-gray-100 rounded-2xl font-bold outline-none focus:border-indigo-600" />
+        </div>
+        <button disabled={isSubmitting} className="w-full bg-indigo-600 text-white py-6 rounded-2xl font-black uppercase tracking-widest active:scale-95 transition-all mt-6 shadow-xl shadow-indigo-200">
+          {isSubmitting ? <Loader2 className="animate-spin mx-auto" /> : 'Entrar no Sistema'}
         </button>
       </form>
     </div>
