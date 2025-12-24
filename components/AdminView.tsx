@@ -47,9 +47,9 @@ export const AdminView: React.FC<AdminViewProps> = ({
   
   const stats = useMemo(() => {
     const totalPending = leads.filter(l => l.status === 'PENDING').length;
-    // Considera unassigned se for nulo OU string vazia
-    const unassignedLeads = leads.filter(l => (!l.assignedTo || l.assignedTo === "") && l.status === 'PENDING').length;
-    const assignedPending = leads.filter(l => l.assignedTo && l.assignedTo !== "" && l.status === 'PENDING').length;
+    // Em UUID, unassigned é estritamente nulo
+    const unassignedLeads = leads.filter(l => !l.assignedTo && l.status === 'PENDING').length;
+    const assignedPending = leads.filter(l => !!l.assignedTo && l.status === 'PENDING').length;
     const completedLeads = leads.filter(l => l.status === 'CALLED').length;
     
     return { totalLeads: leads.length, totalPending, unassignedLeads, assignedPending, completedLeads };
@@ -60,18 +60,19 @@ export const AdminView: React.FC<AdminViewProps> = ({
       const matchesSearch = l.nome.toLowerCase().includes(searchTerm.toLowerCase()) || l.telefone.includes(searchTerm);
       let matchesFilter = true;
       if (leadFilter === 'pending') matchesFilter = l.status === 'PENDING';
-      if (leadFilter === 'assigned') matchesFilter = !!l.assignedTo && l.assignedTo !== "" && l.status === 'PENDING';
-      if (leadFilter === 'unassigned') matchesFilter = (!l.assignedTo || l.assignedTo === "") && l.status === 'PENDING';
+      if (leadFilter === 'assigned') matchesFilter = !!l.assignedTo && l.status === 'PENDING';
+      if (leadFilter === 'unassigned') matchesFilter = !l.assignedTo && l.status === 'PENDING';
       return matchesSearch && matchesFilter;
     });
   }, [leads, searchTerm, leadFilter]);
 
   const sellerPerformance = useMemo(() => {
     return sellers.map(seller => {
-      const sellerCalls = calls.filter(c => String(c.sellerId).toLowerCase() === String(seller.id).toLowerCase());
+      const sellerIdLower = String(seller.id).toLowerCase();
+      const sellerCalls = calls.filter(c => String(c.sellerId).toLowerCase() === sellerIdLower);
       const sellerLeadsCount = leads.filter(l => 
         l.assignedTo && 
-        String(l.assignedTo).toLowerCase() === String(seller.id).toLowerCase() && 
+        String(l.assignedTo).toLowerCase() === sellerIdLower && 
         l.status === 'PENDING'
       ).length;
       return { ...seller, totalCalls: sellerCalls.length, pendingLeads: sellerLeadsCount };
@@ -267,7 +268,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
                         <p className="text-[10px] font-bold text-indigo-600">{l.telefone}</p>
                       </td>
                       <td className="px-10 py-6">
-                        {l.assignedTo && l.assignedTo !== "" ? (
+                        {l.assignedTo ? (
                           <span className="font-black uppercase text-[10px] text-gray-700">
                              {users.find(u => String(u.id).toLowerCase() === String(l.assignedTo).toLowerCase())?.nome || 'Operador'}
                           </span>

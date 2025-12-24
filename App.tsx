@@ -10,10 +10,6 @@ import { supabase } from './supabase';
 const MASTER_ADMIN_EMAIL = "admin@callmaster.com";
 const ADMIN_MASTER_PASSWORD = "gestor_master_2024";
 
-/**
- * COMPONENTE DE BLINDAGEM (AuthenticatedApp)
- * Este componente só é renderizado quando garantimos que 'user' NÃO é null.
- */
 interface AuthenticatedAppProps {
   user: User;
   users: User[];
@@ -87,7 +83,7 @@ const App: React.FC = () => {
 
       if (userData.data) {
         setUsers(userData.data.map((u: any) => ({
-          id: String(u.id),
+          id: String(u.id).trim().toLowerCase(),
           nome: u.nome || 'Operador',
           email: u.email || '',
           tipo: u.tipo === 'adm' ? 'adm' : 'vendedor',
@@ -102,7 +98,7 @@ const App: React.FC = () => {
           nome: l.nome,
           telefone: l.telefone,
           concurso: l.concurso,
-          assignedTo: l.assigned_to || null,
+          assignedTo: l.assigned_to ? String(l.assigned_to).trim().toLowerCase() : null,
           status: l.status || 'PENDING',
           createdAt: l.created_at
         })));
@@ -112,7 +108,7 @@ const App: React.FC = () => {
         setCalls(callData.data.map((c: any) => ({
           id: c.id,
           leadId: c.lead_id,
-          sellerId: c.seller_id,
+          sellerId: String(c.seller_id).trim().toLowerCase(),
           status: c.status,
           durationSeconds: c.duration_seconds,
           timestamp: c.timestamp,
@@ -166,7 +162,7 @@ const App: React.FC = () => {
           const { data: profile } = await supabase.from('usuarios').select('*').eq('id', session.user.id).maybeSingle();
           if (profile) {
             setCurrentUser({
-              id: String(profile.id),
+              id: String(profile.id).trim().toLowerCase(),
               nome: profile.nome || 'Operador',
               email: profile.email || '',
               tipo: profile.tipo === 'adm' ? 'adm' : 'vendedor',
@@ -245,31 +241,83 @@ const App: React.FC = () => {
   };
 
   const handleDistributeLeads = async () => {
-    const activeSellers = users.filter(u => u.tipo === 'vendedor' && u.id.length > 20);
-    if (activeSellers.length === 0) return alert("Erro: Nenhum vendedor ativo encontrado.");
+    // Filtra vendedores excluindo o master-admin da distribuição automática
+    const activeSellers = users.filter(u => u.tipo === 'vendedor' && u.id !== 'master-admin');
+    
+    if (activeSellers.length === 0) {
+      return alert("Erro: Nenhum vendedor cadastrado para receber leads.");
+    }
+    
     setIsSyncing(true);
-    const { data: leadsToDist } = await supabase.from('leads').select('id').or('assigned_to.is.null,assigned_to.eq.""').eq('status', 'PENDING');
-    if (!leadsToDist || leadsToDist.length === 0) { setIsSyncing(false); return alert("Fila Geral vazia."); }
-    const updates = leadsToDist.map((lead, i) => supabase.from('leads').update({ assigned_to: activeSellers[i % activeSellers.length].id }).eq('id', lead.id));
-    await Promise.all(updates);
-    await fetchData();
-    setIsSyncing(false);
+    
+    // IMPORTANTE: Em colunas UUID do Supabase, o valor não atribuído é NULL.
+    // Comparar com string vazia "" causa erro de sintaxe UUID.
+    const { data: leadsToDist, error: fetchErr } = await supabase
+      .from('leads')
+      .select('id')
+      .is('assigned_to', null)
+      .eq('status', 'PENDING');
+
+    if (fetchErr) {
+      setIsSyncing(false);
+      console.error("Erro Supabase:", fetchErr);
+      return alert("Erro ao buscar leads: " + fetchErr.message);
+    }
+
+    if (!leadsToDist || leadsToDist.length === 0) { 
+      setIsSyncing(false); 
+      return alert("Não há leads na Fila Geral para distribuir."); 
+    }
+
+    // Distribuição round-robin
+    const updates = leadsToDist.map((lead, i) => {
+      const targetSeller = activeSellers[i % activeSellers.length];
+      return supabase
+        .from('leads')
+        .update({ assigned_to: targetSeller.id })
+        .eq('id', lead.id);
+    });
+    
+    try {
+      await Promise.all(updates);
+      await fetchData();
+      alert(`Sucesso! ${leadsToDist.length} leads foram distribuídos entre ${activeSellers.length} vendedores.`);
+    } catch (err: any) {
+      alert("Erro durante a distribuição: " + err.message);
+    } finally {
+      setIsSyncing(false);
+    }
   };
 
   const handleImportLeads = async (newLeads: Lead[], distributionMode: string) => {
-    const activeSellers = users.filter(u => u.tipo === 'vendedor' && u.id.length > 20);
+    const activeSellers = users.filter(u => u.tipo === 'vendedor' && u.id !== 'master-admin');
+    
     const leadsToInsert = newLeads.map((l, i) => {
       let assignedTo: string | null = null;
-      if (distributionMode === 'balanced' && activeSellers.length > 0) { assignedTo = activeSellers[i % activeSellers.length].id; }
-      else if (distributionMode.length > 20) { assignedTo = distributionMode; }
-      return { nome: l.nome, concurso: l.concurso || 'Geral', telefone: l.telefone.replace(/\D/g, ''), status: 'PENDING', assigned_to: assignedTo };
+      
+      if (distributionMode === 'balanced' && activeSellers.length > 0) { 
+        assignedTo = activeSellers[i % activeSellers.length].id; 
+      }
+      else if (distributionMode.length > 20) { 
+        assignedTo = distributionMode; 
+      }
+      
+      return { 
+        nome: l.nome, 
+        concurso: l.concurso || 'Geral', 
+        telefone: l.telefone.replace(/\D/g, ''), 
+        status: 'PENDING', 
+        assigned_to: assignedTo 
+      };
     });
+
     const { error } = await supabase.from('leads').insert(leadsToInsert);
     if (error) throw error;
     await fetchData();
   };
 
   const handleTransferLeads = async (from: string, to: string) => {
+    if (!to) return alert("Selecione um destino para a transferência.");
     const { error } = await supabase.from('leads').update({ assigned_to: to }).eq('assigned_to', from).eq('status', 'PENDING');
     if (error) alert(error.message); else await fetchData();
   };

@@ -26,17 +26,19 @@ export const SellerView: React.FC<SellerViewProps> = ({ user, leads, onLogCall }
   const myLeads = useMemo(() => {
     if (!user || !user.id) return [];
     
-    // Normalização rigorosa para comparação de IDs do Supabase
+    // Normalização rigorosa do ID do vendedor atual
     const currentUserId = String(user.id).trim().toLowerCase();
     
     return leads.filter(l => {
+      // Ignora leads finalizados
+      if (l.status !== 'PENDING') return false;
+      
+      // Se o lead não tem ninguém atribuído, não aparece aqui
       if (!l.assignedTo) return false;
       
+      // Compara IDs normalizados para evitar falsos negativos por causa de case-sensitivity ou UUID format
       const assignedId = String(l.assignedTo).trim().toLowerCase();
-      const isAssignedToMe = assignedId === currentUserId;
-      const isPending = l.status === 'PENDING';
-      
-      return isAssignedToMe && isPending;
+      return assignedId === currentUserId;
     });
   }, [leads, user]);
 
@@ -52,12 +54,15 @@ export const SellerView: React.FC<SellerViewProps> = ({ user, leads, onLogCall }
     setPendingLead(null);
     setShowCarrierModal(false);
     setStartTime(Date.now());
+    
+    // Tenta abrir o discador nativo
     window.location.href = `tel:${formattedNumber}`;
   };
 
   const handleStatusSelect = async (status: CallStatus) => {
     if (!activeCallLead || !startTime) return;
     setIsSubmitting(true);
+    
     const duration = Math.floor((Date.now() - startTime) / 1000);
     const newCall: CallRecord = {
       id: crypto.randomUUID(),
@@ -67,12 +72,13 @@ export const SellerView: React.FC<SellerViewProps> = ({ user, leads, onLogCall }
       durationSeconds: duration,
       timestamp: new Date().toISOString()
     };
+    
     try {
       await onLogCall(newCall);
       setActiveCallLead(null);
       setStartTime(null);
     } catch (err) {
-      alert("Erro ao registrar o resultado da chamada.");
+      alert("Erro ao salvar resultado: " + (err instanceof Error ? err.message : "Desconhecido"));
     } finally {
       setIsSubmitting(false);
     }
@@ -97,12 +103,13 @@ export const SellerView: React.FC<SellerViewProps> = ({ user, leads, onLogCall }
           <div className="bg-white rounded-[4rem] w-full max-w-md p-10 shadow-2xl animate-in zoom-in-95 duration-300">
             <div className="text-center space-y-6">
               <h3 className="text-2xl font-black text-gray-900 uppercase italic">Operadora</h3>
+              <p className="text-gray-400 text-[10px] font-black uppercase tracking-widest">Selecione para discagem direta</p>
               <div className="grid grid-cols-1 gap-3">
                 {CARRIERS.map((c) => (
                   <button key={c.name} onClick={() => handleCarrierSelection(c.code)} className={`flex items-center justify-between px-8 py-5 rounded-[2rem] text-white font-black uppercase tracking-widest text-xs transition-all active:scale-95 shadow-lg ${c.color}`}>{c.name} <span className="bg-white/20 px-3 py-1 rounded-full text-[10px]">{c.code}</span></button>
                 ))}
               </div>
-              <button onClick={() => setShowCarrierModal(false)} className="text-gray-400 font-black uppercase text-[10px] tracking-widest pt-4">Fechar</button>
+              <button onClick={() => setShowCarrierModal(false)} className="text-gray-400 font-black uppercase text-[10px] tracking-widest pt-4">Cancelar</button>
             </div>
           </div>
         </div>
@@ -122,7 +129,7 @@ export const SellerView: React.FC<SellerViewProps> = ({ user, leads, onLogCall }
               </div>
               <div className="grid grid-cols-1 gap-4">
                 {isSubmitting ? (
-                  <div className="flex flex-col items-center gap-2">
+                  <div className="flex flex-col items-center gap-2 py-6">
                     <Loader2 className="w-10 h-10 animate-spin text-indigo-600" />
                     <p className="text-[10px] font-black uppercase text-gray-400 italic">Salvando Histórico...</p>
                   </div>
@@ -143,14 +150,14 @@ export const SellerView: React.FC<SellerViewProps> = ({ user, leads, onLogCall }
         {myLeads.length > 0 ? (
           myLeads.map(lead => (
             <div key={lead.id} className="bg-white border-2 border-gray-100 rounded-[2.5rem] p-8 shadow-sm flex items-center justify-between group hover:border-indigo-600 transition-all">
-              <div>
-                <p className="font-black text-gray-900 text-xl tracking-tighter italic uppercase">{lead.nome}</p>
+              <div className="flex-1 mr-4">
+                <p className="font-black text-gray-900 text-xl tracking-tighter italic uppercase truncate">{lead.nome}</p>
                 <div className="flex items-center gap-3 mt-1">
                   <span className="bg-indigo-50 text-indigo-600 px-4 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-tighter">{lead.concurso || 'Fila Geral'}</span>
                   <span className="text-gray-400 font-bold text-sm tracking-tighter">{lead.telefone}</span>
                 </div>
               </div>
-              <button onClick={() => initiateCallSequence(lead)} className="bg-indigo-600 text-white p-6 rounded-[2rem] shadow-xl hover:scale-110 active:scale-90 transition-all">
+              <button onClick={() => initiateCallSequence(lead)} className="bg-indigo-600 text-white p-6 rounded-[2rem] shadow-xl hover:scale-110 active:scale-90 transition-all flex-shrink-0">
                 <Phone className="w-8 h-8" />
               </button>
             </div>
@@ -158,8 +165,8 @@ export const SellerView: React.FC<SellerViewProps> = ({ user, leads, onLogCall }
         ) : (
           <div className="text-center py-40 bg-white border-2 border-dashed border-gray-100 rounded-[4rem]">
             <CheckCircle className="w-16 h-16 text-green-500 mx-auto mb-6 opacity-20" />
-            <p className="text-gray-900 font-black text-xl uppercase italic">Fila Vazia</p>
-            <p className="text-gray-400 font-bold text-xs uppercase tracking-widest mt-2">Aguarde a distribuição de novos leads.</p>
+            <p className="text-gray-900 font-black text-xl uppercase italic">Tudo limpo!</p>
+            <p className="text-gray-400 font-bold text-xs uppercase tracking-widest mt-2 px-8 leading-relaxed">Sua fila pessoal está vazia no momento. Aguarde a distribuição de novos leads pelo gestor.</p>
           </div>
         )}
       </div>
