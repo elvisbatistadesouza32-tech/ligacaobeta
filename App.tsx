@@ -9,12 +9,6 @@ import { supabase } from './supabase';
 
 const MASTER_ADMIN_EMAIL = "admin@callmaster.com";
 
-// Função Universal de Normalização de ID
-const normalizeId = (id: any): string => {
-  if (!id) return "";
-  return String(id).toLowerCase().trim().replace(/[^a-z0-9]/g, '');
-};
-
 const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [users, setUsers] = useState<User[]>([]);
@@ -28,7 +22,7 @@ const App: React.FC = () => {
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Busca de dados com Normalização Imediata
+  // Busca de dados PRESERVANDO OS IDs ORIGINAIS (UUID)
   const fetchData = useCallback(async () => {
     setIsSyncing(true);
     try {
@@ -40,7 +34,7 @@ const App: React.FC = () => {
 
       if (userData.data) {
         setUsers(userData.data.map((u: any) => ({
-          id: normalizeId(u.id), // ID Normalizado
+          id: u.id, // MANTÉM RAW UUID
           nome: u.nome || 'Operador',
           email: u.email || '',
           tipo: String(u.tipo || 'vendedor').toLowerCase().includes('adm') ? 'adm' : 'vendedor',
@@ -55,7 +49,7 @@ const App: React.FC = () => {
           nome: l.nome,
           telefone: l.telefone,
           concurso: l.concurso,
-          assignedTo: normalizeId(l.assigned_to), // ID Normalizado
+          assignedTo: l.assigned_to || null, // MANTÉM RAW UUID
           status: l.status || 'PENDING',
           createdAt: l.created_at
         })));
@@ -65,7 +59,7 @@ const App: React.FC = () => {
         setCalls(callData.data.map((c: any) => ({
           id: c.id,
           leadId: c.lead_id,
-          sellerId: normalizeId(c.seller_id), // ID Normalizado
+          sellerId: c.seller_id,
           status: c.status,
           durationSeconds: c.duration_seconds,
           timestamp: c.timestamp
@@ -78,9 +72,10 @@ const App: React.FC = () => {
     }
   }, []);
 
+  // Realtime listener
   useEffect(() => {
     const channel = supabase
-      .channel('schema-db-changes')
+      .channel('db-changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'leads' }, fetchData)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'usuarios' }, fetchData)
       .subscribe();
@@ -92,7 +87,7 @@ const App: React.FC = () => {
     try {
       const masterSession = localStorage.getItem('cm_master_session');
       if (masterSession === 'active') {
-        setCurrentUser({ id: 'masteradmin', nome: 'Admin Gestor', email: MASTER_ADMIN_EMAIL, tipo: 'adm', online: true });
+        setCurrentUser({ id: '00000000-0000-0000-0000-000000000000', nome: 'Admin Gestor', email: MASTER_ADMIN_EMAIL, tipo: 'adm', online: true });
         await fetchData();
         return;
       }
@@ -104,7 +99,7 @@ const App: React.FC = () => {
 
         if (profile) {
           setCurrentUser({
-            id: normalizeId(profile.id), // ID Normalizado para o sistema React
+            id: profile.id, // USA O ID DO BANCO
             nome: profile.nome || 'Operador',
             email: profile.email || '',
             tipo: String(profile.tipo || 'vendedor').toLowerCase().includes('adm') ? 'adm' : 'vendedor',
@@ -129,7 +124,6 @@ const App: React.FC = () => {
   }, [restoreSession]);
 
   const handleLogCall = async (call: CallRecord) => {
-    // Nota: O Postgres aceita o ID normalizado (sem hifens) se a coluna for UUID
     const { error: callError } = await supabase.from('calls').insert([{ 
       lead_id: call.leadId, 
       seller_id: call.sellerId, 
@@ -142,7 +136,7 @@ const App: React.FC = () => {
   };
 
   const handleImportLeads = async (newLeads: Lead[], distributionMode: string) => {
-    const activeSellers = users.filter(u => u.tipo === 'vendedor' && u.id !== 'masteradmin');
+    const activeSellers = users.filter(u => u.tipo === 'vendedor');
     const leadsToInsert = newLeads.map((l, i) => {
       let assignedTo: any = null;
       if (distributionMode === 'balanced' && activeSellers.length > 0) {
@@ -163,16 +157,16 @@ const App: React.FC = () => {
   };
 
   const handleDistributeLeads = async () => {
-    const activeSellers = users.filter(u => u.tipo === 'vendedor' && u.id !== 'masteradmin');
-    if (activeSellers.length === 0) return alert("Nenhum vendedor disponível.");
+    const activeSellers = users.filter(u => u.tipo === 'vendedor' && u.online);
+    if (activeSellers.length === 0) return alert("Nenhum vendedor ONLINE disponível.");
     
     const { data: unassigned } = await supabase
       .from('leads')
       .select('id')
-      .or('assigned_to.is.null,assigned_to.eq.""')
+      .is('assigned_to', null)
       .eq('status', 'PENDING');
     
-    if (!unassigned || unassigned.length === 0) return alert("A Fila Geral está vazia.");
+    if (!unassigned || unassigned.length === 0) return alert("Fila Geral Vazia.");
     
     setIsSyncing(true);
     try {
@@ -181,7 +175,7 @@ const App: React.FC = () => {
         return supabase.from('leads').update({ assigned_to: seller.id }).eq('id', lead.id);
       });
       await Promise.all(updates);
-      alert(`${unassigned.length} leads distribuídos!`);
+      alert(`${unassigned.length} leads distribuídos entre os vendedores online!`);
     } catch (err) {
       alert("Erro na distribuição.");
     } finally {
@@ -213,7 +207,7 @@ const App: React.FC = () => {
   if (isInitialLoading) return (
     <div className="min-h-screen bg-indigo-950 flex flex-col items-center justify-center text-white font-sans">
       <Loader2 className="w-12 h-12 animate-spin text-indigo-400 mb-4" />
-      <p className="font-black uppercase italic tracking-widest text-[10px]">Normalizando Identidades...</p>
+      <p className="font-black uppercase italic tracking-widest text-[10px]">Verificando Credenciais...</p>
     </div>
   );
 
@@ -236,8 +230,8 @@ const App: React.FC = () => {
           <input type="email" placeholder="E-mail" value={email} onChange={e => setEmail(e.target.value)} className="w-full p-5 bg-gray-50 border-2 border-gray-100 rounded-2xl font-bold outline-none focus:border-indigo-600" />
           <input type="password" placeholder="Senha" value={password} onChange={e => setPassword(e.target.value)} className="w-full p-5 bg-gray-50 border-2 border-gray-100 rounded-2xl font-bold outline-none focus:border-indigo-600" />
         </div>
-        <button disabled={isSubmitting} className="w-full bg-indigo-600 text-white py-6 rounded-2xl font-black uppercase tracking-widest active:scale-95 transition-all mt-6">
-          {isSubmitting ? <Loader2 className="animate-spin mx-auto" /> : 'Acessar CallMaster'}
+        <button disabled={isSubmitting} className="w-full bg-indigo-600 text-white py-6 rounded-2xl font-black uppercase tracking-widest active:scale-95 transition-all mt-6 shadow-xl shadow-indigo-100">
+          {isSubmitting ? <Loader2 className="animate-spin mx-auto" /> : 'Entrar Agora'}
         </button>
       </form>
     </div>
