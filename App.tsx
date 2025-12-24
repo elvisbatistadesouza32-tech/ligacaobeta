@@ -4,7 +4,7 @@ import { User, Lead, CallRecord, CallStatus } from './types';
 import { Layout } from './components/Layout';
 import { SellerView } from './components/SellerView';
 import { AdminView } from './components/AdminView';
-import { Loader2, ArrowRight, AlertCircle, Copy } from 'lucide-react';
+import { Loader2, ArrowRight, AlertCircle, RefreshCw } from 'lucide-react';
 import { supabase } from './supabase';
 
 const MASTER_ADMIN_EMAIL = "admin@callmaster.com";
@@ -33,9 +33,9 @@ const App: React.FC = () => {
     
     try {
       const [userData, leadData, callData] = await Promise.all([
-        supabase.from('usuarios').select('*'),
-        supabase.from('leads').select('*'),
-        supabase.from('calls').select('*')
+        supabase.from('usuarios').select('*').order('nome'),
+        supabase.from('leads').select('*').order('created_at', { ascending: false }),
+        supabase.from('calls').select('*').order('timestamp', { ascending: false })
       ]);
 
       if (userData.data) {
@@ -62,7 +62,6 @@ const App: React.FC = () => {
       }
 
       if (callData.data) {
-        // Fix: Map database snake_case fields to CallRecord camelCase properties
         setCalls(callData.data.map((c: any) => ({
           id: c.id,
           leadId: c.lead_id,
@@ -86,16 +85,14 @@ const App: React.FC = () => {
     try {
       const masterSession = localStorage.getItem('cm_master_session');
       if (masterSession === 'active') {
-        if (!currentUser) {
-          setCurrentUser({ 
-            id: 'master-admin', 
-            nome: 'Admin Gestor', 
-            email: MASTER_ADMIN_EMAIL, 
-            tipo: 'adm', 
-            online: true,
-            avatar: `https://ui-avatars.com/api/?name=Admin+Gestor&background=6366f1&color=fff`
-          });
-        }
+        setCurrentUser({ 
+          id: 'master-admin', 
+          nome: 'Admin Gestor', 
+          email: MASTER_ADMIN_EMAIL, 
+          tipo: 'adm', 
+          online: true,
+          avatar: `https://ui-avatars.com/api/?name=Admin+Gestor&background=6366f1&color=fff`
+        });
         await fetchData();
         return;
       }
@@ -130,9 +127,7 @@ const App: React.FC = () => {
               online: true,
               avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(profile.nome)}&background=random`
             });
-            if (!profile.online) {
-              await supabase.from('usuarios').update({ online: true }).eq('id', profile.id);
-            }
+            await supabase.from('usuarios').update({ online: true }).eq('id', profile.id);
           }
         }
         await fetchData();
@@ -142,7 +137,7 @@ const App: React.FC = () => {
     } finally {
       if (isFirstLoad) setIsInitialLoading(false);
     }
-  }, [fetchData, currentUser]);
+  }, [fetchData]);
 
   useEffect(() => {
     restoreSession(true);
@@ -150,11 +145,12 @@ const App: React.FC = () => {
       if (event === 'SIGNED_OUT') {
         localStorage.removeItem('cm_master_session');
         setCurrentUser(null);
-      } else if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+      } else if (event === 'SIGNED_IN') {
         restoreSession(false);
       }
     });
-    const interval = setInterval(() => fetchData(), 60000);
+    // Sincronização automática a cada 30 segundos
+    const interval = setInterval(() => fetchData(), 30000);
     return () => {
       subscription.unsubscribe();
       clearInterval(interval);
@@ -169,7 +165,6 @@ const App: React.FC = () => {
 
     try {
       if (lowerEmail === MASTER_ADMIN_EMAIL.toLowerCase() && password === ADMIN_MASTER_PASSWORD) {
-        await supabase.auth.signInWithPassword({ email: lowerEmail, password }).catch(() => null);
         localStorage.setItem('cm_master_session', 'active');
         setCurrentUser({ 
           id: 'master-admin', 
@@ -179,7 +174,6 @@ const App: React.FC = () => {
           online: true,
           avatar: `https://ui-avatars.com/api/?name=Admin+Gestor&background=6366f1&color=fff`
         });
-        setIsSubmitting(false);
         fetchData();
         return; 
       }
@@ -193,23 +187,12 @@ const App: React.FC = () => {
       } else {
         const { error: loginError } = await supabase.auth.signInWithPassword({ email: lowerEmail, password });
         if (loginError) throw loginError;
-        const { data: profile } = await supabase.from('usuarios').select('*').eq('email', lowerEmail).single();
-        if (!profile) throw new Error("Usuário autenticado mas sem perfil no banco.");
-        setCurrentUser({
-          id: profile.id,
-          nome: profile.nome,
-          email: profile.email,
-          tipo: profile.tipo as 'adm' | 'vendedor',
-          online: true,
-          avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(profile.nome)}&background=random`
-        });
-        await supabase.from('usuarios').update({ online: true }).eq('id', profile.id);
+        restoreSession(false);
       }
     } catch (err: any) {
       setError(err.message === "Invalid login credentials" ? "E-mail ou senha incorretos." : err.message);
     } finally {
       setIsSubmitting(false);
-      fetchData();
     }
   };
 
@@ -232,15 +215,17 @@ const App: React.FC = () => {
     }]);
     if (!callError) {
       await supabase.from('leads').update({ status: 'CALLED' }).eq('id', call.leadId);
-      fetchData();
+      await fetchData();
     } else {
       throw callError;
     }
   };
 
   const handleDistributeLeads = async () => {
-    const activeSellers = users.filter(u => u.online && u.tipo === 'vendedor');
-    if (activeSellers.length === 0) return alert("Não há vendedores ONLINE para receber leads.");
+    // Agora distribui para todos os vendedores cadastrados, não apenas os online, 
+    // para garantir que nenhum lead fique "preso" na fila geral se o admin quiser.
+    const allSellers = users.filter(u => u.tipo === 'vendedor');
+    if (allSellers.length === 0) return alert("Não há vendedores cadastrados para receber leads.");
     
     const { data: freeLeads, error: selectError } = await supabase
       .from('leads')
@@ -252,44 +237,33 @@ const App: React.FC = () => {
     if (!freeLeads || freeLeads.length === 0) return alert("A fila geral está vazia.");
 
     let successCount = 0;
-    let failCount = 0;
-
-    // Executa as atualizações e aguarda cada uma para capturar erros
     for (let i = 0; i < freeLeads.length; i++) {
-      const sellerId = activeSellers[i % activeSellers.length].id;
+      const sellerId = allSellers[i % allSellers.length].id;
       const { error: updateError } = await supabase
         .from('leads')
         .update({ assigned_to: sellerId })
         .eq('id', freeLeads[i].id);
         
-      if (updateError) {
-        console.error("Erro ao atribuir lead:", updateError);
-        failCount++;
-      } else {
-        successCount++;
-      }
+      if (!updateError) successCount++;
     }
 
     await fetchData();
-    
-    if (failCount > 0) {
-      alert(`Distribuição parcial: ${successCount} direcionados, ${failCount} falharam (verifique o banco).`);
-    } else {
-      alert(`Sucesso! ${successCount} leads distribuídos entre ${activeSellers.length} vendedores.`);
-    }
+    alert(`Sucesso! ${successCount} leads distribuídos.`);
   };
 
   const handleImportLeads = async (newLeads: Lead[], distributionMode: 'none' | 'balanced' | string) => {
-    const activeSellers = users.filter(u => u.online && u.tipo === 'vendedor');
+    // Pega todos os vendedores para garantir distribuição mesmo se estiverem offline
+    const allSellers = users.filter(u => u.tipo === 'vendedor');
     
     const leadsToInsert = newLeads.map((l, i) => {
       let assignedTo: string | null = null;
       
-      if (distributionMode === 'balanced' && activeSellers.length > 0) {
-        assignedTo = activeSellers[i % activeSellers.length].id;
+      if (distributionMode === 'balanced' && allSellers.length > 0) {
+        assignedTo = allSellers[i % allSellers.length].id;
       } else if (distributionMode !== 'none' && distributionMode !== 'balanced' && distributionMode) {
-        // Garante que não é o master-admin (que não é UUID)
-        assignedTo = distributionMode === 'master-admin' ? null : distributionMode;
+        // Validação de UUID: IDs de sistema (como 'master-admin') não podem ir para o banco
+        const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-5][0-9a-f]{3}-[089ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(distributionMode);
+        assignedTo = isUUID ? distributionMode : null;
       }
 
       return {
@@ -304,10 +278,7 @@ const App: React.FC = () => {
     if (leadsToInsert.length === 0) return;
 
     const { error: insertError } = await supabase.from('leads').insert(leadsToInsert);
-    if (insertError) {
-      console.error("Erro crítico na importação:", insertError);
-      throw new Error("Falha ao salvar no banco: " + insertError.message);
-    }
+    if (insertError) throw new Error("Erro no banco: " + insertError.message);
     
     await fetchData();
   };
@@ -315,13 +286,13 @@ const App: React.FC = () => {
   const handleTransferLeads = async (fromUserId: string, toUserId: string) => {
     const { error } = await supabase.from('leads').update({ assigned_to: toUserId }).eq('assigned_to', fromUserId).eq('status', 'PENDING');
     if (error) alert("Erro na transferência: " + error.message);
-    else { fetchData(); alert("Fila transferida com sucesso!"); }
+    else { await fetchData(); alert("Fila transferida!"); }
   };
 
   if (isInitialLoading && !currentUser) return (
     <div className="min-h-screen bg-indigo-950 flex flex-col items-center justify-center text-white text-center">
       <Loader2 className="w-12 h-12 animate-spin text-indigo-400 mb-4" />
-      <p className="font-black uppercase tracking-tighter">Conectando ao CallMaster...</p>
+      <p className="font-black uppercase tracking-tighter italic">Sincronizando CallMaster...</p>
     </div>
   );
 
@@ -351,9 +322,9 @@ const App: React.FC = () => {
             </div>
           </div>
           <button type="submit" disabled={isSubmitting} className="w-full bg-indigo-600 text-white py-6 rounded-[2rem] font-black flex items-center justify-center gap-4 active:scale-95 transition-all shadow-xl uppercase text-sm tracking-tighter hover:bg-indigo-700">
-            {isSubmitting ? <Loader2 className="animate-spin" /> : <>{isRegistering ? 'Cadastrar' : 'Entrar na Operação'} <ArrowRight className="w-5" /></>}
+            {isSubmitting ? <Loader2 className="animate-spin" /> : <>{isRegistering ? 'Cadastrar' : 'Entrar'} <ArrowRight className="w-5" /></>}
           </button>
-          <button type="button" onClick={() => {setIsRegistering(!isRegistering); setError('');}} className="w-full text-indigo-600 font-black text-[10px] uppercase tracking-[0.2em]">{isRegistering ? '← Voltar para o Login' : 'Ainda não sou cadastrado'}</button>
+          <button type="button" onClick={() => {setIsRegistering(!isRegistering); setError('');}} className="w-full text-indigo-600 font-black text-[10px] uppercase tracking-[0.2em]">{isRegistering ? '← Voltar para o Login' : 'Criar nova conta'}</button>
         </form>
       </div>
     </div>
@@ -361,6 +332,12 @@ const App: React.FC = () => {
 
   return (
     <Layout user={currentUser} onLogout={handleLogout}>
+       <div className="fixed top-20 right-8 z-[60]">
+         <button onClick={() => fetchData()} className="p-4 bg-white/90 backdrop-blur shadow-lg rounded-full text-indigo-600 hover:rotate-180 transition-all duration-700 border border-indigo-100">
+           <RefreshCw className="w-5 h-5" />
+         </button>
+       </div>
+
       {currentUser.tipo === 'adm' ? (
         <AdminView 
           users={users} leads={leads} calls={calls} 
@@ -371,7 +348,7 @@ const App: React.FC = () => {
             if (u) { await supabase.from('usuarios').update({ online: !u.online }).eq('id', id); fetchData(); }
           }} 
           onPromoteUser={async (id) => { await supabase.from('usuarios').update({ tipo: 'adm' }).eq('id', id); fetchData(); }} 
-          onDeleteUser={async (id) => { if(confirm("Deseja realmente excluir este usuário?")){ await supabase.from('usuarios').delete().eq('id', id); fetchData(); } }}
+          onDeleteUser={async (id) => { if(confirm("Excluir usuário?")){ await supabase.from('usuarios').delete().eq('id', id); fetchData(); } }}
           onTransferLeads={handleTransferLeads}
         />
       ) : (
