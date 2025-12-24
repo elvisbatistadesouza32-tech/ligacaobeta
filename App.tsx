@@ -98,7 +98,6 @@ const App: React.FC = () => {
         if (userEmail === MASTER_ADMIN_EMAIL.toLowerCase()) {
           setCurrentUser({ id: 'master-admin', nome: 'Admin Gestor', email: MASTER_ADMIN_EMAIL, tipo: 'adm', online: true });
         } else {
-          // Busca o perfil usando o ID exato da sessão para garantir integridade do vendedor
           const { data: profile } = await supabase.from('usuarios').select('*').eq('id', session.user.id).maybeSingle();
           if (profile) {
             setCurrentUser({
@@ -110,7 +109,6 @@ const App: React.FC = () => {
             });
             await supabase.from('usuarios').update({ online: true }).eq('id', profile.id);
           } else {
-            // Caso raro: Usuário tem Auth mas não tem perfil (limpeza de banco parcial)
             await handleLogout();
           }
         }
@@ -136,7 +134,6 @@ const App: React.FC = () => {
     try {
       const lowerEmail = email.toLowerCase().trim();
       
-      // Lógica do Admin Master Fixo
       if (lowerEmail === MASTER_ADMIN_EMAIL.toLowerCase() && password === ADMIN_MASTER_PASSWORD) {
         localStorage.setItem('cm_master_session', 'active');
         await restoreSession(false);
@@ -144,11 +141,9 @@ const App: React.FC = () => {
       }
 
       if (isRegistering) {
-        // 1. Criar no Supabase Auth
         const { data: authData, error: signUpError } = await supabase.auth.signUp({ email: lowerEmail, password });
         if (signUpError) throw signUpError;
         
-        // 2. Criar obrigatoriamente com o MESMO ID no banco publico
         if (authData.user) {
           const { error: insertError } = await supabase.from('usuarios').insert([{ 
             id: authData.user.id, 
@@ -160,7 +155,7 @@ const App: React.FC = () => {
           if (insertError) throw insertError;
         }
         
-        alert("Conta criada com sucesso! Faça login para entrar.");
+        alert("Conta criada! Por favor, faça login.");
         setIsRegistering(false);
       } else {
         const { error: loginError } = await supabase.auth.signInWithPassword({ email: lowerEmail, password });
@@ -177,7 +172,9 @@ const App: React.FC = () => {
   const handleLogout = async () => {
     localStorage.removeItem('cm_master_session');
     if (currentUser && currentUser.id !== 'master-admin') {
-      await supabase.from('usuarios').update({ online: false }).eq('id', currentUser.id);
+      try {
+        await supabase.from('usuarios').update({ online: false }).eq('id', currentUser.id);
+      } catch (e) {}
     }
     await supabase.auth.signOut();
     setCurrentUser(null);
@@ -197,13 +194,13 @@ const App: React.FC = () => {
   };
 
   const handleDistributeLeads = async () => {
-    // Apenas vendedores com IDs UUID válidos (ID longo do Auth)
+    // Validar UUIDs: Filtrar apenas IDs que seguem o padrão do Auth (geralmente > 30 chars)
     const activeSellers = users.filter(u => u.tipo === 'vendedor' && u.id.length > 20);
-    if (activeSellers.length === 0) return alert("Erro: Não há vendedores cadastrados com ID válido para receber leads.");
+    if (activeSellers.length === 0) return alert("Erro: Nenhum vendedor ativo com ID válido encontrado.");
     
     setIsSyncing(true);
     
-    // Busca leads pendentes onde assigned_to é NULL ou VAZIO
+    // Buscar leads pendentes que estão REALMENTE sem dono (null ou vazio)
     const { data: leadsToDist, error: fetchError } = await supabase
       .from('leads')
       .select('id')
@@ -212,7 +209,7 @@ const App: React.FC = () => {
     
     if (fetchError || !leadsToDist || leadsToDist.length === 0) {
       setIsSyncing(false);
-      return alert(fetchError ? "Erro no banco: " + fetchError.message : "Não há leads disponíveis na Fila Geral.");
+      return alert(fetchError ? "Erro: " + fetchError.message : "Não há leads para distribuir na Fila Geral.");
     }
 
     const updates = leadsToDist.map((lead, i) => {
@@ -224,7 +221,7 @@ const App: React.FC = () => {
     const successes = results.filter(r => !r.error).length;
 
     await fetchData();
-    alert(`${successes} leads distribuídos entre o time!`);
+    alert(`${successes} leads distribuídos com sucesso!`);
     setIsSyncing(false);
   };
 
@@ -242,26 +239,26 @@ const App: React.FC = () => {
         concurso: l.concurso || 'Geral',
         telefone: l.telefone.replace(/\D/g, ''),
         status: 'PENDING',
-        assigned_to: assignedTo // Enviando NULL se não houver dono, evitando ""
+        assigned_to: assignedTo // Garante que seja NULL e não ""
       };
     });
 
     const { error: insertError } = await supabase.from('leads').insert(leadsToInsert);
-    if (insertError) throw new Error("Falha na importação: " + insertError.message);
+    if (insertError) throw new Error("Erro ao importar: " + insertError.message);
     await fetchData();
   };
 
   const handleTransferLeads = async (fromUserId: string, toUserId: string) => {
-    if (toUserId.length < 20) return alert("O destino deve ser um vendedor ativo.");
+    if (toUserId.length < 20) return alert("Destino inválido.");
     const { error } = await supabase.from('leads').update({ assigned_to: toUserId }).eq('assigned_to', fromUserId).eq('status', 'PENDING');
-    if (error) alert("Erro na transferência: " + error.message);
-    else { await fetchData(); alert("Fila transferida com sucesso!"); }
+    if (error) alert("Erro: " + error.message);
+    else { await fetchData(); alert("Transferência realizada!"); }
   };
 
   if (isInitialLoading) return (
     <div className="min-h-screen bg-indigo-950 flex flex-col items-center justify-center text-white">
       <Loader2 className="w-12 h-12 animate-spin text-indigo-400 mb-4" />
-      <p className="font-black uppercase italic tracking-widest text-[10px]">CallMaster Pro - Inicializando...</p>
+      <p className="font-black uppercase italic tracking-widest text-[10px]">CallMaster Pro - Sincronizando...</p>
     </div>
   );
 

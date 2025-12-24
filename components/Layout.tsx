@@ -10,6 +10,9 @@ interface LayoutProps {
 }
 
 export const Layout: React.FC<LayoutProps> = ({ user, onLogout, children }) => {
+  // Guarde extra para evitar erro de leitura de propriedade de null
+  if (!user) return null;
+
   return (
     <div className="min-h-screen flex flex-col">
       <header className="bg-indigo-600 text-white shadow-lg sticky top-0 z-50">
@@ -20,10 +23,10 @@ export const Layout: React.FC<LayoutProps> = ({ user, onLogout, children }) => {
           </div>
           <div className="flex items-center gap-4">
             <div className="flex flex-col items-end mr-2">
-              <span className="text-sm font-medium">{user.nome}</span>
+              <span className="text-sm font-medium">{user.nome || 'Usuário'}</span>
               <div className="flex items-center gap-1.5">
                  <span className={`w-2 h-2 rounded-full ${user.online ? 'bg-green-400' : 'bg-gray-400'}`}></span>
-                 <span className="text-[10px] uppercase opacity-80">{user.tipo}</span>
+                 <span className="text-[10px] uppercase opacity-80">{user.tipo || 'vendedor'}</span>
               </div>
             </div>
             <button onClick={onLogout} className="p-2 hover:bg-indigo-500 rounded-full transition-colors"><LogOut className="w-5 h-5" /></button>
