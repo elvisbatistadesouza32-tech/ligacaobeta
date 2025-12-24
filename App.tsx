@@ -22,6 +22,7 @@ const App: React.FC = () => {
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // Busca de dados centralizada
   const fetchData = useCallback(async () => {
     setIsSyncing(true);
     try {
@@ -33,7 +34,7 @@ const App: React.FC = () => {
 
       if (userData.data) {
         setUsers(userData.data.map((u: any) => ({
-          id: u.id, // MANTÉM O ID ORIGINAL (UUID COM HIFENS)
+          id: u.id,
           nome: u.nome || 'Operador',
           email: u.email || '',
           tipo: String(u.tipo || 'vendedor').toLowerCase().includes('adm') ? 'adm' : 'vendedor',
@@ -48,7 +49,7 @@ const App: React.FC = () => {
           nome: l.nome,
           telefone: l.telefone,
           concurso: l.concurso,
-          assignedTo: l.assigned_to, // MANTÉM O VALOR BRUTO DO BANCO
+          assignedTo: l.assigned_to,
           status: l.status || 'PENDING',
           createdAt: l.created_at
         })));
@@ -71,6 +72,25 @@ const App: React.FC = () => {
     }
   }, []);
 
+  // Habilitar Realtime para Leads e Usuários
+  useEffect(() => {
+    const channel = supabase
+      .channel('schema-db-changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'leads' }, () => {
+        console.log("Realtime: Atualização detectada em Leads");
+        fetchData();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'usuarios' }, () => {
+        console.log("Realtime: Atualização detectada em Usuários");
+        fetchData();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [fetchData]);
+
   const restoreSession = useCallback(async (isFirstLoad = false) => {
     if (isFirstLoad) setIsInitialLoading(true);
     try {
@@ -88,7 +108,7 @@ const App: React.FC = () => {
 
         if (profile) {
           setCurrentUser({
-            id: profile.id, // ID ORIGINAL DA TABELA USUARIOS
+            id: profile.id,
             nome: profile.nome || 'Operador',
             email: profile.email || '',
             tipo: String(profile.tipo || 'vendedor').toLowerCase().includes('adm') ? 'adm' : 'vendedor',
@@ -121,7 +141,7 @@ const App: React.FC = () => {
     }]);
     if (!callError) {
       await supabase.from('leads').update({ status: 'CALLED' }).eq('id', call.leadId);
-      await fetchData();
+      // fetchData será chamado pelo Realtime
     }
   };
 
@@ -131,7 +151,7 @@ const App: React.FC = () => {
       let assignedTo: any = null;
       if (distributionMode === 'balanced' && activeSellers.length > 0) {
         assignedTo = activeSellers[i % activeSellers.length].id;
-      } else if (distributionMode !== 'none') {
+      } else if (distributionMode !== 'none' && distributionMode.length > 5) {
         assignedTo = distributionMode;
       }
       return {
@@ -139,60 +159,68 @@ const App: React.FC = () => {
         concurso: l.concurso || 'Geral',
         telefone: l.telefone.replace(/\D/g, ''),
         status: 'PENDING',
-        assigned_to: assignedTo
+        assigned_to: assignedTo || null // Garante NULL em vez de string vazia
       };
     });
     const { error } = await supabase.from('leads').insert(leadsToInsert);
     if (error) throw error;
-    await fetchData();
   };
 
   const handleDistributeLeads = async () => {
     const activeSellers = users.filter(u => u.tipo === 'vendedor' && u.id !== 'master-admin');
-    if (activeSellers.length === 0) return alert("Nenhum vendedor disponível.");
-    const { data: unassigned } = await supabase.from('leads').select('id').is('assigned_to', null).eq('status', 'PENDING');
-    if (!unassigned || unassigned.length === 0) return alert("Fila Geral está vazia.");
+    if (activeSellers.length === 0) return alert("Nenhum vendedor disponível para receber leads.");
     
-    const updates = unassigned.map((lead, i) => {
-      const seller = activeSellers[i % activeSellers.length];
-      return supabase.from('leads').update({ assigned_to: seller.id }).eq('id', lead.id);
-    });
-    await Promise.all(updates);
-    await fetchData();
-    alert("Leads distribuídos!");
+    // Busca leads que estão REALMENTE sem dono (null ou vazio)
+    const { data: unassigned, error: fetchErr } = await supabase
+      .from('leads')
+      .select('id')
+      .or('assigned_to.is.null,assigned_to.eq.""')
+      .eq('status', 'PENDING');
+    
+    if (fetchErr) return alert("Erro ao buscar fila geral.");
+    if (!unassigned || unassigned.length === 0) return alert("A Fila Geral está vazia.");
+    
+    setIsSyncing(true);
+    try {
+      const updates = unassigned.map((lead, i) => {
+        const seller = activeSellers[i % activeSellers.length];
+        return supabase.from('leads').update({ assigned_to: seller.id }).eq('id', lead.id);
+      });
+      await Promise.all(updates);
+      alert(`${unassigned.length} leads foram distribuídos entre ${activeSellers.length} vendedores!`);
+    } catch (err) {
+      alert("Erro na distribuição.");
+    } finally {
+      setIsSyncing(false);
+    }
   };
 
   const handleToggleUserStatus = async (userId: string) => {
     const user = users.find(u => u.id === userId);
     if (!user) return;
-    const { error } = await supabase.from('usuarios').update({ online: !user.online }).eq('id', userId);
-    if (!error) await fetchData();
+    await supabase.from('usuarios').update({ online: !user.online }).eq('id', userId);
   };
 
   const handlePromoteUser = async (userId: string) => {
-    const { error } = await supabase.from('usuarios').update({ tipo: 'adm' }).eq('id', userId);
-    if (!error) await fetchData();
+    await supabase.from('usuarios').update({ tipo: 'adm' }).eq('id', userId);
   };
 
   const handleDeleteUser = async (userId: string) => {
-    if (!confirm("Excluir este usuário?")) return;
-    const { error } = await supabase.from('usuarios').delete().eq('id', userId);
-    if (!error) await fetchData();
+    if (!confirm("Excluir este usuário permanentemente?")) return;
+    await supabase.from('usuarios').delete().eq('id', userId);
   };
 
   const handleTransferLeads = async (fromUserId: string, toUserId: string) => {
     if (!toUserId) return;
     const { error } = await supabase.from('leads').update({ assigned_to: toUserId }).eq('assigned_to', fromUserId).eq('status', 'PENDING');
-    if (!error) {
-      await fetchData();
-      alert("Fila transferida!");
-    }
+    if (!error) alert("Fila transferida com sucesso!");
+    else alert("Erro ao transferir fila.");
   };
 
   if (isInitialLoading) return (
     <div className="min-h-screen bg-indigo-950 flex flex-col items-center justify-center text-white font-sans">
       <Loader2 className="w-12 h-12 animate-spin text-indigo-400 mb-4" />
-      <p className="font-black uppercase italic tracking-widest text-[10px]">Auditando Identidades...</p>
+      <p className="font-black uppercase italic tracking-widest text-[10px]">Auditando Identidades e Conexões...</p>
     </div>
   );
 
@@ -225,7 +253,7 @@ const App: React.FC = () => {
   return (
     <Layout user={currentUser} onLogout={async () => { await supabase.auth.signOut(); localStorage.removeItem('cm_master_session'); setCurrentUser(null); }}>
       <div className="fixed top-20 right-8 z-[60]">
-        <button onClick={fetchData} disabled={isSyncing} className={`p-4 bg-white shadow-xl rounded-full text-indigo-600 hover:bg-indigo-50 transition-all border-2 border-indigo-100 ${isSyncing ? 'animate-spin' : ''}`}>
+        <button onClick={fetchData} disabled={isSyncing} title="Sincronizar Manualmente" className={`p-4 bg-white shadow-xl rounded-full text-indigo-600 hover:bg-indigo-50 transition-all border-2 border-indigo-100 ${isSyncing ? 'animate-spin' : ''}`}>
           <RefreshCw className="w-6 h-6" />
         </button>
       </div>

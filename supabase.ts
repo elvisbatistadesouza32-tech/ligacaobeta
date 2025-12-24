@@ -7,29 +7,23 @@ const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYm
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 /**
- * 🛠️ SQL DE CORREÇÃO DEFINITIVA (Execute no SQL Editor do Supabase):
+ * 🛠️ SQL DE CORREÇÃO E REALTIME (Execute no SQL Editor do Supabase):
  * 
- * -- 1. Garantir que a coluna 'id' em usuarios é a chave primária UUID
+ * -- 1. Converter IDs para UUID e Primary Keys
  * ALTER TABLE public.usuarios ALTER COLUMN id TYPE UUID USING id::UUID;
  * ALTER TABLE public.usuarios ADD PRIMARY KEY (id);
  * 
- * -- 2. Limpar a coluna assigned_to de leads (remover lixo/strings vazias)
- * UPDATE public.leads 
- * SET assigned_to = NULL 
- * WHERE assigned_to IS NOT NULL 
- * AND (assigned_to = '' OR assigned_to = 'none' OR length(assigned_to) < 32);
+ * -- 2. Corrigir coluna de atribuição em leads
+ * ALTER TABLE public.leads ALTER COLUMN assigned_to TYPE UUID USING assigned_to::UUID;
  * 
- * -- 3. Forçar a coluna 'assigned_to' a ser UUID real
- * ALTER TABLE public.leads 
- * ALTER COLUMN assigned_to TYPE UUID USING assigned_to::UUID;
+ * -- 3. Limpar strings vazias que quebram o filtro
+ * UPDATE public.leads SET assigned_to = NULL WHERE assigned_to::text = '';
  * 
- * -- 4. Criar o Vínculo de Segurança (Foreign Key)
- * ALTER TABLE public.leads 
- * ADD CONSTRAINT fk_leads_assigned_to 
- * FOREIGN KEY (assigned_to) REFERENCES public.usuarios(id) 
- * ON DELETE SET NULL;
+ * -- 4. Habilitar Realtime para as tabelas principais
+ * ALTER TABLE public.leads REPLICA IDENTITY FULL;
+ * ALTER TABLE public.usuarios REPLICA IDENTITY FULL;
  * 
- * -- 5. Habilitar o Realtime para estas tabelas (Caso não esteja)
- * alter publication supabase_realtime add table leads;
- * alter publication supabase_realtime add table usuarios;
+ * -- 5. Adicionar à publicação de Realtime
+ * DROP PUBLICATION IF EXISTS supabase_realtime;
+ * CREATE PUBLICATION supabase_realtime FOR TABLE public.leads, public.usuarios, public.calls;
  */
