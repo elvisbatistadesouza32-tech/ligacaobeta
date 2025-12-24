@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { User, Lead, CallRecord, CallStatus } from './types';
+import { User, Lead, CallRecord } from './types';
 import { Layout } from './components/Layout';
 import { SellerView } from './components/SellerView';
 import { AdminView } from './components/AdminView';
@@ -9,6 +9,57 @@ import { supabase } from './supabase';
 
 const MASTER_ADMIN_EMAIL = "admin@callmaster.com";
 const ADMIN_MASTER_PASSWORD = "gestor_master_2024";
+
+/**
+ * COMPONENTE DE BLINDAGEM (AuthenticatedApp)
+ * Este componente só é renderizado quando garantimos que 'user' NÃO é null.
+ */
+interface AuthenticatedAppProps {
+  user: User;
+  users: User[];
+  leads: Lead[];
+  calls: CallRecord[];
+  isSyncing: boolean;
+  onRefresh: () => void;
+  onLogout: () => void;
+  onImportLeads: (leads: Lead[], mode: string) => Promise<void>;
+  onDistributeLeads: () => void;
+  onLogCall: (call: CallRecord) => void;
+  onToggleUserStatus: (id: string) => void;
+  onPromoteUser: (id: string) => void;
+  onDeleteUser: (id: string) => void;
+  onTransferLeads: (from: string, to: string) => void;
+}
+
+const AuthenticatedApp: React.FC<AuthenticatedAppProps> = ({ 
+  user, users, leads, calls, isSyncing, onRefresh, onLogout, 
+  onImportLeads, onDistributeLeads, onLogCall, onToggleUserStatus, 
+  onPromoteUser, onDeleteUser, onTransferLeads 
+}) => {
+  return (
+    <Layout user={user} onLogout={onLogout}>
+      <div className="fixed top-20 right-8 z-[60]">
+        <button onClick={onRefresh} disabled={isSyncing} className={`p-4 bg-white shadow-xl rounded-full text-indigo-600 border border-indigo-100 ${isSyncing ? 'animate-spin opacity-50' : 'hover:scale-110 active:scale-90'} transition-all`}>
+          <RefreshCw className="w-5 h-5" />
+        </button>
+      </div>
+
+      {user.tipo === 'adm' ? (
+        <AdminView 
+          users={users} leads={leads} calls={calls} 
+          onImportLeads={onImportLeads} 
+          onDistributeLeads={onDistributeLeads} 
+          onToggleUserStatus={onToggleUserStatus} 
+          onPromoteUser={onPromoteUser} 
+          onDeleteUser={onDeleteUser}
+          onTransferLeads={onTransferLeads}
+        />
+      ) : (
+        <SellerView user={user} leads={leads} onLogCall={onLogCall} />
+      )}
+    </Layout>
+  );
+};
 
 const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -37,9 +88,9 @@ const App: React.FC = () => {
       if (userData.data) {
         setUsers(userData.data.map((u: any) => ({
           id: String(u.id),
-          nome: u.nome,
-          email: u.email,
-          tipo: u.tipo,
+          nome: u.nome || 'Operador',
+          email: u.email || '',
+          tipo: u.tipo === 'adm' ? 'adm' : 'vendedor',
           online: !!u.online,
           avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(u.nome || 'User')}&background=random`
         })));
@@ -75,6 +126,20 @@ const App: React.FC = () => {
     }
   }, []);
 
+  const handleLogout = async () => {
+    const userId = currentUser?.id;
+    localStorage.removeItem('cm_master_session');
+    
+    if (userId && userId !== 'master-admin') {
+      try {
+        await supabase.from('usuarios').update({ online: false }).eq('id', userId);
+      } catch (e) {}
+    }
+    
+    await supabase.auth.signOut();
+    setCurrentUser(null);
+  };
+
   const restoreSession = useCallback(async (isFirstLoad = false) => {
     if (isFirstLoad) setIsInitialLoading(true);
     try {
@@ -102,9 +167,9 @@ const App: React.FC = () => {
           if (profile) {
             setCurrentUser({
               id: String(profile.id),
-              nome: profile.nome,
-              email: profile.email,
-              tipo: profile.tipo as 'adm' | 'vendedor',
+              nome: profile.nome || 'Operador',
+              email: profile.email || '',
+              tipo: profile.tipo === 'adm' ? 'adm' : 'vendedor',
               online: true
             });
             await supabase.from('usuarios').update({ online: true }).eq('id', profile.id);
@@ -143,18 +208,15 @@ const App: React.FC = () => {
       if (isRegistering) {
         const { data: authData, error: signUpError } = await supabase.auth.signUp({ email: lowerEmail, password });
         if (signUpError) throw signUpError;
-        
         if (authData.user) {
-          const { error: insertError } = await supabase.from('usuarios').insert([{ 
+          await supabase.from('usuarios').insert([{ 
             id: authData.user.id, 
             nome: name, 
             email: lowerEmail, 
             tipo: 'vendedor', 
             online: false 
           }]);
-          if (insertError) throw insertError;
         }
-        
         alert("Conta criada! Por favor, faça login.");
         setIsRegistering(false);
       } else {
@@ -167,17 +229,6 @@ const App: React.FC = () => {
     } finally {
       setIsSubmitting(false);
     }
-  };
-
-  const handleLogout = async () => {
-    localStorage.removeItem('cm_master_session');
-    if (currentUser && currentUser.id !== 'master-admin') {
-      try {
-        await supabase.from('usuarios').update({ online: false }).eq('id', currentUser.id);
-      } catch (e) {}
-    }
-    await supabase.auth.signOut();
-    setCurrentUser(null);
   };
 
   const handleLogCall = async (call: CallRecord) => {
@@ -194,65 +245,33 @@ const App: React.FC = () => {
   };
 
   const handleDistributeLeads = async () => {
-    // Validar UUIDs: Filtrar apenas IDs que seguem o padrão do Auth (geralmente > 30 chars)
     const activeSellers = users.filter(u => u.tipo === 'vendedor' && u.id.length > 20);
-    if (activeSellers.length === 0) return alert("Erro: Nenhum vendedor ativo com ID válido encontrado.");
-    
+    if (activeSellers.length === 0) return alert("Erro: Nenhum vendedor ativo encontrado.");
     setIsSyncing(true);
-    
-    // Buscar leads pendentes que estão REALMENTE sem dono (null ou vazio)
-    const { data: leadsToDist, error: fetchError } = await supabase
-      .from('leads')
-      .select('id')
-      .or('assigned_to.is.null,assigned_to.eq.""')
-      .eq('status', 'PENDING');
-    
-    if (fetchError || !leadsToDist || leadsToDist.length === 0) {
-      setIsSyncing(false);
-      return alert(fetchError ? "Erro: " + fetchError.message : "Não há leads para distribuir na Fila Geral.");
-    }
-
-    const updates = leadsToDist.map((lead, i) => {
-      const sellerId = activeSellers[i % activeSellers.length].id;
-      return supabase.from('leads').update({ assigned_to: sellerId }).eq('id', lead.id);
-    });
-
-    const results = await Promise.all(updates);
-    const successes = results.filter(r => !r.error).length;
-
+    const { data: leadsToDist } = await supabase.from('leads').select('id').or('assigned_to.is.null,assigned_to.eq.""').eq('status', 'PENDING');
+    if (!leadsToDist || leadsToDist.length === 0) { setIsSyncing(false); return alert("Fila Geral vazia."); }
+    const updates = leadsToDist.map((lead, i) => supabase.from('leads').update({ assigned_to: activeSellers[i % activeSellers.length].id }).eq('id', lead.id));
+    await Promise.all(updates);
     await fetchData();
-    alert(`${successes} leads distribuídos com sucesso!`);
     setIsSyncing(false);
   };
 
-  const handleImportLeads = async (newLeads: Lead[], distributionMode: 'none' | 'balanced' | string) => {
+  const handleImportLeads = async (newLeads: Lead[], distributionMode: string) => {
     const activeSellers = users.filter(u => u.tipo === 'vendedor' && u.id.length > 20);
     const leadsToInsert = newLeads.map((l, i) => {
       let assignedTo: string | null = null;
-      if (distributionMode === 'balanced' && activeSellers.length > 0) {
-        assignedTo = activeSellers[i % activeSellers.length].id;
-      } else if (distributionMode !== 'none' && distributionMode !== 'balanced' && distributionMode.length > 20) {
-        assignedTo = distributionMode;
-      }
-      return {
-        nome: l.nome,
-        concurso: l.concurso || 'Geral',
-        telefone: l.telefone.replace(/\D/g, ''),
-        status: 'PENDING',
-        assigned_to: assignedTo // Garante que seja NULL e não ""
-      };
+      if (distributionMode === 'balanced' && activeSellers.length > 0) { assignedTo = activeSellers[i % activeSellers.length].id; }
+      else if (distributionMode.length > 20) { assignedTo = distributionMode; }
+      return { nome: l.nome, concurso: l.concurso || 'Geral', telefone: l.telefone.replace(/\D/g, ''), status: 'PENDING', assigned_to: assignedTo };
     });
-
-    const { error: insertError } = await supabase.from('leads').insert(leadsToInsert);
-    if (insertError) throw new Error("Erro ao importar: " + insertError.message);
+    const { error } = await supabase.from('leads').insert(leadsToInsert);
+    if (error) throw error;
     await fetchData();
   };
 
-  const handleTransferLeads = async (fromUserId: string, toUserId: string) => {
-    if (toUserId.length < 20) return alert("Destino inválido.");
-    const { error } = await supabase.from('leads').update({ assigned_to: toUserId }).eq('assigned_to', fromUserId).eq('status', 'PENDING');
-    if (error) alert("Erro: " + error.message);
-    else { await fetchData(); alert("Transferência realizada!"); }
+  const handleTransferLeads = async (from: string, to: string) => {
+    const { error } = await supabase.from('leads').update({ assigned_to: to }).eq('assigned_to', from).eq('status', 'PENDING');
+    if (error) alert(error.message); else await fetchData();
   };
 
   if (isInitialLoading) return (
@@ -272,46 +291,37 @@ const App: React.FC = () => {
         <form onSubmit={handleAuth} className="px-10 pb-12 space-y-6">
           {error && <div className="bg-red-50 text-red-600 p-5 rounded-2xl text-[10px] font-black uppercase text-center border-2 border-red-100">{error}</div>}
           <div className="space-y-4">
-            {isRegistering && (
-              <input type="text" placeholder="Nome do Operador" required value={name} onChange={e => setName(e.target.value)} className="w-full p-5 bg-gray-50 border-2 rounded-2xl outline-none focus:border-indigo-600 font-bold" />
-            )}
-            <input type="email" placeholder="E-mail Corporativo" required value={email} onChange={e => setEmail(e.target.value)} className="w-full p-5 bg-gray-50 border-2 rounded-2xl outline-none focus:border-indigo-600 font-bold" />
-            <input type="password" placeholder="Senha de Acesso" required value={password} onChange={e => setPassword(e.target.value)} className="w-full p-5 bg-gray-50 border-2 rounded-2xl outline-none focus:border-indigo-600 font-bold" />
+            {isRegistering && ( <input type="text" placeholder="Nome" required value={name} onChange={e => setName(e.target.value)} className="w-full p-5 bg-gray-50 border-2 rounded-2xl outline-none focus:border-indigo-600 font-bold" /> )}
+            <input type="email" placeholder="E-mail" required value={email} onChange={e => setEmail(e.target.value)} className="w-full p-5 bg-gray-50 border-2 rounded-2xl outline-none focus:border-indigo-600 font-bold" />
+            <input type="password" placeholder="Senha" required value={password} onChange={e => setPassword(e.target.value)} className="w-full p-5 bg-gray-50 border-2 rounded-2xl outline-none focus:border-indigo-600 font-bold" />
           </div>
           <button type="submit" disabled={isSubmitting} className="w-full bg-indigo-600 text-white py-6 rounded-2xl font-black uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-xl active:scale-95">
             {isSubmitting ? <Loader2 className="animate-spin mx-auto" /> : (isRegistering ? 'Criar Cadastro' : 'Acessar Painel')}
           </button>
-          <button type="button" onClick={() => {setIsRegistering(!isRegistering); setError('');}} className="w-full text-indigo-600 font-black text-[10px] uppercase tracking-widest">{isRegistering ? '← Voltar para Login' : 'Novo Operador? Cadastrar-se'}</button>
+          <button type="button" onClick={() => {setIsRegistering(!isRegistering); setError('');}} className="w-full text-indigo-600 font-black text-[10px] uppercase tracking-widest">{isRegistering ? '← Voltar' : 'Novo Operador?'}</button>
         </form>
       </div>
     </div>
   );
 
   return (
-    <Layout user={currentUser} onLogout={handleLogout}>
-      <div className="fixed top-20 right-8 z-[60]">
-         <button onClick={() => fetchData()} disabled={isSyncing} className={`p-4 bg-white shadow-xl rounded-full text-indigo-600 border border-indigo-100 ${isSyncing ? 'animate-spin opacity-50' : 'hover:scale-110 active:scale-90'} transition-all`}>
-           <RefreshCw className="w-5 h-5" />
-         </button>
-      </div>
-
-      {currentUser.tipo === 'adm' ? (
-        <AdminView 
-          users={users} leads={leads} calls={calls} 
-          onImportLeads={handleImportLeads} 
-          onDistributeLeads={handleDistributeLeads} 
-          onToggleUserStatus={async (id) => {
-            const u = users.find(u => u.id === id);
-            if (u) { await supabase.from('usuarios').update({ online: !u.online }).eq('id', id); await fetchData(); }
-          }} 
-          onPromoteUser={async (id) => { await supabase.from('usuarios').update({ tipo: 'adm' }).eq('id', id); await fetchData(); }} 
-          onDeleteUser={async (id) => { if(confirm("Atenção: Excluir usuário permanentemente?")){ await supabase.from('usuarios').delete().eq('id', id); await fetchData(); } }}
-          onTransferLeads={handleTransferLeads}
-        />
-      ) : (
-        <SellerView user={currentUser} leads={leads} onLogCall={handleLogCall} />
-      )}
-    </Layout>
+    <AuthenticatedApp 
+      key={currentUser.id}
+      user={currentUser}
+      users={users}
+      leads={leads}
+      calls={calls}
+      isSyncing={isSyncing}
+      onRefresh={fetchData}
+      onLogout={handleLogout}
+      onImportLeads={handleImportLeads}
+      onDistributeLeads={handleDistributeLeads}
+      onLogCall={handleLogCall}
+      onToggleUserStatus={async (id) => { const u = users.find(x => x.id === id); if (u) { await supabase.from('usuarios').update({ online: !u.online }).eq('id', id); await fetchData(); } }}
+      onPromoteUser={async (id) => { await supabase.from('usuarios').update({ tipo: 'adm' }).eq('id', id); await fetchData(); }}
+      onDeleteUser={async (id) => { if(confirm("Excluir?")){ await supabase.from('usuarios').delete().eq('id', id); await fetchData(); } }}
+      onTransferLeads={handleTransferLeads}
+    />
   );
 };
 

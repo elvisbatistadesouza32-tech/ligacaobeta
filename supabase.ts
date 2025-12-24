@@ -7,54 +7,24 @@ const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYm
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 /**
- * 🛠️ CÓDIGO PARA COPIAR E COLAR NO SQL EDITOR DO SUPABASE:
+ * 🛠️ SOLUÇÃO DEFINITIVA - SQL PARA O SUPABASE EDITOR:
  * 
- * -- 1. Habilitar extensões necessárias
- * CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+ * -- 1. Garantir que a coluna 'tipo' nunca seja nula e tenha padrão
+ * ALTER TABLE public.usuarios ALTER COLUMN tipo SET DEFAULT 'vendedor';
+ * UPDATE public.usuarios SET tipo = 'vendedor' WHERE tipo IS NULL OR tipo = '';
  * 
- * -- 2. Criar tabela de usuários
- * CREATE TABLE IF NOT EXISTS usuarios (
- *   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
- *   nome TEXT,
- *   email TEXT UNIQUE,
- *   tipo TEXT DEFAULT 'vendedor',
- *   online BOOLEAN DEFAULT false,
- *   created_at TIMESTAMPTZ DEFAULT NOW()
- * );
+ * -- 2. Converter IDs errados para NULL nos leads antes de mudar tipo para UUID
+ * UPDATE public.leads SET assigned_to = NULL 
+ * WHERE assigned_to NOT SIMILAR TO '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}';
  * 
- * -- 3. Criar tabela de leads
- * CREATE TABLE IF NOT EXISTS leads (
- *   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
- *   nome TEXT,
- *   telefone TEXT,
- *   concurso TEXT,
- *   status TEXT DEFAULT 'PENDING',
- *   created_at TIMESTAMPTZ DEFAULT NOW()
- * );
+ * -- 3. Forçar coluna assigned_to para UUID real
+ * ALTER TABLE public.leads ALTER COLUMN assigned_to TYPE UUID USING assigned_to::UUID;
  * 
- * -- 4. REPARO CRÍTICO: Adicionar a coluna 'assigned_to' se ela não existir
- * DO $$ 
- * BEGIN 
- *   IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='leads' AND column_name='assigned_to') THEN
- *     ALTER TABLE leads ADD COLUMN assigned_to UUID REFERENCES usuarios(id) ON DELETE SET NULL;
- *   END IF;
- * END $$;
+ * -- 4. Criar FK correta
+ * ALTER TABLE public.leads DROP CONSTRAINT IF EXISTS leads_assigned_to_fkey;
+ * ALTER TABLE public.leads ADD CONSTRAINT leads_assigned_to_fkey 
+ * FOREIGN KEY (assigned_to) REFERENCES public.usuarios(id) ON DELETE SET NULL;
  * 
- * -- 5. Criar tabela de chamadas
- * CREATE TABLE IF NOT EXISTS calls (
- *   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
- *   lead_id UUID REFERENCES leads(id) ON DELETE CASCADE,
- *   seller_id UUID REFERENCES usuarios(id) ON DELETE SET NULL,
- *   status TEXT NOT NULL,
- *   duration_seconds INTEGER DEFAULT 0,
- *   timestamp TIMESTAMPTZ DEFAULT NOW(),
- *   recording_url TEXT
- * );
- * 
- * -- 6. Configurar Realtime
- * DROP PUBLICATION IF EXISTS supabase_realtime;
- * CREATE PUBLICATION supabase_realtime FOR ALL TABLES;
- * 
- * -- 7. FORÇAR RECARREGAMENTO DO SCHEMA (MUITO IMPORTANTE!)
+ * -- 5. Recarregar cache
  * NOTIFY pgrst, 'reload schema';
  */
