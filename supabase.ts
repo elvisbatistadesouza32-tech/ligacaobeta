@@ -7,26 +7,29 @@ const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYm
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 /**
- * 🚀 COMANDOS SQL OBRIGATÓRIOS (Execute no SQL Editor do Supabase):
+ * 🛠️ SQL DE CORREÇÃO DEFINITIVA (Execute no SQL Editor do Supabase):
  * 
- * -- 1. Transformar 'assigned_to' em UUID real (corrige falhas de filtro)
- * -- Importante: Se houver lixo na coluna, o comando abaixo limpa para NULL antes
+ * -- 1. Garantir que a coluna 'id' em usuarios é a chave primária UUID
+ * ALTER TABLE public.usuarios ALTER COLUMN id TYPE UUID USING id::UUID;
+ * ALTER TABLE public.usuarios ADD PRIMARY KEY (id);
+ * 
+ * -- 2. Limpar a coluna assigned_to de leads (remover lixo/strings vazias)
  * UPDATE public.leads 
  * SET assigned_to = NULL 
  * WHERE assigned_to IS NOT NULL 
- * AND assigned_to !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$';
+ * AND (assigned_to = '' OR assigned_to = 'none' OR length(assigned_to) < 32);
  * 
- * -- 2. Alterar o tipo da coluna definitivamente
+ * -- 3. Forçar a coluna 'assigned_to' a ser UUID real
  * ALTER TABLE public.leads 
  * ALTER COLUMN assigned_to TYPE UUID USING assigned_to::UUID;
  * 
- * -- 3. Adicionar a Chave Estrangeira para garantir integridade
+ * -- 4. Criar o Vínculo de Segurança (Foreign Key)
  * ALTER TABLE public.leads 
- * ADD CONSTRAINT leads_assigned_to_fkey 
- * FOREIGN KEY (assigned_to) REFERENCES public.usuarios(id) ON DELETE SET NULL;
+ * ADD CONSTRAINT fk_leads_assigned_to 
+ * FOREIGN KEY (assigned_to) REFERENCES public.usuarios(id) 
+ * ON DELETE SET NULL;
  * 
- * -- 4. Garantir que a coluna 'tipo' nos usuários seja minúscula por padrão
- * ALTER TABLE public.usuarios ALTER COLUMN tipo SET DEFAULT 'vendedor';
- * UPDATE public.usuarios SET tipo = 'vendedor' WHERE tipo IS NULL OR tipo = '';
- * 
+ * -- 5. Habilitar o Realtime para estas tabelas (Caso não esteja)
+ * alter publication supabase_realtime add table leads;
+ * alter publication supabase_realtime add table usuarios;
  */

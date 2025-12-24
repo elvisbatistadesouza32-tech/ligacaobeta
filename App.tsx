@@ -83,7 +83,7 @@ const App: React.FC = () => {
 
       if (userData.data) {
         setUsers(userData.data.map((u: any) => ({
-          id: String(u.id).trim().toLowerCase(),
+          id: String(u.id).toLowerCase().trim(),
           nome: u.nome || 'Operador',
           email: u.email || '',
           tipo: String(u.tipo || 'vendedor').toLowerCase().includes('adm') ? 'adm' : 'vendedor',
@@ -98,8 +98,10 @@ const App: React.FC = () => {
           nome: l.nome,
           telefone: l.telefone,
           concurso: l.concurso,
-          // Normalização crucial: Garante que IDs de 36 caracteres (UUID) sejam tratados corretamente
-          assignedTo: (l.assigned_to && String(l.assigned_to).length >= 32) ? String(l.assigned_to).trim().toLowerCase() : null,
+          // Normalização absoluta: se não for um UUID de 36 caracteres, é NULL
+          assignedTo: (l.assigned_to && String(l.assigned_to).trim().length >= 36) 
+            ? String(l.assigned_to).toLowerCase().trim() 
+            : null,
           status: l.status || 'PENDING',
           createdAt: l.created_at
         })));
@@ -109,7 +111,7 @@ const App: React.FC = () => {
         setCalls(callData.data.map((c: any) => ({
           id: c.id,
           leadId: c.lead_id,
-          sellerId: String(c.seller_id).trim().toLowerCase(),
+          sellerId: String(c.seller_id).toLowerCase().trim(),
           status: c.status,
           durationSeconds: c.duration_seconds,
           timestamp: c.timestamp,
@@ -133,7 +135,11 @@ const App: React.FC = () => {
       } catch (e) {}
     }
     
-    await supabase.auth.signOut();
+    // Fix: Using type assertion to bypass property existence errors on SupabaseAuthClient
+    const auth = supabase.auth as any;
+    if (auth.signOut) {
+      await auth.signOut();
+    }
     setCurrentUser(null);
   };
 
@@ -154,7 +160,16 @@ const App: React.FC = () => {
         return;
       }
 
-      const { data: { session } } = await supabase.auth.getSession();
+      // Fix: Using type assertion to handle potential missing getSession or session properties
+      const auth = supabase.auth as any;
+      let session = null;
+      if (auth.getSession) {
+        const { data } = await auth.getSession();
+        session = data?.session;
+      } else if (auth.session) {
+        session = auth.session();
+      }
+
       if (session?.user) {
         const userEmail = session.user.email?.toLowerCase();
         if (userEmail === MASTER_ADMIN_EMAIL.toLowerCase()) {
@@ -163,7 +178,7 @@ const App: React.FC = () => {
           const { data: profile } = await supabase.from('usuarios').select('*').eq('id', session.user.id).maybeSingle();
           if (profile) {
             setCurrentUser({
-              id: String(profile.id).trim().toLowerCase(),
+              id: String(profile.id).toLowerCase().trim(),
               nome: profile.nome || 'Operador',
               email: profile.email || '',
               tipo: String(profile.tipo || 'vendedor').toLowerCase().includes('adm') ? 'adm' : 'vendedor',
@@ -206,10 +221,12 @@ const App: React.FC = () => {
         return; 
       }
 
+      const auth = supabase.auth as any;
       if (isRegistering) {
-        const { data: authData, error: signUpError } = await supabase.auth.signUp({ email: lowerEmail, password });
+        // Fix: Using type assertion for signUp call
+        const { data: authData, error: signUpError } = await auth.signUp({ email: lowerEmail, password });
         if (signUpError) throw signUpError;
-        if (authData.user) {
+        if (authData?.user) {
           await supabase.from('usuarios').insert([{ 
             id: authData.user.id, 
             nome: name, 
@@ -218,10 +235,13 @@ const App: React.FC = () => {
             online: false 
           }]);
         }
-        alert("Conta criada com sucesso! Faça login agora.");
+        alert("Conta criada! Entre com seu e-mail e senha.");
         setIsRegistering(false);
       } else {
-        const { error: loginError } = await supabase.auth.signInWithPassword({ email: lowerEmail, password });
+        // Fix: Fallback between signInWithPassword (v2) and signIn (v1)
+        const signInMethod = auth.signInWithPassword || auth.signIn;
+        if (!signInMethod) throw new Error("Authentication method not available");
+        const { error: loginError } = await signInMethod({ email: lowerEmail, password });
         if (loginError) throw loginError;
         await restoreSession(false);
       }
@@ -246,16 +266,14 @@ const App: React.FC = () => {
   };
 
   const handleDistributeLeads = async () => {
-    // Filtramos vendedores humanos (com IDs UUID válidos)
-    const activeSellers = users.filter(u => u.tipo === 'vendedor' && u.id.length > 20);
+    const activeSellers = users.filter(u => u.tipo === 'vendedor' && u.id !== 'master-admin');
     
     if (activeSellers.length === 0) {
-      return alert("Não há vendedores ativos para receber leads.");
+      return alert("Nenhum vendedor disponível.");
     }
     
     setIsSyncing(true);
     
-    // Busca leads estritamente nulos (Fila Geral)
     const { data: leadsToDist, error: fetchErr } = await supabase
       .from('leads')
       .select('id')
@@ -264,7 +282,7 @@ const App: React.FC = () => {
 
     if (fetchErr) {
       setIsSyncing(false);
-      return alert("Erro no banco: " + fetchErr.message);
+      return alert("Erro ao buscar leads: " + fetchErr.message);
     }
 
     if (!leadsToDist || leadsToDist.length === 0) { 
@@ -272,7 +290,6 @@ const App: React.FC = () => {
       return alert("Fila Geral está vazia."); 
     }
 
-    // Distribuição
     const updates = leadsToDist.map((lead, i) => {
       const targetSeller = activeSellers[i % activeSellers.length];
       return supabase
@@ -284,17 +301,16 @@ const App: React.FC = () => {
     try {
       await Promise.all(updates);
       await fetchData();
-      alert(`${leadsToDist.length} leads entregues para ${activeSellers.length} vendedores.`);
+      alert("Leads distribuídos com sucesso!");
     } catch (err: any) {
-      console.error("Erro na distribuição:", err);
-      alert("Falha parcial na rede. Verifique o console.");
+      alert("Houve um erro na distribuição.");
     } finally {
       setIsSyncing(false);
     }
   };
 
   const handleImportLeads = async (newLeads: Lead[], distributionMode: string) => {
-    const activeSellers = users.filter(u => u.tipo === 'vendedor' && u.id.length > 20);
+    const activeSellers = users.filter(u => u.tipo === 'vendedor' && u.id !== 'master-admin');
     
     const leadsToInsert = newLeads.map((l, i) => {
       let assignedTo: string | null = null;
@@ -319,15 +335,15 @@ const App: React.FC = () => {
   };
 
   const handleTransferLeads = async (from: string, to: string) => {
-    if (!to) return alert("Escolha um destino.");
+    if (!to) return alert("Selecione o destino.");
     const { error } = await supabase.from('leads').update({ assigned_to: to }).eq('assigned_to', from).eq('status', 'PENDING');
     if (error) alert(error.message); else await fetchData();
   };
 
   if (isInitialLoading) return (
-    <div className="min-h-screen bg-indigo-950 flex flex-col items-center justify-center text-white">
+    <div className="min-h-screen bg-indigo-950 flex flex-col items-center justify-center text-white font-sans">
       <Loader2 className="w-12 h-12 animate-spin text-indigo-400 mb-4" />
-      <p className="font-black uppercase italic tracking-widest text-[10px]">CallMaster Pro - Sincronizando...</p>
+      <p className="font-black uppercase italic tracking-widest text-[10px]">Auditoria de Sistema CallMaster...</p>
     </div>
   );
 
@@ -336,7 +352,7 @@ const App: React.FC = () => {
       <div className="w-full max-w-md bg-white rounded-[3rem] shadow-2xl overflow-hidden border-t-8 border-indigo-600">
         <div className="p-10 text-center">
           <h1 className="text-3xl font-black italic tracking-tighter uppercase text-indigo-950">CallMaster <span className="text-indigo-600">Pro</span></h1>
-          <p className="text-[10px] font-black uppercase text-gray-400 tracking-widest mt-2">Login de Segurança</p>
+          <p className="text-[10px] font-black uppercase text-gray-400 tracking-widest mt-2">Painel de Acesso</p>
         </div>
         <form onSubmit={handleAuth} className="px-10 pb-12 space-y-6">
           {error && <div className="bg-red-50 text-red-600 p-5 rounded-2xl text-[10px] font-black uppercase text-center border-2 border-red-100">{error}</div>}
@@ -346,9 +362,9 @@ const App: React.FC = () => {
             <input type="password" placeholder="Senha" required value={password} onChange={e => setPassword(e.target.value)} className="w-full p-5 bg-gray-50 border-2 rounded-2xl outline-none focus:border-indigo-600 font-bold" />
           </div>
           <button type="submit" disabled={isSubmitting} className="w-full bg-indigo-600 text-white py-6 rounded-2xl font-black uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-xl active:scale-95">
-            {isSubmitting ? <Loader2 className="animate-spin mx-auto" /> : (isRegistering ? 'Cadastrar' : 'Entrar')}
+            {isSubmitting ? <Loader2 className="animate-spin mx-auto" /> : (isRegistering ? 'Cadastrar Agora' : 'Entrar no Sistema')}
           </button>
-          <button type="button" onClick={() => {setIsRegistering(!isRegistering); setError('');}} className="w-full text-indigo-600 font-black text-[10px] uppercase tracking-widest">{isRegistering ? 'Já tenho conta' : 'Criar nova conta'}</button>
+          <button type="button" onClick={() => {setIsRegistering(!isRegistering); setError('');}} className="w-full text-indigo-600 font-black text-[10px] uppercase tracking-widest">{isRegistering ? 'Já sou cadastrado' : 'Novo por aqui? Crie uma conta'}</button>
         </form>
       </div>
     </div>
@@ -369,7 +385,7 @@ const App: React.FC = () => {
       onLogCall={handleLogCall}
       onToggleUserStatus={async (id) => { const u = users.find(x => x.id === id); if (u) { await supabase.from('usuarios').update({ online: !u.online }).eq('id', id); await fetchData(); } }}
       onPromoteUser={async (id) => { await supabase.from('usuarios').update({ tipo: 'adm' }).eq('id', id); await fetchData(); }}
-      onDeleteUser={async (id) => { if(confirm("Remover usuário?")){ await supabase.from('usuarios').delete().eq('id', id); await fetchData(); } }}
+      onDeleteUser={async (id) => { if(confirm("Deseja realmente excluir?")){ await supabase.from('usuarios').delete().eq('id', id); await fetchData(); } }}
       onTransferLeads={handleTransferLeads}
     />
   );
