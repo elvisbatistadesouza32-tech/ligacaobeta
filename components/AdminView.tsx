@@ -3,7 +3,7 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { User, Lead, CallRecord, CallStatus } from '../types';
 import { 
   Users, PhoneIncoming, Upload, Database, 
-  Play, Clock, ArrowRightLeft, Power, PowerOff, TrendingUp, CheckCircle, XCircle, AlertTriangle, Calendar, Mic2, Loader2, X, ListChecks, Trash2, ShieldCheck, UserPlus, MoveRight, UserCheck, LayoutGrid, BarChart3, Activity
+  Play, Clock, ArrowRightLeft, Power, PowerOff, TrendingUp, CheckCircle, XCircle, AlertTriangle, Calendar, Mic2, Loader2, X, ListChecks, Trash2, ShieldCheck, UserPlus, MoveRight, UserCheck, LayoutGrid, BarChart3, Activity, Info, FileSpreadsheet, List
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, AreaChart, Area } from 'recharts';
 import * as XLSX from 'xlsx';
@@ -46,6 +46,9 @@ export const AdminView: React.FC<AdminViewProps> = ({
 
   const sellers = useMemo(() => users.filter(u => u.tipo === 'vendedor'), [users]);
   const onlineSellers = useMemo(() => sellers.filter(s => s.online), [sellers]);
+  
+  // Leads que ainda não foram atribuídos a ninguém
+  const generalQueueLeads = useMemo(() => leads.filter(l => !l.assignedTo && l.status === 'PENDING').length, [leads]);
 
   const sellerPerformance = useMemo(() => {
     return sellers.map(seller => {
@@ -124,23 +127,46 @@ export const AdminView: React.FC<AdminViewProps> = ({
     const reader = new FileReader();
     reader.onload = async (evt) => {
       try {
-        const bstr = evt.target?.result;
-        const wb = XLSX.read(bstr, { type: 'binary' });
-        const ws = wb.Sheets[wb.SheetNames[0]];
-        const data = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
-        const rawData = data.slice(1).filter(row => row.length > 0 && (row[0] || row[2]));
-        if (rawData.length === 0) { setNotification({ message: "Planilha sem dados válidos.", type: 'error' }); setIsImporting(false); return; }
-        const newLeads = rawData.map((row, i) => {
-          const nome = String(row[0] || `Lead ${i+1}`).trim();
+        const dataArray = evt.target?.result;
+        const workbook = XLSX.read(dataArray, { type: 'binary', cellText: true, cellDates: true });
+        const sheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[sheetName];
+        
+        // raw: false força a leitura do valor formatado como string, evitando notação científica
+        const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, raw: false, defval: "" }) as string[][];
+        
+        // Filtra linhas que tenham pelo menos nome ou telefone
+        const rows = jsonData.slice(1).filter(row => row.length >= 3 && (row[0] || row[2]));
+        
+        if (rows.length === 0) {
+          setNotification({ message: "Planilha sem dados válidos nas 3 primeiras colunas.", type: 'error' });
+          setIsImporting(false);
+          return;
+        }
+
+        const parsedLeads = rows.map((row, idx) => {
+          const nome = String(row[0] || `Lead ${idx + 1}`).trim();
           const concurso = String(row[1] || 'Geral').trim();
+          // Remove tudo que não é número do telefone
           const fone = String(row[2] || '').replace(/\D/g, '');
-          if (fone.length >= 8) return { id: `temp-${i}`, nome, concurso, telefone: fone, status: 'PENDING' };
+          
+          if (fone.length >= 8) {
+            return { id: `temp-${idx}`, nome, concurso, telefone: fone, status: 'PENDING' };
+          }
           return null;
         }).filter(Boolean) as Lead[];
-        if (newLeads.length === 0) setNotification({ message: "Nenhum telefone válido encontrado.", type: 'error' });
-        else setPendingLeads(newLeads);
+
+        if (parsedLeads.length === 0) {
+          setNotification({ message: "Nenhum telefone válido (mín. 8 dígitos) na 3ª coluna.", type: 'error' });
+        } else {
+          setPendingLeads(parsedLeads);
+        }
+      } catch (err) {
+        setNotification({ message: "Erro ao processar arquivo. Certifique-se de que é um .xlsx válido.", type: 'error' });
+      } finally {
+        setIsImporting(false);
         if (fileInputRef.current) fileInputRef.current.value = '';
-      } catch (err) { setNotification({ message: "Erro ao processar XLSX.", type: 'error' }); } finally { setIsImporting(false); }
+      }
     };
     reader.readAsBinaryString(file);
   };
@@ -150,11 +176,13 @@ export const AdminView: React.FC<AdminViewProps> = ({
     setIsImporting(true);
     try {
       await onImportLeads(pendingLeads, importDistributionMode);
-      setNotification({ message: `Sucesso! ${pendingLeads.length} leads injetados.`, type: 'success' });
+      setNotification({ message: `Sucesso! ${pendingLeads.length} leads importados para o banco.`, type: 'success' });
       setPendingLeads(null);
       setImportDistributionMode('none');
+      // Redireciona para stats para ver os novos leads no contador "Fila Geral"
+      setActiveTab('stats');
     } catch (err: any) { 
-      setNotification({ message: `Erro no banco: ${err.message || "Tente novamente"}`, type: 'error' }); 
+      setNotification({ message: `Erro: ${err.message}`, type: 'error' }); 
     } finally { setIsImporting(false); }
   };
 
@@ -176,36 +204,60 @@ export const AdminView: React.FC<AdminViewProps> = ({
         </div>
       )}
 
+      {/* Modal de Preview e Destino */}
       {pendingLeads && (
-        <div className="fixed inset-0 z-[220] bg-indigo-950/95 backdrop-blur-2xl flex items-center justify-center p-6">
-          <div className="bg-white rounded-[4rem] w-full max-w-lg p-12 shadow-2xl animate-in zoom-in-95 duration-300 relative overflow-hidden">
-            <div className="text-center space-y-2 mb-10">
-              <h3 className="text-3xl font-black text-gray-900 uppercase tracking-tighter italic">Destino dos Leads</h3>
-              <p className="text-gray-400 font-bold uppercase text-[10px] tracking-widest">{pendingLeads.length} contatos encontrados</p>
+        <div className="fixed inset-0 z-[220] bg-indigo-950/95 backdrop-blur-2xl flex items-center justify-center p-6 overflow-y-auto">
+          <div className="bg-white rounded-[4rem] w-full max-w-2xl p-10 my-8 shadow-2xl animate-in zoom-in-95 duration-300 relative overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="text-center space-y-2 mb-8">
+              <h3 className="text-3xl font-black text-gray-900 uppercase tracking-tighter italic">Confirmar Importação</h3>
+              <p className="text-gray-400 font-bold uppercase text-[10px] tracking-widest">{pendingLeads.length} contatos prontos para entrar no sistema</p>
             </div>
-            <div className="space-y-4">
-              <button onClick={() => setImportDistributionMode('none')} className={`w-full flex items-center gap-6 p-6 rounded-[2rem] border-2 transition-all ${importDistributionMode === 'none' ? 'border-indigo-600 bg-indigo-50/50' : 'border-gray-100 bg-white'}`}>
-                <div className={`w-14 h-14 rounded-2xl flex items-center justify-center ${importDistributionMode === 'none' ? 'bg-indigo-600 text-white shadow-lg' : 'bg-gray-50 text-gray-400'}`}><LayoutGrid className="w-6 h-6" /></div>
-                <div className="text-left"><p className="font-black text-sm uppercase tracking-tighter">Fila Geral</p><p className="text-[10px] font-bold text-gray-400 uppercase">Ficam disponíveis para todos</p></div>
-              </button>
-              <button onClick={() => setImportDistributionMode('balanced')} className={`w-full flex items-center gap-6 p-6 rounded-[2rem] border-2 transition-all ${importDistributionMode === 'balanced' ? 'border-indigo-600 bg-indigo-50/50' : 'border-gray-100 bg-white'}`}>
-                <div className={`w-14 h-14 rounded-2xl flex items-center justify-center ${importDistributionMode === 'balanced' ? 'bg-indigo-600 text-white shadow-lg' : 'bg-gray-50 text-gray-400'}`}><ArrowRightLeft className="w-6 h-6" /></div>
-                <div className="text-left"><p className="font-black text-sm uppercase tracking-tighter">Divisão Equilibrada</p><p className="text-[10px] font-bold text-gray-400 uppercase">Repartir entre os {onlineSellers.length} ONLINE</p></div>
-              </button>
-              <div className={`w-full p-6 rounded-[2rem] border-2 transition-all ${importDistributionMode !== 'none' && importDistributionMode !== 'balanced' ? 'border-indigo-600 bg-indigo-50/50' : 'border-gray-100 bg-white'}`}>
-                <div className="flex items-center gap-6 mb-4">
-                  <div className={`w-14 h-14 rounded-2xl flex items-center justify-center ${importDistributionMode !== 'none' && importDistributionMode !== 'balanced' ? 'bg-indigo-600 text-white shadow-lg' : 'bg-gray-50 text-gray-400'}`}><UserCheck className="w-6 h-6" /></div>
-                  <div className="text-left"><p className="font-black text-sm uppercase tracking-tighter">Vendedor Específico</p></div>
+
+            <div className="flex-1 overflow-y-auto pr-2 mb-8 space-y-6 scrollbar-hide">
+              <div className="bg-gray-50 rounded-3xl p-6 border-2 border-gray-100">
+                <p className="text-[10px] font-black uppercase text-gray-400 mb-4 tracking-widest flex items-center gap-2"><List className="w-3 h-3"/> Amostra dos Dados:</p>
+                <div className="space-y-2">
+                  {pendingLeads.slice(0, 5).map((l, i) => (
+                    <div key={i} className="flex justify-between items-center text-[11px] font-bold border-b border-gray-200 pb-2">
+                      <span className="text-gray-800 uppercase">{l.nome}</span>
+                      <span className="text-indigo-600 font-mono">{l.telefone}</span>
+                    </div>
+                  ))}
+                  {pendingLeads.length > 5 && <p className="text-center text-[9px] text-gray-400 font-black mt-2">... e mais {pendingLeads.length - 5} contatos</p>}
                 </div>
-                <select value={importDistributionMode === 'none' || importDistributionMode === 'balanced' ? '' : importDistributionMode} onChange={(e) => setImportDistributionMode(e.target.value)} className="w-full bg-white border-2 border-gray-100 p-4 rounded-2xl font-black text-[10px] uppercase outline-none focus:border-indigo-600">
-                  <option value="">Escolher Vendedor...</option>
-                  {sellers.map(s => <option key={s.id} value={s.id}>{s.nome} ({s.online ? 'ON' : 'OFF'})</option>)}
-                </select>
+              </div>
+
+              <div className="space-y-4">
+                <p className="text-[10px] font-black uppercase text-gray-400 tracking-widest ml-4">Onde deseja colocar esses leads?</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <button onClick={() => setImportDistributionMode('none')} className={`flex items-center gap-4 p-5 rounded-3xl border-2 transition-all ${importDistributionMode === 'none' ? 'border-indigo-600 bg-indigo-50/50' : 'border-gray-100 bg-white'}`}>
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${importDistributionMode === 'none' ? 'bg-indigo-600 text-white shadow-lg' : 'bg-gray-50 text-gray-400'}`}><LayoutGrid className="w-5 h-5" /></div>
+                    <div className="text-left leading-none"><p className="font-black text-xs uppercase tracking-tighter">Fila Geral</p><p className="text-[9px] font-bold text-gray-400 uppercase mt-1">Disponível para todos</p></div>
+                  </button>
+                  <button onClick={() => setImportDistributionMode('balanced')} className={`flex items-center gap-4 p-5 rounded-3xl border-2 transition-all ${importDistributionMode === 'balanced' ? 'border-indigo-600 bg-indigo-50/50' : 'border-gray-100 bg-white'}`}>
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${importDistributionMode === 'balanced' ? 'bg-indigo-600 text-white shadow-lg' : 'bg-gray-50 text-gray-400'}`}><ArrowRightLeft className="w-5 h-5" /></div>
+                    <div className="text-left leading-none"><p className="font-black text-xs uppercase tracking-tighter">Equilibrado</p><p className="text-[9px] font-bold text-gray-400 uppercase mt-1">Sellers Online</p></div>
+                  </button>
+                </div>
+                
+                <div className={`w-full p-6 rounded-[2.5rem] border-2 transition-all ${importDistributionMode !== 'none' && importDistributionMode !== 'balanced' ? 'border-indigo-600 bg-indigo-50/50' : 'border-gray-100 bg-white'}`}>
+                   <div className="flex items-center gap-4 mb-3">
+                      <UserCheck className="w-5 h-5 text-indigo-600" />
+                      <p className="font-black text-[10px] uppercase tracking-widest text-gray-800">Atribuir a um Vendedor:</p>
+                   </div>
+                   <select value={importDistributionMode === 'none' || importDistributionMode === 'balanced' ? '' : importDistributionMode} onChange={(e) => setImportDistributionMode(e.target.value)} className="w-full bg-white border-2 border-gray-100 p-4 rounded-2xl font-black text-[11px] uppercase outline-none focus:border-indigo-600">
+                    <option value="">Escolher da lista...</option>
+                    {sellers.map(s => <option key={s.id} value={s.id}>{s.nome} ({s.online ? 'ON' : 'OFF'})</option>)}
+                  </select>
+                </div>
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-4 mt-10">
-              <button onClick={() => setPendingLeads(null)} className="py-6 rounded-3xl font-black uppercase text-xs border-2 border-gray-100 text-gray-400">Cancelar</button>
-              <button onClick={confirmImport} disabled={isImporting} className="py-6 rounded-3xl bg-indigo-600 text-white font-black uppercase text-xs shadow-xl hover:bg-indigo-700 flex items-center justify-center gap-2">{isImporting ? <Loader2 className="animate-spin" /> : 'Confirmar'}</button>
+
+            <div className="grid grid-cols-2 gap-4">
+              <button onClick={() => setPendingLeads(null)} className="py-6 rounded-3xl font-black uppercase text-xs border-2 border-gray-100 text-gray-400 hover:bg-gray-50 transition-all">Cancelar</button>
+              <button onClick={confirmImport} disabled={isImporting} className="py-6 rounded-3xl bg-indigo-600 text-white font-black uppercase text-xs shadow-xl hover:bg-indigo-700 flex items-center justify-center gap-2">
+                {isImporting ? <Loader2 className="animate-spin w-4 h-4" /> : 'Confirmar Importação'}
+              </button>
             </div>
           </div>
         </div>
@@ -213,7 +265,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
 
       {transferModal && (
         <div className="fixed inset-0 z-[210] bg-indigo-950/90 backdrop-blur-xl flex items-center justify-center p-6">
-          <div className="bg-white rounded-[4rem] w-full max-w-md p-12 shadow-2xl animate-in zoom-in-95 duration-300">
+          <div className="bg-white rounded-[4rem] w-full max-md p-12 shadow-2xl animate-in zoom-in-95 duration-300">
             <h3 className="text-2xl font-black text-gray-900 uppercase tracking-tighter italic mb-2 text-center">Transferir Fila</h3>
             <p className="text-gray-400 text-center text-xs font-bold uppercase mb-8">Passar leads de: {transferModal.fromName}</p>
             <div className="space-y-6">
@@ -244,6 +296,17 @@ export const AdminView: React.FC<AdminViewProps> = ({
               <button onClick={() => setViewMode('geral')} className={`px-8 py-3 rounded-xl font-black text-[10px] uppercase transition-all ${viewMode === 'geral' ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-400 hover:text-gray-700'}`}>Geral</button>
               <button onClick={() => setViewMode('individual')} className={`px-8 py-3 rounded-xl font-black text-[10px] uppercase transition-all ${viewMode === 'individual' ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-400 hover:text-gray-700'}`}>Individual</button>
             </div>
+            {viewMode === 'geral' && (
+              <div className="flex items-center gap-4">
+                <div className="px-6 py-3 bg-orange-50 border border-orange-100 rounded-2xl flex items-center gap-3">
+                  <Database className="w-4 h-4 text-orange-500" />
+                  <span className="text-[10px] font-black uppercase text-orange-950 tracking-tighter">Fila Geral: <span className="text-sm font-black">{generalQueueLeads} Leads</span></span>
+                </div>
+                <button onClick={onDistributeLeads} className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-2xl font-black text-[10px] uppercase transition-all shadow-lg active:scale-95 flex items-center gap-2">
+                  <ArrowRightLeft className="w-3.5 h-3.5" /> Distribuir Agora
+                </button>
+              </div>
+            )}
             {viewMode === 'individual' && (
               <select value={selectedSellerId} onChange={(e) => setSelectedSellerId(e.target.value)} className="bg-indigo-50 border-2 border-indigo-100 text-indigo-900 font-black text-[10px] uppercase py-3 px-8 rounded-2xl outline-none">
                 <option value="">Selecionar Vendedor...</option>
@@ -485,31 +548,58 @@ export const AdminView: React.FC<AdminViewProps> = ({
       )}
 
       {activeTab === 'leads' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 animate-in slide-in-from-bottom-5 duration-500">
-          <div className="bg-white p-16 rounded-[4rem] border-2 border-dashed border-gray-200 hover:border-indigo-600 hover:bg-indigo-50/10 flex flex-col items-center text-center gap-8 transition-all group cursor-pointer relative" onClick={() => !isImporting && fileInputRef.current?.click()}>
-             {isImporting && (
-               <div className="absolute inset-0 bg-white/90 backdrop-blur-md z-50 flex flex-col items-center justify-center rounded-[4rem]">
-                 <Loader2 className="w-16 h-16 text-indigo-600 animate-spin mb-6" />
-                 <p className="font-black text-lg uppercase italic tracking-tighter text-indigo-950">Alimentando Base...</p>
-               </div>
-             )}
-             <div className="w-28 h-28 bg-indigo-50 rounded-[3rem] flex items-center justify-center text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white transition-all shadow-xl ring-8 ring-white">
-                <Upload className="w-12 h-12" />
-             </div>
-             <div className="space-y-4">
-               <h3 className="font-black text-3xl uppercase tracking-tighter italic text-indigo-950">Importar Leads</h3>
-               <p className="text-xs font-black text-gray-400 uppercase tracking-[0.3em]">Clique para enviar arquivo XLSX</p>
-             </div>
-             <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept=".xlsx, .xls" className="hidden" />
+        <div className="space-y-6 animate-in slide-in-from-bottom-5 duration-500">
+          {/* Instruções de Formatação */}
+          <div className="bg-indigo-50 border-2 border-indigo-100 rounded-[3rem] p-10 flex flex-col md:flex-row items-center gap-8">
+            <div className="w-20 h-20 bg-indigo-600 rounded-[2rem] flex items-center justify-center text-white shadow-xl flex-shrink-0">
+              <FileSpreadsheet className="w-10 h-10" />
+            </div>
+            <div className="space-y-3">
+              <h4 className="font-black text-lg uppercase italic tracking-tighter text-indigo-950">Formato Obrigatório da Planilha (.XLSX)</h4>
+              <p className="text-xs text-indigo-900/70 font-bold uppercase leading-relaxed">A primeira linha deve ser o cabeçalho. Os dados devem começar na linha 2 seguindo esta ordem:</p>
+              <div className="flex flex-wrap gap-3 mt-4">
+                <div className="bg-white px-5 py-3 rounded-2xl border-2 border-indigo-200 shadow-sm flex items-center gap-3">
+                  <span className="w-6 h-6 bg-indigo-100 text-indigo-600 rounded-lg flex items-center justify-center font-black text-xs">A</span>
+                  <span className="text-[10px] font-black uppercase text-gray-700">Nome do Lead</span>
+                </div>
+                <div className="bg-white px-5 py-3 rounded-2xl border-2 border-indigo-200 shadow-sm flex items-center gap-3">
+                  <span className="w-6 h-6 bg-indigo-100 text-indigo-600 rounded-lg flex items-center justify-center font-black text-xs">B</span>
+                  <span className="text-[10px] font-black uppercase text-gray-700">Concurso/Campanha</span>
+                </div>
+                <div className="bg-white px-5 py-3 rounded-2xl border-2 border-indigo-600 shadow-sm flex items-center gap-3">
+                  <span className="w-6 h-6 bg-indigo-600 text-white rounded-lg flex items-center justify-center font-black text-xs text-white">C</span>
+                  <span className="text-[10px] font-black uppercase text-indigo-600">Telefone (DDD+Número)</span>
+                </div>
+              </div>
+            </div>
           </div>
-          <div className="bg-indigo-600 p-16 rounded-[4rem] text-white flex flex-col items-center text-center gap-8 hover:bg-indigo-700 transition-all shadow-2xl group cursor-pointer" onClick={onDistributeLeads}>
-             <div className="w-28 h-28 bg-white/10 rounded-[3rem] flex items-center justify-center group-hover:scale-110 transition-all shadow-2xl ring-8 ring-white/10">
-                <ArrowRightLeft className="w-12 h-12" />
-             </div>
-             <div className="space-y-4">
-               <h3 className="font-black text-3xl uppercase tracking-tighter italic">Distribuir Fila</h3>
-               <p className="text-xs font-black text-indigo-200 uppercase tracking-[0.3em]">Repartir entre equipe ativa</p>
-             </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+            <div className="bg-white p-16 rounded-[4rem] border-2 border-dashed border-gray-200 hover:border-indigo-600 hover:bg-indigo-50/10 flex flex-col items-center text-center gap-8 transition-all group cursor-pointer relative" onClick={() => !isImporting && fileInputRef.current?.click()}>
+               {isImporting && (
+                 <div className="absolute inset-0 bg-white/90 backdrop-blur-md z-50 flex flex-col items-center justify-center rounded-[4rem]">
+                   <Loader2 className="w-16 h-16 text-indigo-600 animate-spin mb-6" />
+                   <p className="font-black text-lg uppercase italic tracking-tighter text-indigo-950">Validando Planilha...</p>
+                 </div>
+               )}
+               <div className="w-28 h-28 bg-indigo-50 rounded-[3rem] flex items-center justify-center text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white transition-all shadow-xl ring-8 ring-white">
+                  <Upload className="w-12 h-12" />
+               </div>
+               <div className="space-y-4">
+                 <h3 className="font-black text-3xl uppercase tracking-tighter italic text-indigo-950">Escolher Arquivo</h3>
+                 <p className="text-xs font-black text-gray-400 uppercase tracking-[0.3em]">Arraste ou clique aqui (.XLSX)</p>
+               </div>
+               <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept=".xlsx, .xls" className="hidden" />
+            </div>
+            <div className="bg-indigo-600 p-16 rounded-[4rem] text-white flex flex-col items-center text-center gap-8 hover:bg-indigo-700 transition-all shadow-2xl group cursor-pointer" onClick={onDistributeLeads}>
+               <div className="w-28 h-28 bg-white/10 rounded-[3rem] flex items-center justify-center group-hover:scale-110 transition-all shadow-2xl ring-8 ring-white/10">
+                  <ArrowRightLeft className="w-12 h-12" />
+               </div>
+               <div className="space-y-4">
+                 <h3 className="font-black text-3xl uppercase tracking-tighter italic">Distribuir Fila</h3>
+                 <p className="text-xs font-black text-indigo-200 uppercase tracking-[0.3em]">Repartir entre equipe ativa</p>
+               </div>
+            </div>
           </div>
         </div>
       )}
