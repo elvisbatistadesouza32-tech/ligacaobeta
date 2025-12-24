@@ -129,7 +129,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
         const ws = wb.Sheets[wb.SheetNames[0]];
         const data = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
         const rawData = data.slice(1).filter(row => row.length > 0 && (row[0] || row[2]));
-        if (rawData.length === 0) { setNotification({ message: "Planilha vazia.", type: 'error' }); setIsImporting(false); return; }
+        if (rawData.length === 0) { setNotification({ message: "Planilha sem dados válidos.", type: 'error' }); setIsImporting(false); return; }
         const newLeads = rawData.map((row, i) => {
           const nome = String(row[0] || `Lead ${i+1}`).trim();
           const concurso = String(row[1] || 'Geral').trim();
@@ -137,10 +137,10 @@ export const AdminView: React.FC<AdminViewProps> = ({
           if (fone.length >= 8) return { id: `temp-${i}`, nome, concurso, telefone: fone, status: 'PENDING' };
           return null;
         }).filter(Boolean) as Lead[];
-        if (newLeads.length === 0) setNotification({ message: "Telefones inválidos.", type: 'error' });
+        if (newLeads.length === 0) setNotification({ message: "Nenhum telefone válido encontrado.", type: 'error' });
         else setPendingLeads(newLeads);
         if (fileInputRef.current) fileInputRef.current.value = '';
-      } catch (err) { setNotification({ message: "Erro no XLSX.", type: 'error' }); } finally { setIsImporting(false); }
+      } catch (err) { setNotification({ message: "Erro ao processar XLSX.", type: 'error' }); } finally { setIsImporting(false); }
     };
     reader.readAsBinaryString(file);
   };
@@ -153,7 +153,9 @@ export const AdminView: React.FC<AdminViewProps> = ({
       setNotification({ message: `Sucesso! ${pendingLeads.length} leads injetados.`, type: 'success' });
       setPendingLeads(null);
       setImportDistributionMode('none');
-    } catch (err) { setNotification({ message: "Erro no banco.", type: 'error' }); } finally { setIsImporting(false); }
+    } catch (err: any) { 
+      setNotification({ message: `Erro no banco: ${err.message || "Tente novamente"}`, type: 'error' }); 
+    } finally { setIsImporting(false); }
   };
 
   const executeTransfer = () => {

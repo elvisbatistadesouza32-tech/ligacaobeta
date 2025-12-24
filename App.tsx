@@ -25,7 +25,6 @@ const App: React.FC = () => {
   const [successMsg, setSuccessMsg] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Ref para evitar loops de sincronização
   const isFetchingRef = useRef(false);
 
   const fetchData = useCallback(async () => {
@@ -130,7 +129,6 @@ const App: React.FC = () => {
               online: true,
               avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(profile.nome)}&background=random`
             });
-            // Update online status only if necessary
             if (!profile.online) {
               await supabase.from('usuarios').update({ online: true }).eq('id', profile.id);
             }
@@ -147,7 +145,6 @@ const App: React.FC = () => {
 
   useEffect(() => {
     restoreSession(true);
-    
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'SIGNED_OUT') {
         localStorage.removeItem('cm_master_session');
@@ -156,10 +153,7 @@ const App: React.FC = () => {
         restoreSession(false);
       }
     });
-
-    // Sincronização periódica suave em background (cada 60s)
     const interval = setInterval(() => fetchData(), 60000);
-
     return () => {
       subscription.unsubscribe();
       clearInterval(interval);
@@ -192,17 +186,14 @@ const App: React.FC = () => {
       if (isRegistering) {
         const { error: signUpError } = await supabase.auth.signUp({ email: lowerEmail, password });
         if (signUpError) throw signUpError;
-        
         await supabase.from('usuarios').insert([{ nome: name, email: lowerEmail, tipo: 'vendedor', online: false }]);
         setSuccessMsg("Conta criada! Já pode entrar.");
         setIsRegistering(false);
       } else {
         const { error: loginError } = await supabase.auth.signInWithPassword({ email: lowerEmail, password });
         if (loginError) throw loginError;
-
         const { data: profile } = await supabase.from('usuarios').select('*').eq('email', lowerEmail).single();
         if (!profile) throw new Error("Usuário autenticado mas sem perfil no banco.");
-        
         setCurrentUser({
           id: profile.id,
           nome: profile.nome,
@@ -238,7 +229,6 @@ const App: React.FC = () => {
       duration_seconds: call.durationSeconds, 
       recording_url: call.recordingUrl 
     }]);
-
     if (!callError) {
       await supabase.from('leads').update({ status: 'CALLED' }).eq('id', call.leadId);
       fetchData();
@@ -250,15 +240,12 @@ const App: React.FC = () => {
   const handleDistributeLeads = async () => {
     const activeSellers = users.filter(u => u.online && u.tipo === 'vendedor');
     if (activeSellers.length === 0) return alert("Ative vendedores online primeiro.");
-
     const { data: freeLeads } = await supabase.from('leads').select('id').is('assigned_to', null).eq('status', 'PENDING');
     if (!freeLeads || freeLeads.length === 0) return alert("Fila vazia.");
-
     const updates = freeLeads.map((lead, i) => {
       const sellerId = activeSellers[i % activeSellers.length].id;
       return supabase.from('leads').update({ assigned_to: sellerId }).eq('id', lead.id);
     });
-
     await Promise.all(updates);
     fetchData();
     alert("Distribuição concluída!");
@@ -268,27 +255,33 @@ const App: React.FC = () => {
     const activeSellers = users.filter(u => u.online && u.tipo === 'vendedor');
     
     const leadsToInsert = newLeads.map((l, i) => {
-      let assignedTo = null;
+      let assignedTo: string | null = null;
       
       if (distributionMode === 'balanced' && activeSellers.length > 0) {
         assignedTo = activeSellers[i % activeSellers.length].id;
-      } else if (distributionMode !== 'none' && distributionMode !== 'balanced') {
-        assignedTo = distributionMode;
+      } else if (distributionMode !== 'none' && distributionMode !== 'balanced' && distributionMode) {
+        // Validar se o ID não é o master-admin (que não é UUID)
+        assignedTo = distributionMode === 'master-admin' ? null : distributionMode;
       }
 
       return {
         nome: l.nome,
-        concurso: l.concurso,
+        concurso: l.concurso || 'Geral',
         telefone: l.telefone.replace(/\D/g, ''),
         status: 'PENDING',
-        assigned_to: assignedTo
+        assigned_to: assignedTo // Deve ser um UUID ou NULL
       };
     });
 
+    if (leadsToInsert.length === 0) return;
+
     const { error } = await supabase.from('leads').insert(leadsToInsert);
-    if (error) throw error;
+    if (error) {
+      console.error("Erro Supabase Insert:", error);
+      throw new Error(error.message);
+    }
     
-    fetchData();
+    await fetchData();
   };
 
   const handleTransferLeads = async (fromUserId: string, toUserId: string) => {
@@ -297,7 +290,6 @@ const App: React.FC = () => {
     else { fetchData(); alert("Fila transferida!"); }
   };
 
-  // Loader inicial apenas se não houver usuário e estiver carregando
   if (isInitialLoading && !currentUser) return (
     <div className="min-h-screen bg-indigo-950 flex flex-col items-center justify-center text-white text-center">
       <Loader2 className="w-12 h-12 animate-spin text-indigo-400 mb-4" />
@@ -312,7 +304,7 @@ const App: React.FC = () => {
           <h1 className="text-4xl font-black italic tracking-tighter">CallMaster <span className="text-indigo-200">PRO</span></h1>
         </div>
         <form onSubmit={handleAuth} className="p-10 space-y-6">
-          {error && <div className="bg-red-50 text-red-600 p-4 rounded-3xl text-[10px] font-black uppercase text-center border-2 border-red-100">{error}0</div>}
+          {error && <div className="bg-red-50 text-red-600 p-4 rounded-3xl text-[10px] font-black uppercase text-center border-2 border-red-100">{error}</div>}
           {successMsg && <div className="bg-green-50 text-green-700 p-4 rounded-3xl text-[10px] font-black uppercase text-center border-2 border-green-100">{successMsg}</div>}
           <div className="space-y-4">
             {isRegistering && (
