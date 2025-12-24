@@ -98,6 +98,7 @@ const App: React.FC = () => {
           nome: l.nome,
           telefone: l.telefone,
           concurso: l.concurso,
+          // Normalização absoluta do ID de atribuição
           assignedTo: l.assigned_to ? String(l.assigned_to).toLowerCase().trim() : null,
           status: l.status || 'PENDING',
           createdAt: l.created_at
@@ -161,8 +162,6 @@ const App: React.FC = () => {
       if (auth.getSession) {
         const { data } = await auth.getSession();
         session = data?.session;
-      } else if (auth.session) {
-        session = auth.session();
       }
 
       if (session?.user) {
@@ -171,9 +170,9 @@ const App: React.FC = () => {
         if (userEmail === MASTER_ADMIN_EMAIL.toLowerCase()) {
           setCurrentUser({ id: 'master-admin', nome: 'Admin Gestor', email: MASTER_ADMIN_EMAIL, tipo: 'adm', online: true });
         } else {
-          // CORREÇÃO CRÍTICA: Buscar o perfil pelo E-MAIL para obter o ID real do banco (PK da tabela usuarios)
-          // Isso resolve o problema de desalinhamento entre Auth UUID e Primary Key Serial/UUID da tabela usuarios.
-          const { data: profile } = await supabase
+          // CORREÇÃO DEFINITIVA: Buscar o perfil pelo e-mail na tabela 'usuarios'
+          // Ignoramos session.user.id e usamos profile.id (o que realmente está nos leads)
+          const { data: profile, error: profileErr } = await supabase
             .from('usuarios')
             .select('*')
             .eq('email', userEmail)
@@ -181,7 +180,7 @@ const App: React.FC = () => {
 
           if (profile) {
             setCurrentUser({
-              id: String(profile.id).toLowerCase().trim(), // O ID que realmente está nos leads
+              id: String(profile.id).toLowerCase().trim(), // ID real da tabela usuarios
               nome: profile.nome || 'Operador',
               email: profile.email || '',
               tipo: String(profile.tipo || 'vendedor').toLowerCase().includes('adm') ? 'adm' : 'vendedor',
@@ -189,14 +188,14 @@ const App: React.FC = () => {
             });
             await supabase.from('usuarios').update({ online: true }).eq('id', profile.id);
           } else {
-            console.warn("Usuário autenticado mas sem perfil na tabela 'usuarios'.");
+            console.warn("Usuário sem perfil correspondente na tabela public.usuarios.");
             await handleLogout();
           }
         }
         await fetchData();
       }
     } catch (err) {
-      console.error("Erro na restauração de sessão:", err);
+      console.error("Erro na restauração:", err);
     } finally {
       if (isFirstLoad) setIsInitialLoading(false);
     }

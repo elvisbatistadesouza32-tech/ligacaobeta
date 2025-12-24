@@ -26,21 +26,20 @@ export const SellerView: React.FC<SellerViewProps> = ({ user, leads, onLogCall }
   const myLeads = useMemo(() => {
     if (!user || !user.id) return [];
     
-    // Normalização simples e segura
+    // Normalização agressiva do ID do usuário logado
     const currentUserId = String(user.id).trim().toLowerCase();
     
     return leads.filter(l => {
       // Regra 1: O lead deve estar PENDENTE
       if (l.status !== 'PENDING') return false;
       
-      // Regra 2: Comparação direta de IDs sem travas de comprimento
+      // Regra 2: O lead deve estar atribuído
       if (!l.assignedTo) return false;
       
+      // Normalização agressiva do ID atribuído no lead
       const assignedId = String(l.assignedTo).trim().toLowerCase();
       
-      // Debug silencioso para o console caso precise auditar em tempo real
-      // console.log(`Comparando Lead ${l.nome}: Assigned(${assignedId}) vs Me(${currentUserId})`);
-      
+      // Comparação direta de strings normalizadas
       return assignedId === currentUserId;
     });
   }, [leads, user]);
