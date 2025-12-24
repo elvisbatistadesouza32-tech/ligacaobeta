@@ -23,11 +23,15 @@ export const SellerView: React.FC<SellerViewProps> = ({ user, leads, onLogCall }
   const [startTime, setStartTime] = useState<number | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Filtragem robusta: IDs como strings e status normalizado
+  // Filtro otimizado para garantir que leads atribuídos apareçam imediatamente
   const myLeads = useMemo(() => {
     if (!user.id) return [];
+    const currentUserId = String(user.id).toLowerCase().trim();
+    
     return leads.filter(l => {
-      const isAssignedToMe = String(l.assignedTo).toLowerCase() === String(user.id).toLowerCase();
+      if (!l.assignedTo) return false;
+      const assignedId = String(l.assignedTo).toLowerCase().trim();
+      const isAssignedToMe = assignedId === currentUserId;
       const isPending = l.status === 'PENDING';
       return isAssignedToMe && isPending;
     });
@@ -53,7 +57,7 @@ export const SellerView: React.FC<SellerViewProps> = ({ user, leads, onLogCall }
     setIsSubmitting(true);
     const duration = Math.floor((Date.now() - startTime) / 1000);
     const newCall: CallRecord = {
-      id: Math.random().toString(36).substr(2, 9),
+      id: crypto.randomUUID(), // Usando UUID nativo
       leadId: activeCallLead.id,
       sellerId: user.id,
       status,

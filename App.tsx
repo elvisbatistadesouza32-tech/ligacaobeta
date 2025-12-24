@@ -52,7 +52,7 @@ const App: React.FC = () => {
           nome: l.nome,
           telefone: l.telefone,
           concurso: l.concurso,
-          assignedTo: l.assigned_to || null, // Garante NULL em vez de undefined ou ""
+          assignedTo: l.assigned_to || null,
           status: l.status || 'PENDING',
           createdAt: l.created_at
         })));
@@ -99,7 +99,9 @@ const App: React.FC = () => {
         if (userEmail === MASTER_ADMIN_EMAIL.toLowerCase()) {
           setCurrentUser({ id: 'master-admin', nome: 'Admin Gestor', email: MASTER_ADMIN_EMAIL, tipo: 'adm', online: true });
         } else {
-          const { data: profile } = await supabase.from('usuarios').select('*').eq('email', userEmail).maybeSingle();
+          // Busca o perfil do usuário pelo ID do Auth para garantir correspondência exata
+          const { data: profile } = await supabase.from('usuarios').select('*').eq('id', session.user.id).maybeSingle();
+          
           if (profile) {
             setCurrentUser({
               id: profile.id,
@@ -109,6 +111,14 @@ const App: React.FC = () => {
               online: true
             });
             await supabase.from('usuarios').update({ online: true }).eq('id', profile.id);
+          } else {
+            // Caso o perfil não exista (erro de sincronização prévio), tenta buscar por e-mail e corrigir o ID
+            const { data: legacyProfile } = await supabase.from('usuarios').select('*').eq('email', userEmail).maybeSingle();
+            if (legacyProfile) {
+              await supabase.from('usuarios').update({ id: session.user.id, online: true }).eq('email', userEmail);
+              restoreSession(false); // Reinicia para pegar o ID correto
+              return;
+            }
           }
         }
         await fetchData();
@@ -131,19 +141,35 @@ const App: React.FC = () => {
     setError('');
     setIsSubmitting(true);
     try {
-      if (email.toLowerCase() === MASTER_ADMIN_EMAIL.toLowerCase() && password === ADMIN_MASTER_PASSWORD) {
+      const lowerEmail = email.toLowerCase().trim();
+      
+      if (lowerEmail === MASTER_ADMIN_EMAIL.toLowerCase() && password === ADMIN_MASTER_PASSWORD) {
         localStorage.setItem('cm_master_session', 'active');
         await restoreSession(false);
         return; 
       }
+
       if (isRegistering) {
-        const { error: signUpError } = await supabase.auth.signUp({ email, password });
+        // 1. Cria o usuário no Auth
+        const { data: authData, error: signUpError } = await supabase.auth.signUp({ email: lowerEmail, password });
         if (signUpError) throw signUpError;
-        await supabase.from('usuarios').insert([{ nome: name, email: email.toLowerCase(), tipo: 'vendedor', online: false }]);
-        setSuccessMsg("Conta criada! Já pode entrar.");
+        
+        if (authData.user) {
+          // 2. Cria o perfil na tabela usuarios usando o MESMO ID do Auth
+          const { error: profileError } = await supabase.from('usuarios').insert([{ 
+            id: authData.user.id, 
+            nome: name, 
+            email: lowerEmail, 
+            tipo: 'vendedor', 
+            online: false 
+          }]);
+          if (profileError) throw profileError;
+        }
+        
+        setSuccessMsg("Conta criada com sucesso!");
         setIsRegistering(false);
       } else {
-        const { error: loginError } = await supabase.auth.signInWithPassword({ email, password });
+        const { error: loginError } = await supabase.auth.signInWithPassword({ email: lowerEmail, password });
         if (loginError) throw loginError;
         await restoreSession(false);
       }
@@ -177,27 +203,40 @@ const App: React.FC = () => {
   };
 
   const handleDistributeLeads = async () => {
-    const allSellers = users.filter(u => u.tipo === 'vendedor' && u.id.length > 20); // Filtra apenas UUIDs reais
-    if (allSellers.length === 0) return alert("Cadastre vendedores reais para distribuir leads.");
+    // Apenas vendedores com UUID (IDs longos)
+    const allSellers = users.filter(u => u.tipo === 'vendedor' && u.id.length > 20);
+    if (allSellers.length === 0) return alert("Cadastre vendedores para receber leads.");
     
     setIsSyncing(true);
-    // Busca leads que estão REALMENTE sem dono (null ou vazio)
-    const { data: leadsToFix } = await supabase.from('leads').select('id').or('assigned_to.is.null,assigned_to.eq.""').eq('status', 'PENDING');
+    // Busca leads pendentes e sem dono
+    const { data: leadsToFix, error: fetchError } = await supabase
+      .from('leads')
+      .select('id')
+      .or('assigned_to.is.null,assigned_to.eq.""')
+      .eq('status', 'PENDING');
     
+    if (fetchError) {
+       setIsSyncing(false);
+       return alert("Erro ao buscar leads: " + fetchError.message);
+    }
+
     if (!leadsToFix || leadsToFix.length === 0) {
       setIsSyncing(false);
-      return alert("Não há leads na Fila Geral para distribuir.");
+      return alert("Não há leads novos na Fila Geral.");
     }
 
     let successCount = 0;
-    for (let i = 0; i < leadsToFix.length; i++) {
+    // Processamento em lote (simulado via loop com verificação individual)
+    const updates = leadsToFix.map((lead, i) => {
       const sellerId = allSellers[i % allSellers.length].id;
-      const { error } = await supabase.from('leads').update({ assigned_to: sellerId }).eq('id', leadsToFix[i].id);
-      if (!error) successCount++;
-    }
+      return supabase.from('leads').update({ assigned_to: sellerId }).eq('id', lead.id);
+    });
+
+    const results = await Promise.all(updates);
+    successCount = results.filter(r => !r.error).length;
 
     await fetchData();
-    alert(`${successCount} leads entregues com sucesso aos vendedores.`);
+    alert(`${successCount} leads entregues. Os vendedores já podem ver em suas telas.`);
     setIsSyncing(false);
   };
 
@@ -220,7 +259,7 @@ const App: React.FC = () => {
     });
 
     const { error: insertError } = await supabase.from('leads').insert(leadsToInsert);
-    if (insertError) throw new Error("Erro no banco: " + insertError.message);
+    if (insertError) throw new Error("Erro ao importar: " + insertError.message);
     await fetchData();
   };
 
@@ -234,29 +273,30 @@ const App: React.FC = () => {
   if (isInitialLoading) return (
     <div className="min-h-screen bg-indigo-950 flex flex-col items-center justify-center text-white">
       <Loader2 className="w-10 h-10 animate-spin text-indigo-400 mb-4" />
-      <p className="font-black uppercase italic text-xs tracking-widest">Iniciando CallMaster Pro...</p>
+      <p className="font-black uppercase italic text-[10px] tracking-[0.3em]">Carregando CallMaster...</p>
     </div>
   );
 
   if (!currentUser) return (
     <div className="min-h-screen bg-indigo-950 flex items-center justify-center p-6">
-      <div className="w-full max-w-md bg-white rounded-[3rem] shadow-2xl overflow-hidden">
-        <div className="bg-indigo-600 p-10 text-white text-center">
-          <h1 className="text-3xl font-black italic tracking-tighter uppercase">CallMaster Pro</h1>
+      <div className="w-full max-w-md bg-white rounded-[3rem] shadow-2xl overflow-hidden border-t-8 border-indigo-600">
+        <div className="p-10 text-center">
+          <h1 className="text-3xl font-black italic tracking-tighter uppercase text-indigo-950">CallMaster <span className="text-indigo-600">Pro</span></h1>
+          <p className="text-[10px] font-black uppercase text-gray-400 tracking-widest mt-2">Sistema de Gestão de Leads</p>
         </div>
-        <form onSubmit={handleAuth} className="p-10 space-y-6">
-          {error && <div className="bg-red-50 text-red-600 p-4 rounded-2xl text-[10px] font-black uppercase text-center border-2 border-red-100">{error}</div>}
+        <form onSubmit={handleAuth} className="px-10 pb-12 space-y-6">
+          {error && <div className="bg-red-50 text-red-600 p-5 rounded-2xl text-[10px] font-black uppercase text-center border-2 border-red-100">{error}</div>}
           <div className="space-y-4">
             {isRegistering && (
-              <input type="text" placeholder="Seu Nome" required value={name} onChange={e => setName(e.target.value)} className="w-full p-5 bg-gray-50 border-2 rounded-2xl outline-none focus:border-indigo-600 font-bold" />
+              <input type="text" placeholder="Nome do Operador" required value={name} onChange={e => setName(e.target.value)} className="w-full p-5 bg-gray-50 border-2 rounded-2xl outline-none focus:border-indigo-600 font-bold" />
             )}
-            <input type="email" placeholder="E-mail" required value={email} onChange={e => setEmail(e.target.value)} className="w-full p-5 bg-gray-50 border-2 rounded-2xl outline-none focus:border-indigo-600 font-bold" />
-            <input type="password" placeholder="Senha" required value={password} onChange={e => setPassword(e.target.value)} className="w-full p-5 bg-gray-50 border-2 rounded-2xl outline-none focus:border-indigo-600 font-bold" />
+            <input type="email" placeholder="E-mail Corporativo" required value={email} onChange={e => setEmail(e.target.value)} className="w-full p-5 bg-gray-50 border-2 rounded-2xl outline-none focus:border-indigo-600 font-bold" />
+            <input type="password" placeholder="Senha de Acesso" required value={password} onChange={e => setPassword(e.target.value)} className="w-full p-5 bg-gray-50 border-2 rounded-2xl outline-none focus:border-indigo-600 font-bold" />
           </div>
-          <button type="submit" disabled={isSubmitting} className="w-full bg-indigo-600 text-white py-6 rounded-2xl font-black uppercase tracking-tighter hover:bg-indigo-700 transition-all">
-            {isSubmitting ? <Loader2 className="animate-spin mx-auto" /> : (isRegistering ? 'Criar Conta' : 'Entrar no Sistema')}
+          <button type="submit" disabled={isSubmitting} className="w-full bg-indigo-600 text-white py-6 rounded-2xl font-black uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-xl active:scale-95">
+            {isSubmitting ? <Loader2 className="animate-spin mx-auto" /> : (isRegistering ? 'Criar Cadastro' : 'Acessar Painel')}
           </button>
-          <button type="button" onClick={() => setIsRegistering(!isRegistering)} className="w-full text-indigo-600 font-black text-[10px] uppercase">{isRegistering ? 'Já tenho conta' : 'Criar nova conta'}</button>
+          <button type="button" onClick={() => {setIsRegistering(!isRegistering); setError('');}} className="w-full text-indigo-600 font-black text-[10px] uppercase tracking-widest">{isRegistering ? '← Voltar para Login' : 'Novo Operador? Cadastrar-se'}</button>
         </form>
       </div>
     </div>
@@ -265,7 +305,7 @@ const App: React.FC = () => {
   return (
     <Layout user={currentUser} onLogout={handleLogout}>
       <div className="fixed top-20 right-8 z-[60]">
-         <button onClick={() => fetchData()} disabled={isSyncing} className={`p-4 bg-white shadow-xl rounded-full text-indigo-600 border border-indigo-100 ${isSyncing ? 'animate-spin' : 'hover:scale-110'}`}>
+         <button onClick={() => fetchData()} disabled={isSyncing} className={`p-4 bg-white shadow-xl rounded-full text-indigo-600 border border-indigo-100 ${isSyncing ? 'animate-spin opacity-50' : 'hover:scale-110 active:scale-90'} transition-all`}>
            <RefreshCw className="w-5 h-5" />
          </button>
       </div>
@@ -280,7 +320,7 @@ const App: React.FC = () => {
             if (u) { await supabase.from('usuarios').update({ online: !u.online }).eq('id', id); await fetchData(); }
           }} 
           onPromoteUser={async (id) => { await supabase.from('usuarios').update({ tipo: 'adm' }).eq('id', id); await fetchData(); }} 
-          onDeleteUser={async (id) => { if(confirm("Remover usuário?")){ await supabase.from('usuarios').delete().eq('id', id); await fetchData(); } }}
+          onDeleteUser={async (id) => { if(confirm("Atenção: Esta ação é irreversível. Remover usuário?")){ await supabase.from('usuarios').delete().eq('id', id); await fetchData(); } }}
           onTransferLeads={handleTransferLeads}
         />
       ) : (
