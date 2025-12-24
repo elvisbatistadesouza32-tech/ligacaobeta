@@ -174,7 +174,7 @@ const App: React.FC = () => {
           online: true,
           avatar: `https://ui-avatars.com/api/?name=Admin+Gestor&background=6366f1&color=fff`
         });
-        fetchData();
+        await fetchData();
         return; 
       }
 
@@ -187,7 +187,7 @@ const App: React.FC = () => {
       } else {
         const { error: loginError } = await supabase.auth.signInWithPassword({ email: lowerEmail, password });
         if (loginError) throw loginError;
-        restoreSession(false);
+        await restoreSession(false);
       }
     } catch (err: any) {
       setError(err.message === "Invalid login credentials" ? "E-mail ou senha incorretos." : err.message);
@@ -222,8 +222,6 @@ const App: React.FC = () => {
   };
 
   const handleDistributeLeads = async () => {
-    // Agora distribui para todos os vendedores cadastrados, não apenas os online, 
-    // para garantir que nenhum lead fique "preso" na fila geral se o admin quiser.
     const allSellers = users.filter(u => u.tipo === 'vendedor');
     if (allSellers.length === 0) return alert("Não há vendedores cadastrados para receber leads.");
     
@@ -236,23 +234,22 @@ const App: React.FC = () => {
     if (selectError) return alert("Erro ao buscar fila: " + selectError.message);
     if (!freeLeads || freeLeads.length === 0) return alert("A fila geral está vazia.");
 
-    let successCount = 0;
+    // Fazemos um update em lote se possível, ou sequencial rápido
     for (let i = 0; i < freeLeads.length; i++) {
       const sellerId = allSellers[i % allSellers.length].id;
-      const { error: updateError } = await supabase
+      await supabase
         .from('leads')
         .update({ assigned_to: sellerId })
         .eq('id', freeLeads[i].id);
-        
-      if (!updateError) successCount++;
     }
 
     await fetchData();
-    alert(`Sucesso! ${successCount} leads distribuídos.`);
+    alert(`Sucesso! Leads distribuídos.`);
   };
 
   const handleImportLeads = async (newLeads: Lead[], distributionMode: 'none' | 'balanced' | string) => {
-    // Pega todos os vendedores para garantir distribuição mesmo se estiverem offline
+    // Garantir que temos os usuários mais recentes antes de distribuir
+    await fetchData();
     const allSellers = users.filter(u => u.tipo === 'vendedor');
     
     const leadsToInsert = newLeads.map((l, i) => {
@@ -261,9 +258,8 @@ const App: React.FC = () => {
       if (distributionMode === 'balanced' && allSellers.length > 0) {
         assignedTo = allSellers[i % allSellers.length].id;
       } else if (distributionMode !== 'none' && distributionMode !== 'balanced' && distributionMode) {
-        // Validação de UUID: IDs de sistema (como 'master-admin') não podem ir para o banco
-        const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-5][0-9a-f]{3}-[089ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(distributionMode);
-        assignedTo = isUUID ? distributionMode : null;
+        // Se distributionMode for um ID de vendedor, usamos ele (exceto o master-admin mock)
+        assignedTo = distributionMode === 'master-admin' ? null : distributionMode;
       }
 
       return {
@@ -280,6 +276,7 @@ const App: React.FC = () => {
     const { error: insertError } = await supabase.from('leads').insert(leadsToInsert);
     if (insertError) throw new Error("Erro no banco: " + insertError.message);
     
+    // Atualiza imediatamente o estado global
     await fetchData();
   };
 
@@ -345,10 +342,10 @@ const App: React.FC = () => {
           onDistributeLeads={handleDistributeLeads} 
           onToggleUserStatus={async (id) => {
             const u = users.find(u => u.id === id);
-            if (u) { await supabase.from('usuarios').update({ online: !u.online }).eq('id', id); fetchData(); }
+            if (u) { await supabase.from('usuarios').update({ online: !u.online }).eq('id', id); await fetchData(); }
           }} 
-          onPromoteUser={async (id) => { await supabase.from('usuarios').update({ tipo: 'adm' }).eq('id', id); fetchData(); }} 
-          onDeleteUser={async (id) => { if(confirm("Excluir usuário?")){ await supabase.from('usuarios').delete().eq('id', id); fetchData(); } }}
+          onPromoteUser={async (id) => { await supabase.from('usuarios').update({ tipo: 'adm' }).eq('id', id); await fetchData(); }} 
+          onDeleteUser={async (id) => { if(confirm("Excluir usuário?")){ await supabase.from('usuarios').delete().eq('id', id); await fetchData(); } }}
           onTransferLeads={handleTransferLeads}
         />
       ) : (
