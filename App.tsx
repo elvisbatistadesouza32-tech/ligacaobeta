@@ -62,6 +62,7 @@ const App: React.FC = () => {
       }
 
       if (callData.data) {
+        // Fix: Map database snake_case fields to CallRecord camelCase properties
         setCalls(callData.data.map((c: any) => ({
           id: c.id,
           leadId: c.lead_id,
@@ -69,7 +70,7 @@ const App: React.FC = () => {
           status: c.status,
           durationSeconds: c.duration_seconds,
           timestamp: c.timestamp,
-          recording_url: c.recording_url
+          recordingUrl: c.recording_url
         })));
       }
     } catch (err: any) {
@@ -239,16 +240,43 @@ const App: React.FC = () => {
 
   const handleDistributeLeads = async () => {
     const activeSellers = users.filter(u => u.online && u.tipo === 'vendedor');
-    if (activeSellers.length === 0) return alert("Ative vendedores online primeiro.");
-    const { data: freeLeads } = await supabase.from('leads').select('id').is('assigned_to', null).eq('status', 'PENDING');
-    if (!freeLeads || freeLeads.length === 0) return alert("Fila vazia.");
-    const updates = freeLeads.map((lead, i) => {
+    if (activeSellers.length === 0) return alert("Não há vendedores ONLINE para receber leads.");
+    
+    const { data: freeLeads, error: selectError } = await supabase
+      .from('leads')
+      .select('id')
+      .is('assigned_to', null)
+      .eq('status', 'PENDING');
+      
+    if (selectError) return alert("Erro ao buscar fila: " + selectError.message);
+    if (!freeLeads || freeLeads.length === 0) return alert("A fila geral está vazia.");
+
+    let successCount = 0;
+    let failCount = 0;
+
+    // Executa as atualizações e aguarda cada uma para capturar erros
+    for (let i = 0; i < freeLeads.length; i++) {
       const sellerId = activeSellers[i % activeSellers.length].id;
-      return supabase.from('leads').update({ assigned_to: sellerId }).eq('id', lead.id);
-    });
-    await Promise.all(updates);
-    fetchData();
-    alert("Distribuição concluída!");
+      const { error: updateError } = await supabase
+        .from('leads')
+        .update({ assigned_to: sellerId })
+        .eq('id', freeLeads[i].id);
+        
+      if (updateError) {
+        console.error("Erro ao atribuir lead:", updateError);
+        failCount++;
+      } else {
+        successCount++;
+      }
+    }
+
+    await fetchData();
+    
+    if (failCount > 0) {
+      alert(`Distribuição parcial: ${successCount} direcionados, ${failCount} falharam (verifique o banco).`);
+    } else {
+      alert(`Sucesso! ${successCount} leads distribuídos entre ${activeSellers.length} vendedores.`);
+    }
   };
 
   const handleImportLeads = async (newLeads: Lead[], distributionMode: 'none' | 'balanced' | string) => {
@@ -260,7 +288,7 @@ const App: React.FC = () => {
       if (distributionMode === 'balanced' && activeSellers.length > 0) {
         assignedTo = activeSellers[i % activeSellers.length].id;
       } else if (distributionMode !== 'none' && distributionMode !== 'balanced' && distributionMode) {
-        // Validar se o ID não é o master-admin (que não é UUID)
+        // Garante que não é o master-admin (que não é UUID)
         assignedTo = distributionMode === 'master-admin' ? null : distributionMode;
       }
 
@@ -269,16 +297,16 @@ const App: React.FC = () => {
         concurso: l.concurso || 'Geral',
         telefone: l.telefone.replace(/\D/g, ''),
         status: 'PENDING',
-        assigned_to: assignedTo // Deve ser um UUID ou NULL
+        assigned_to: assignedTo
       };
     });
 
     if (leadsToInsert.length === 0) return;
 
-    const { error } = await supabase.from('leads').insert(leadsToInsert);
-    if (error) {
-      console.error("Erro Supabase Insert:", error);
-      throw new Error(error.message);
+    const { error: insertError } = await supabase.from('leads').insert(leadsToInsert);
+    if (insertError) {
+      console.error("Erro crítico na importação:", insertError);
+      throw new Error("Falha ao salvar no banco: " + insertError.message);
     }
     
     await fetchData();
@@ -286,14 +314,14 @@ const App: React.FC = () => {
 
   const handleTransferLeads = async (fromUserId: string, toUserId: string) => {
     const { error } = await supabase.from('leads').update({ assigned_to: toUserId }).eq('assigned_to', fromUserId).eq('status', 'PENDING');
-    if (error) alert(error.message);
-    else { fetchData(); alert("Fila transferida!"); }
+    if (error) alert("Erro na transferência: " + error.message);
+    else { fetchData(); alert("Fila transferida com sucesso!"); }
   };
 
   if (isInitialLoading && !currentUser) return (
     <div className="min-h-screen bg-indigo-950 flex flex-col items-center justify-center text-white text-center">
       <Loader2 className="w-12 h-12 animate-spin text-indigo-400 mb-4" />
-      <p className="font-black uppercase tracking-tighter">Iniciando CallMaster Pro...</p>
+      <p className="font-black uppercase tracking-tighter">Conectando ao CallMaster...</p>
     </div>
   );
 
@@ -343,7 +371,7 @@ const App: React.FC = () => {
             if (u) { await supabase.from('usuarios').update({ online: !u.online }).eq('id', id); fetchData(); }
           }} 
           onPromoteUser={async (id) => { await supabase.from('usuarios').update({ tipo: 'adm' }).eq('id', id); fetchData(); }} 
-          onDeleteUser={async (id) => { if(confirm("Deletar?")){ await supabase.from('usuarios').delete().eq('id', id); fetchData(); } }}
+          onDeleteUser={async (id) => { if(confirm("Deseja realmente excluir este usuário?")){ await supabase.from('usuarios').delete().eq('id', id); fetchData(); } }}
           onTransferLeads={handleTransferLeads}
         />
       ) : (
