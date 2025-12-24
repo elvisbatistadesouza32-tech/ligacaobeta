@@ -4,7 +4,7 @@ import { User, Lead, CallRecord, CallStatus } from './types';
 import { Layout } from './components/Layout';
 import { SellerView } from './components/SellerView';
 import { AdminView } from './components/AdminView';
-import { Loader2, ArrowRight, RefreshCw, Wifi, WifiOff } from 'lucide-react';
+import { Loader2, ArrowRight, RefreshCw, Wifi, WifiOff, AlertCircle } from 'lucide-react';
 import { supabase } from './supabase';
 
 const MASTER_ADMIN_EMAIL = "admin@callmaster.com";
@@ -26,7 +26,6 @@ const App: React.FC = () => {
   const [successMsg, setSuccessMsg] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Função centralizada de busca
   const fetchData = useCallback(async () => {
     setIsSyncing(true);
     try {
@@ -77,7 +76,6 @@ const App: React.FC = () => {
     }
   }, []);
 
-  // Restauração de Sessão
   const restoreSession = useCallback(async (isFirstLoad = false) => {
     if (isFirstLoad) setIsInitialLoading(true);
     try {
@@ -130,15 +128,13 @@ const App: React.FC = () => {
     }
   }, [fetchData]);
 
-  // Efeito para Realtime e Polling de Segurança
   useEffect(() => {
     restoreSession(true);
 
-    // ESCUTA REALTIME: Atualiza automaticamente quando qualquer tabela mudar
     const channel = supabase
       .channel('schema-db-changes')
       .on('postgres_changes', { event: '*', schema: 'public' }, () => {
-        fetchData(); // Recarrega os dados instantaneamente ao detectar mudança
+        fetchData();
       })
       .subscribe();
 
@@ -151,7 +147,7 @@ const App: React.FC = () => {
       }
     });
 
-    const interval = setInterval(() => fetchData(), 60000); // Polling de segurança mais longo
+    const interval = setInterval(() => fetchData(), 60000); 
     
     return () => {
       channel.unsubscribe();
@@ -225,29 +221,46 @@ const App: React.FC = () => {
   };
 
   const handleDistributeLeads = async () => {
-    const allSellers = users.filter(u => u.tipo === 'vendedor');
-    if (allSellers.length === 0) return alert("Não há vendedores cadastrados.");
+    const allSellers = users.filter(u => u.tipo === 'vendedor' && u.id !== 'master-admin');
+    if (allSellers.length === 0) return alert("Não há vendedores reais cadastrados para receber leads.");
     
-    const { data: freeLeads } = await supabase.from('leads').select('id').is('assigned_to', null).eq('status', 'PENDING');
-    if (!freeLeads || freeLeads.length === 0) return alert("Fila vazia.");
+    // Busca leads PENDENTES e SEM ATRIBUIÇÃO (assigned_to nulo)
+    const { data: freeLeads, error: queryError } = await supabase
+      .from('leads')
+      .select('id')
+      .is('assigned_to', null)
+      .eq('status', 'PENDING');
+
+    if (queryError) return alert("Erro ao buscar leads: " + queryError.message);
+    if (!freeLeads || freeLeads.length === 0) return alert("Não há leads pendentes na Fila Geral para distribuir.");
+
+    setIsSyncing(true);
+    let successCount = 0;
 
     for (let i = 0; i < freeLeads.length; i++) {
       const sellerId = allSellers[i % allSellers.length].id;
-      await supabase.from('leads').update({ assigned_to: sellerId }).eq('id', freeLeads[i].id);
+      const { error: updateError } = await supabase
+        .from('leads')
+        .update({ assigned_to: sellerId })
+        .eq('id', freeLeads[i].id);
+      
+      if (!updateError) successCount++;
     }
 
     await fetchData();
-    alert(`Leads distribuídos com sucesso!`);
+    alert(`${successCount} leads distribuídos com sucesso para ${allSellers.length} vendedores.`);
+    setIsSyncing(false);
   };
 
   const handleImportLeads = async (newLeads: Lead[], distributionMode: 'none' | 'balanced' | string) => {
-    const allSellers = users.filter(u => u.tipo === 'vendedor');
+    const allSellers = users.filter(u => u.tipo === 'vendedor' && u.id !== 'master-admin');
     const leadsToInsert = newLeads.map((l, i) => {
       let assignedTo: string | null = null;
       if (distributionMode === 'balanced' && allSellers.length > 0) {
         assignedTo = allSellers[i % allSellers.length].id;
       } else if (distributionMode !== 'none' && distributionMode !== 'balanced' && distributionMode) {
-        assignedTo = distributionMode;
+        // Verifica se o ID selecionado não é o do admin master antes de atribuir
+        assignedTo = (distributionMode === 'master-admin') ? null : distributionMode;
       }
 
       return {
@@ -255,26 +268,36 @@ const App: React.FC = () => {
         concurso: l.concurso || 'Geral',
         telefone: l.telefone.replace(/\D/g, ''),
         status: 'PENDING',
-        assigned_to: assignedTo
+        assigned_to: assignedTo // Deve ser null se não houver vendedor
       };
     });
 
     const { error: insertError } = await supabase.from('leads').insert(leadsToInsert);
-    if (insertError) throw new Error("Erro no banco: " + insertError.message);
+    if (insertError) {
+      console.error("Erro no insert do Supabase:", insertError);
+      throw new Error("Erro no banco: " + insertError.message);
+    }
     
     await fetchData();
   };
 
   const handleTransferLeads = async (fromUserId: string, toUserId: string) => {
-    const { error } = await supabase.from('leads').update({ assigned_to: toUserId }).eq('assigned_to', fromUserId).eq('status', 'PENDING');
+    if (toUserId === 'master-admin') return alert("Não é possível transferir leads para o Administrador Master.");
+    
+    const { error } = await supabase
+      .from('leads')
+      .update({ assigned_to: toUserId })
+      .eq('assigned_to', fromUserId)
+      .eq('status', 'PENDING');
+
     if (error) alert("Erro na transferência: " + error.message);
-    else { await fetchData(); alert("Fila transferida!"); }
+    else { await fetchData(); alert("Fila transferida com sucesso!"); }
   };
 
   if (isInitialLoading && !currentUser) return (
     <div className="min-h-screen bg-indigo-950 flex flex-col items-center justify-center text-white text-center">
       <Loader2 className="w-12 h-12 animate-spin text-indigo-400 mb-4" />
-      <p className="font-black uppercase tracking-tighter italic">Iniciando CallMaster Pro...</p>
+      <p className="font-black uppercase tracking-tighter italic">Sincronizando CallMaster Pro...</p>
     </div>
   );
 

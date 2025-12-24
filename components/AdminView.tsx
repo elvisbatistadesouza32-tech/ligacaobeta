@@ -49,8 +49,8 @@ export const AdminView: React.FC<AdminViewProps> = ({
   // Estatísticas Globais de Monitoramento
   const stats = useMemo(() => {
     const totalPending = leads.filter(l => l.status === 'PENDING').length;
-    const unassignedLeads = leads.filter(l => !l.assignedTo && l.status === 'PENDING').length;
-    const assignedPending = leads.filter(l => l.assignedTo && l.status === 'PENDING').length;
+    const unassignedLeads = leads.filter(l => (!l.assignedTo || l.assignedTo === "") && l.status === 'PENDING').length;
+    const assignedPending = leads.filter(l => l.assignedTo && l.assignedTo !== "" && l.status === 'PENDING').length;
     const completedLeads = leads.filter(l => l.status === 'CALLED').length;
     
     return {
@@ -70,8 +70,8 @@ export const AdminView: React.FC<AdminViewProps> = ({
       
       let matchesFilter = true;
       if (leadFilter === 'pending') matchesFilter = l.status === 'PENDING';
-      if (leadFilter === 'assigned') matchesFilter = !!l.assignedTo && l.status === 'PENDING';
-      if (leadFilter === 'unassigned') matchesFilter = !l.assignedTo && l.status === 'PENDING';
+      if (leadFilter === 'assigned') matchesFilter = !!l.assignedTo && l.assignedTo !== "" && l.status === 'PENDING';
+      if (leadFilter === 'unassigned') matchesFilter = (!l.assignedTo || l.assignedTo === "") && l.status === 'PENDING';
       
       return matchesSearch && matchesFilter;
     });
@@ -82,14 +82,18 @@ export const AdminView: React.FC<AdminViewProps> = ({
       const sellerCalls = calls.filter(c => String(c.sellerId).toLowerCase() === String(seller.id).toLowerCase());
       const answered = sellerCalls.filter(c => c.status === CallStatus.ANSWERED).length;
       const duration = sellerCalls.reduce((acc, curr) => acc + (curr.durationSeconds || 0), 0);
-      const sellerLeads = leads.filter(l => String(l.assignedTo).toLowerCase() === String(seller.id).toLowerCase() && l.status === 'PENDING').length;
+      const sellerLeadsCount = leads.filter(l => 
+        l.assignedTo && 
+        String(l.assignedTo).toLowerCase() === String(seller.id).toLowerCase() && 
+        l.status === 'PENDING'
+      ).length;
       
       return {
         ...seller,
         totalCalls: sellerCalls.length,
         answered,
         duration,
-        pendingLeads: sellerLeads
+        pendingLeads: sellerLeadsCount
       };
     }).sort((a, b) => b.totalCalls - a.totalCalls);
   }, [sellers, calls, leads]);
@@ -126,7 +130,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
     setIsImporting(true);
     try {
       await onImportLeads(pendingLeads, importDistributionMode);
-      setNotification({ message: `${pendingLeads.length} leads importados! Verifique a aba de Gestão.`, type: 'success' });
+      setNotification({ message: `${pendingLeads.length} leads processados.`, type: 'success' });
       setPendingLeads(null);
       setActiveTab('leads');
     } catch (err: any) { setNotification({ message: err.message, type: 'error' }); }
@@ -148,11 +152,11 @@ export const AdminView: React.FC<AdminViewProps> = ({
              <div className="space-y-6 mb-8">
                 <p className="text-[10px] font-black uppercase text-gray-400 tracking-widest">Opção de Distribuição</p>
                 <div className="grid grid-cols-2 gap-4">
-                  <button onClick={() => setImportDistributionMode('none')} className={`p-6 rounded-3xl border-2 transition-all font-black text-[10px] uppercase ${importDistributionMode === 'none' ? 'border-indigo-600 bg-indigo-50' : 'border-gray-100'}`}>Fila Geral (Manual)</button>
-                  <button onClick={() => setImportDistributionMode('balanced')} className={`p-6 rounded-3xl border-2 transition-all font-black text-[10px] uppercase ${importDistributionMode === 'balanced' ? 'border-indigo-600 bg-indigo-50' : 'border-gray-100'}`}>Automática (Igual)</button>
+                  <button onClick={() => setImportDistributionMode('none')} className={`p-6 rounded-3xl border-2 transition-all font-black text-[10px] uppercase ${importDistributionMode === 'none' ? 'border-indigo-600 bg-indigo-50' : 'border-gray-100'}`}>Fila Geral (Livre)</button>
+                  <button onClick={() => setImportDistributionMode('balanced')} className={`p-6 rounded-3xl border-2 transition-all font-black text-[10px] uppercase ${importDistributionMode === 'balanced' ? 'border-indigo-600 bg-indigo-50' : 'border-gray-100'}`}>Divisão Equitativa</button>
                 </div>
                 <select value={importDistributionMode.length > 10 ? importDistributionMode : ''} onChange={(e) => setImportDistributionMode(e.target.value)} className="w-full p-5 bg-gray-50 border-2 border-gray-100 rounded-3xl font-bold outline-none focus:border-indigo-600 text-xs">
-                  <option value="">Direcionar a um vendedor específico...</option>
+                  <option value="">Ou escolher um vendedor específico...</option>
                   {sellers.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
                 </select>
              </div>
@@ -174,14 +178,14 @@ export const AdminView: React.FC<AdminViewProps> = ({
             </select>
             <div className="flex gap-4">
               <button onClick={() => setTransferModal(null)} className="flex-1 py-5 rounded-2xl border-2 font-black uppercase text-[10px]">Voltar</button>
-              <button onClick={() => { onTransferLeads(transferModal.fromId, targetSellerId); setTransferModal(null); }} className="flex-1 py-5 rounded-2xl bg-indigo-600 text-white font-black uppercase text-[10px]">Confirmar Troca</button>
+              <button onClick={() => { onTransferLeads(transferModal.fromId, targetSellerId); setTransferModal(null); }} className="flex-1 py-5 rounded-2xl bg-indigo-600 text-white font-black uppercase text-[10px]">Confirmar</button>
             </div>
           </div>
         </div>
       )}
 
       <div className="flex bg-white p-2 rounded-[2.5rem] shadow-sm border overflow-x-auto scrollbar-hide">
-        <button onClick={() => setActiveTab('stats')} className={`flex items-center gap-2 px-8 py-4 rounded-3xl font-black text-xs uppercase transition-all ${activeTab === 'stats' ? 'bg-indigo-600 text-white shadow-lg' : 'text-gray-400 hover:bg-gray-50'}`}><TrendingUp className="w-4" /> Monitoramento</button>
+        <button onClick={() => setActiveTab('stats')} className={`flex items-center gap-2 px-8 py-4 rounded-3xl font-black text-xs uppercase transition-all ${activeTab === 'stats' ? 'bg-indigo-600 text-white shadow-lg' : 'text-gray-400 hover:bg-gray-50'}`}><TrendingUp className="w-4" /> Dashboard</button>
         <button onClick={() => setActiveTab('leads')} className={`flex items-center gap-2 px-8 py-4 rounded-3xl font-black text-xs uppercase transition-all ${activeTab === 'leads' ? 'bg-indigo-600 text-white shadow-lg' : 'text-gray-400 hover:bg-gray-50'}`}><Database className="w-4" /> Gestão de Leads</button>
         <button onClick={() => setActiveTab('users')} className={`flex items-center gap-2 px-8 py-4 rounded-3xl font-black text-xs uppercase transition-all ${activeTab === 'users' ? 'bg-indigo-600 text-white shadow-lg' : 'text-gray-400 hover:bg-gray-50'}`}><Users className="w-4" /> Equipe</button>
         <button onClick={() => setActiveTab('history')} className={`flex items-center gap-2 px-8 py-4 rounded-3xl font-black text-xs uppercase transition-all ${activeTab === 'history' ? 'bg-indigo-600 text-white shadow-lg' : 'text-gray-400 hover:bg-gray-50'}`}><PhoneIncoming className="w-4" /> Logs</button>
@@ -192,11 +196,11 @@ export const AdminView: React.FC<AdminViewProps> = ({
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
              <div className="bg-indigo-600 p-8 rounded-[3rem] text-white shadow-xl relative overflow-hidden">
                 <div className="absolute right-[-10px] bottom-[-10px] opacity-10"><Database className="w-24 h-24" /></div>
-                <p className="text-indigo-200 text-[10px] font-black uppercase mb-1">Total Pendentes (Geral)</p>
+                <p className="text-indigo-200 text-[10px] font-black uppercase mb-1">Total Pendentes Sistema</p>
                 <p className="text-4xl font-black">{stats.totalPending}</p>
              </div>
              <div className="bg-white p-8 rounded-[3rem] border-2 border-gray-100 shadow-sm">
-                <p className="text-gray-400 text-[10px] font-black uppercase mb-1">Na Fila Geral (Livre)</p>
+                <p className="text-gray-400 text-[10px] font-black uppercase mb-1">Na Fila Geral (Livres)</p>
                 <p className="text-4xl font-black text-indigo-600">{stats.unassignedLeads}</p>
              </div>
              <div className="bg-white p-8 rounded-[3rem] border-2 border-gray-100 shadow-sm">
@@ -212,12 +216,12 @@ export const AdminView: React.FC<AdminViewProps> = ({
           <div className="bg-white p-10 rounded-[4rem] border-2 border-gray-100 shadow-sm">
              <div className="flex items-center gap-3 mb-8">
                <Headphones className="text-indigo-600" />
-               <h3 className="font-black text-xl uppercase italic">Fila Individual por Operador</h3>
+               <h3 className="font-black text-xl uppercase italic">Status da Fila por Operador</h3>
              </div>
              <div className="overflow-x-auto">
                 <table className="w-full text-left">
                   <thead className="text-[10px] font-black uppercase text-gray-400 border-b border-gray-50">
-                    <tr><th className="pb-6">Nome</th><th className="pb-6 text-center">Ligações Efetuadas</th><th className="pb-6 text-center">Leads a Chamar</th><th className="pb-6 text-right">Ação</th></tr>
+                    <tr><th className="pb-6">Nome</th><th className="pb-6 text-center">Contatos Efetuados</th><th className="pb-6 text-center">Leads Pendentes</th><th className="pb-6 text-right">Ações</th></tr>
                   </thead>
                   <tbody>
                     {sellerPerformance.map(s => (
@@ -231,11 +235,11 @@ export const AdminView: React.FC<AdminViewProps> = ({
                         <td className="py-6 text-center font-bold text-gray-900">{s.totalCalls}</td>
                         <td className="py-6 text-center">
                            <span className={`px-4 py-1 rounded-full font-black text-[9px] ${s.pendingLeads > 0 ? 'bg-orange-100 text-orange-600' : 'bg-green-50 text-green-600'}`}>
-                              {s.pendingLeads} LEADS PENDENTES
+                              {s.pendingLeads} LEADS AGUARDANDO
                            </span>
                         </td>
                         <td className="py-6 text-right">
-                           <button onClick={() => setTransferModal({fromId: s.id, fromName: s.nome})} className="text-indigo-600 font-black text-[9px] uppercase hover:underline">Transferir Fila</button>
+                           <button onClick={() => setTransferModal({fromId: s.id, fromName: s.nome})} className="text-indigo-600 font-black text-[9px] uppercase hover:underline">Remanejar Fila</button>
                         </td>
                       </tr>
                     ))}
@@ -251,7 +255,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="bg-white p-10 rounded-[3rem] border-2 border-dashed border-gray-200 flex flex-col items-center text-center gap-6 group cursor-pointer hover:border-indigo-600 transition-all" onClick={() => fileInputRef.current?.click()}>
               <div className="w-20 h-20 bg-indigo-50 rounded-[2rem] flex items-center justify-center text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white transition-all"><Upload className="w-10 h-10" /></div>
-              <h3 className="font-black text-xl uppercase italic">Nova Importação (.xlsx)</h3>
+              <h3 className="font-black text-xl uppercase italic">Importar Novos Leads</h3>
               <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept=".xlsx" className="hidden" />
             </div>
             <div className="bg-indigo-600 p-10 rounded-[3rem] text-white flex flex-col items-center text-center gap-6 group cursor-pointer hover:bg-indigo-700 transition-all shadow-xl" onClick={onDistributeLeads}>
@@ -262,24 +266,24 @@ export const AdminView: React.FC<AdminViewProps> = ({
 
           <div className="bg-white rounded-[3.5rem] border-2 border-gray-100 overflow-hidden shadow-sm">
             <div className="p-10 border-b flex flex-col lg:flex-row justify-between items-center gap-6 bg-gray-50/50">
-              <h3 className="font-black text-2xl uppercase italic">Auditoria de Leads</h3>
+              <h3 className="font-black text-2xl uppercase italic">Monitoramento de Leads</h3>
               <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto">
                 <select value={leadFilter} onChange={(e: any) => setLeadFilter(e.target.value)} className="p-4 bg-white border-2 border-gray-100 rounded-2xl font-black text-[10px] uppercase outline-none focus:border-indigo-600">
-                  <option value="all">Todos os Leads</option>
+                  <option value="all">Todos</option>
                   <option value="pending">Apenas Pendentes</option>
-                  <option value="assigned">Apenas com Vendedores</option>
-                  <option value="unassigned">Apenas na Fila Geral</option>
+                  <option value="assigned">Com Operadores</option>
+                  <option value="unassigned">Fila Geral (Livres)</option>
                 </select>
                 <div className="relative flex-1 lg:w-80">
                   <Search className="absolute left-6 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                  <input type="text" placeholder="Buscar..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pl-14 pr-6 py-4 bg-white border-2 border-gray-100 rounded-2xl font-bold text-xs outline-none focus:border-indigo-600" />
+                  <input type="text" placeholder="Localizar lead..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pl-14 pr-6 py-4 bg-white border-2 border-gray-100 rounded-2xl font-bold text-xs outline-none focus:border-indigo-600" />
                 </div>
               </div>
             </div>
             <div className="overflow-x-auto max-h-[600px] scrollbar-hide">
               <table className="w-full text-left">
                 <thead className="bg-white text-[10px] font-black uppercase text-gray-400 sticky top-0 z-10 border-b">
-                  <tr><th className="px-10 py-6">Lead</th><th className="px-10 py-6">Operador Atual</th><th className="px-10 py-6 text-center">Status</th><th className="px-10 py-6 text-right">Data de Cadastro</th></tr>
+                  <tr><th className="px-10 py-6">Lead</th><th className="px-10 py-6">Atribuído a</th><th className="px-10 py-6 text-center">Status</th><th className="px-10 py-6 text-right">Data</th></tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
                   {filteredLeads.map(l => (
@@ -289,20 +293,22 @@ export const AdminView: React.FC<AdminViewProps> = ({
                         <p className="text-[10px] font-bold text-indigo-600">{l.telefone}</p>
                       </td>
                       <td className="px-10 py-6">
-                        {l.assignedTo ? (
+                        {l.assignedTo && l.assignedTo !== "" ? (
                           <div className="flex items-center gap-2">
-                            <span className="w-2 h-2 rounded-full bg-indigo-600"></span>
+                            <div className="w-6 h-6 rounded-full bg-indigo-100 flex items-center justify-center text-[8px] font-black text-indigo-600 uppercase">
+                              {users.find(u => String(u.id).toLowerCase() === String(l.assignedTo).toLowerCase())?.nome.substring(0,2) || '??'}
+                            </div>
                             <span className="font-black uppercase text-[10px] text-gray-700">
-                               {users.find(u => String(u.id).toLowerCase() === String(l.assignedTo).toLowerCase())?.nome || 'Vendedor'}
+                               {users.find(u => String(u.id).toLowerCase() === String(l.assignedTo).toLowerCase())?.nome || 'Operador Desconhecido'}
                             </span>
                           </div>
                         ) : (
-                          <span className="bg-gray-100 text-gray-400 px-3 py-1 rounded-full font-black text-[9px] uppercase">Livre (Fila Geral)</span>
+                          <span className="bg-gray-100 text-gray-400 px-3 py-1 rounded-full font-black text-[9px] uppercase">Aguardando Distribuição</span>
                         )}
                       </td>
                       <td className="px-10 py-6 text-center">
                         <span className={`px-4 py-1.5 rounded-full font-black text-[9px] uppercase ${l.status === 'PENDING' ? 'bg-orange-50 text-orange-600' : 'bg-green-50 text-green-600'}`}>
-                           {l.status === 'PENDING' ? 'Aguardando' : 'Finalizado'}
+                           {l.status === 'PENDING' ? 'Pendente' : 'Finalizado'}
                         </span>
                       </td>
                       <td className="px-10 py-6 text-right font-mono text-[10px] text-gray-400">{new Date(l.createdAt || '').toLocaleDateString('pt-BR')}</td>
@@ -310,7 +316,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
                   ))}
                   {filteredLeads.length === 0 && (
                     <tr>
-                      <td colSpan={4} className="py-20 text-center text-gray-400 font-black uppercase text-xs italic">Nenhum lead encontrado com esses filtros</td>
+                      <td colSpan={4} className="py-20 text-center text-gray-400 font-black uppercase text-xs italic">Nenhum dado para exibir com o filtro atual</td>
                     </tr>
                   )}
                 </tbody>
@@ -323,12 +329,12 @@ export const AdminView: React.FC<AdminViewProps> = ({
       {activeTab === 'users' && (
         <div className="bg-white rounded-[3.5rem] border-2 border-gray-100 overflow-hidden shadow-sm">
           <div className="p-12 border-b flex justify-between items-center bg-gray-50/50">
-            <h3 className="font-black text-3xl uppercase tracking-tighter text-indigo-950 italic">Gerenciar Equipe</h3>
+            <h3 className="font-black text-3xl uppercase tracking-tighter text-indigo-950 italic">Controle de Equipe</h3>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead className="bg-gray-50 text-[11px] uppercase text-gray-400 tracking-widest font-black">
-                <tr><th className="px-12 py-8 text-left">Membro</th><th className="px-12 py-8 text-left">Perfil</th><th className="px-12 py-8 text-right">Ações</th></tr>
+                <tr><th className="px-12 py-8 text-left">Nome</th><th className="px-12 py-8 text-left">Nível</th><th className="px-12 py-8 text-right">Ações</th></tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {users.map(u => (
@@ -340,15 +346,16 @@ export const AdminView: React.FC<AdminViewProps> = ({
                       <div>
                         <p className="font-black text-sm uppercase tracking-tighter">{u.nome}</p>
                         <p className="text-[10px] font-bold text-gray-400">{u.email}</p>
+                        <p className="text-[8px] font-mono text-gray-300 uppercase">{u.id}</p>
                       </div>
                     </td>
                     <td className="px-12 py-8">
                       <span className={`text-[10px] font-black px-4 py-1.5 rounded-full uppercase border ${u.tipo === 'adm' ? 'bg-purple-50 text-purple-600 border-purple-100' : 'bg-blue-50 text-blue-600 border-blue-100'}`}>
-                        {u.tipo === 'adm' ? 'Administrador' : 'Operador'}
+                        {u.tipo === 'adm' ? 'Admin' : 'Vendedor'}
                       </span>
                     </td>
                     <td className="px-12 py-8 text-right flex items-center justify-end gap-3">
-                      <button onClick={() => onToggleUserStatus(u.id)} className={`p-4 rounded-2xl transition-all ${u.online ? 'bg-green-50 text-green-600' : 'bg-gray-50 text-gray-300'}`} title="Toggle Online">
+                      <button onClick={() => onToggleUserStatus(u.id)} className={`p-4 rounded-2xl transition-all ${u.online ? 'bg-green-50 text-green-600' : 'bg-gray-50 text-gray-300'}`} title="Online/Offline">
                         <Power className="w-5 h-5" />
                       </button>
                       {u.tipo !== 'adm' && (
@@ -357,7 +364,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
                         </button>
                       )}
                       {u.id !== 'master-admin' && (
-                        <button onClick={() => onDeleteUser(u.id)} className="p-4 bg-red-50 text-red-600 hover:bg-red-600 hover:text-white rounded-2xl transition-all" title="Excluir">
+                        <button onClick={() => onDeleteUser(u.id)} className="p-4 bg-red-50 text-red-600 hover:bg-red-600 hover:text-white rounded-2xl transition-all" title="Remover">
                           <Trash2 className="w-5 h-5" />
                         </button>
                       )}
@@ -373,16 +380,16 @@ export const AdminView: React.FC<AdminViewProps> = ({
       {activeTab === 'history' && (
         <div className="bg-white rounded-[3.5rem] border-2 border-gray-100 overflow-hidden shadow-sm">
           <div className="p-12 border-b bg-gray-50/50">
-            <h3 className="font-black text-3xl uppercase tracking-tighter text-indigo-950 italic">Histórico de Atividades</h3>
+            <h3 className="font-black text-3xl uppercase tracking-tighter text-indigo-950 italic">Log de Chamadas</h3>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-left">
               <thead className="bg-gray-50 text-[11px] uppercase text-gray-400 tracking-widest font-black">
                 <tr>
                   <th className="px-12 py-8">Vendedor</th>
-                  <th className="px-12 py-8 text-center">Resultado</th>
-                  <th className="px-12 py-8 text-center">Duração</th>
-                  <th className="px-12 py-8 text-right">Horário</th>
+                  <th className="px-12 py-8 text-center">Status</th>
+                  <th className="px-12 py-8 text-center">Tempo</th>
+                  <th className="px-12 py-8 text-right">Data/Hora</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
