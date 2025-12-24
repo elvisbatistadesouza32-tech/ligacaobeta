@@ -86,7 +86,7 @@ const App: React.FC = () => {
           id: String(u.id).trim().toLowerCase(),
           nome: u.nome || 'Operador',
           email: u.email || '',
-          tipo: u.tipo === 'adm' ? 'adm' : 'vendedor',
+          tipo: String(u.tipo || 'vendedor').toLowerCase().includes('adm') ? 'adm' : 'vendedor',
           online: !!u.online,
           avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(u.nome || 'User')}&background=random`
         })));
@@ -98,7 +98,8 @@ const App: React.FC = () => {
           nome: l.nome,
           telefone: l.telefone,
           concurso: l.concurso,
-          assignedTo: l.assigned_to ? String(l.assigned_to).trim().toLowerCase() : null,
+          // Se for uma string vazia ou inválida, forçamos null para garantir que o filtro do Round Robin funcione
+          assignedTo: (l.assigned_to && l.assigned_to.length > 10) ? String(l.assigned_to).trim().toLowerCase() : null,
           status: l.status || 'PENDING',
           createdAt: l.created_at
         })));
@@ -165,7 +166,7 @@ const App: React.FC = () => {
               id: String(profile.id).trim().toLowerCase(),
               nome: profile.nome || 'Operador',
               email: profile.email || '',
-              tipo: profile.tipo === 'adm' ? 'adm' : 'vendedor',
+              tipo: String(profile.tipo || 'vendedor').toLowerCase().includes('adm') ? 'adm' : 'vendedor',
               online: true
             });
             await supabase.from('usuarios').update({ online: true }).eq('id', profile.id);
@@ -184,7 +185,12 @@ const App: React.FC = () => {
 
   useEffect(() => {
     restoreSession(true);
-    const channel = supabase.channel('db-global-sync').on('postgres_changes', { event: '*', schema: 'public' }, () => fetchData()).subscribe();
+    // Escuta mudanças em tempo real em todas as tabelas
+    const channel = supabase.channel('schema-db-changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'leads' }, () => fetchData())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'usuarios' }, () => fetchData())
+      .subscribe();
+    
     return () => { channel.unsubscribe(); };
   }, [restoreSession, fetchData]);
 
@@ -213,7 +219,7 @@ const App: React.FC = () => {
             online: false 
           }]);
         }
-        alert("Conta criada! Por favor, faça login.");
+        alert("Conta criada com sucesso!");
         setIsRegistering(false);
       } else {
         const { error: loginError } = await supabase.auth.signInWithPassword({ email: lowerEmail, password });
@@ -241,17 +247,15 @@ const App: React.FC = () => {
   };
 
   const handleDistributeLeads = async () => {
-    // Filtra vendedores excluindo o master-admin da distribuição automática
     const activeSellers = users.filter(u => u.tipo === 'vendedor' && u.id !== 'master-admin');
     
     if (activeSellers.length === 0) {
-      return alert("Erro: Nenhum vendedor cadastrado para receber leads.");
+      return alert("Não há vendedores cadastrados para receber leads.");
     }
     
     setIsSyncing(true);
     
-    // IMPORTANTE: Em colunas UUID do Supabase, o valor não atribuído é NULL.
-    // Comparar com string vazia "" causa erro de sintaxe UUID.
+    // Busca leads onde assigned_to é NULL (estritamente nulo no Postgres)
     const { data: leadsToDist, error: fetchErr } = await supabase
       .from('leads')
       .select('id')
@@ -260,8 +264,7 @@ const App: React.FC = () => {
 
     if (fetchErr) {
       setIsSyncing(false);
-      console.error("Erro Supabase:", fetchErr);
-      return alert("Erro ao buscar leads: " + fetchErr.message);
+      return alert("Erro ao consultar leads livres: " + fetchErr.message);
     }
 
     if (!leadsToDist || leadsToDist.length === 0) { 
@@ -269,7 +272,7 @@ const App: React.FC = () => {
       return alert("Não há leads na Fila Geral para distribuir."); 
     }
 
-    // Distribuição round-robin
+    // Executa as atualizações em paralelo
     const updates = leadsToDist.map((lead, i) => {
       const targetSeller = activeSellers[i % activeSellers.length];
       return supabase
@@ -281,9 +284,9 @@ const App: React.FC = () => {
     try {
       await Promise.all(updates);
       await fetchData();
-      alert(`Sucesso! ${leadsToDist.length} leads foram distribuídos entre ${activeSellers.length} vendedores.`);
+      alert(`${leadsToDist.length} leads foram distribuídos entre ${activeSellers.length} vendedores.`);
     } catch (err: any) {
-      alert("Erro durante a distribuição: " + err.message);
+      alert("Erro parcial na distribuição. Verifique o console.");
     } finally {
       setIsSyncing(false);
     }
@@ -294,14 +297,12 @@ const App: React.FC = () => {
     
     const leadsToInsert = newLeads.map((l, i) => {
       let assignedTo: string | null = null;
-      
       if (distributionMode === 'balanced' && activeSellers.length > 0) { 
         assignedTo = activeSellers[i % activeSellers.length].id; 
       }
       else if (distributionMode.length > 20) { 
         assignedTo = distributionMode; 
       }
-      
       return { 
         nome: l.nome, 
         concurso: l.concurso || 'Geral', 
@@ -317,7 +318,7 @@ const App: React.FC = () => {
   };
 
   const handleTransferLeads = async (from: string, to: string) => {
-    if (!to) return alert("Selecione um destino para a transferência.");
+    if (!to) return alert("Selecione um vendedor de destino.");
     const { error } = await supabase.from('leads').update({ assigned_to: to }).eq('assigned_to', from).eq('status', 'PENDING');
     if (error) alert(error.message); else await fetchData();
   };
@@ -325,7 +326,7 @@ const App: React.FC = () => {
   if (isInitialLoading) return (
     <div className="min-h-screen bg-indigo-950 flex flex-col items-center justify-center text-white">
       <Loader2 className="w-12 h-12 animate-spin text-indigo-400 mb-4" />
-      <p className="font-black uppercase italic tracking-widest text-[10px]">CallMaster Pro - Sincronizando...</p>
+      <p className="font-black uppercase italic tracking-widest text-[10px]">CallMaster Pro - Sincronizando Banco de Dados...</p>
     </div>
   );
 
@@ -339,14 +340,14 @@ const App: React.FC = () => {
         <form onSubmit={handleAuth} className="px-10 pb-12 space-y-6">
           {error && <div className="bg-red-50 text-red-600 p-5 rounded-2xl text-[10px] font-black uppercase text-center border-2 border-red-100">{error}</div>}
           <div className="space-y-4">
-            {isRegistering && ( <input type="text" placeholder="Nome" required value={name} onChange={e => setName(e.target.value)} className="w-full p-5 bg-gray-50 border-2 rounded-2xl outline-none focus:border-indigo-600 font-bold" /> )}
-            <input type="email" placeholder="E-mail" required value={email} onChange={e => setEmail(e.target.value)} className="w-full p-5 bg-gray-50 border-2 rounded-2xl outline-none focus:border-indigo-600 font-bold" />
-            <input type="password" placeholder="Senha" required value={password} onChange={e => setPassword(e.target.value)} className="w-full p-5 bg-gray-50 border-2 rounded-2xl outline-none focus:border-indigo-600 font-bold" />
+            {isRegistering && ( <input type="text" placeholder="Nome Completo" required value={name} onChange={e => setName(e.target.value)} className="w-full p-5 bg-gray-50 border-2 rounded-2xl outline-none focus:border-indigo-600 font-bold" /> )}
+            <input type="email" placeholder="Seu E-mail" required value={email} onChange={e => setEmail(e.target.value)} className="w-full p-5 bg-gray-50 border-2 rounded-2xl outline-none focus:border-indigo-600 font-bold" />
+            <input type="password" placeholder="Sua Senha" required value={password} onChange={e => setPassword(e.target.value)} className="w-full p-5 bg-gray-50 border-2 rounded-2xl outline-none focus:border-indigo-600 font-bold" />
           </div>
           <button type="submit" disabled={isSubmitting} className="w-full bg-indigo-600 text-white py-6 rounded-2xl font-black uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-xl active:scale-95">
-            {isSubmitting ? <Loader2 className="animate-spin mx-auto" /> : (isRegistering ? 'Criar Cadastro' : 'Acessar Painel')}
+            {isSubmitting ? <Loader2 className="animate-spin mx-auto" /> : (isRegistering ? 'Criar Minha Conta' : 'Acessar o Painel')}
           </button>
-          <button type="button" onClick={() => {setIsRegistering(!isRegistering); setError('');}} className="w-full text-indigo-600 font-black text-[10px] uppercase tracking-widest">{isRegistering ? '← Voltar' : 'Novo Operador?'}</button>
+          <button type="button" onClick={() => {setIsRegistering(!isRegistering); setError('');}} className="w-full text-indigo-600 font-black text-[10px] uppercase tracking-widest">{isRegistering ? '← Já tenho conta' : 'Novo por aqui? Cadastre-se'}</button>
         </form>
       </div>
     </div>
@@ -367,7 +368,7 @@ const App: React.FC = () => {
       onLogCall={handleLogCall}
       onToggleUserStatus={async (id) => { const u = users.find(x => x.id === id); if (u) { await supabase.from('usuarios').update({ online: !u.online }).eq('id', id); await fetchData(); } }}
       onPromoteUser={async (id) => { await supabase.from('usuarios').update({ tipo: 'adm' }).eq('id', id); await fetchData(); }}
-      onDeleteUser={async (id) => { if(confirm("Excluir?")){ await supabase.from('usuarios').delete().eq('id', id); await fetchData(); } }}
+      onDeleteUser={async (id) => { if(confirm("Deseja realmente excluir este operador?")){ await supabase.from('usuarios').delete().eq('id', id); await fetchData(); } }}
       onTransferLeads={handleTransferLeads}
     />
   );

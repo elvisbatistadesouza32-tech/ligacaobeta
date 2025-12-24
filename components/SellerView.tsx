@@ -26,17 +26,17 @@ export const SellerView: React.FC<SellerViewProps> = ({ user, leads, onLogCall }
   const myLeads = useMemo(() => {
     if (!user || !user.id) return [];
     
-    // Normalização rigorosa do ID do vendedor atual
+    // Normalização rigorosa do ID do vendedor logado
     const currentUserId = String(user.id).trim().toLowerCase();
     
     return leads.filter(l => {
-      // Ignora leads finalizados
+      // Regra 1: O lead deve estar PENDENTE
       if (l.status !== 'PENDING') return false;
       
-      // Se o lead não tem ninguém atribuído, não aparece aqui
+      // Regra 2: O lead deve ter alguém atribuído
       if (!l.assignedTo) return false;
       
-      // Compara IDs normalizados para evitar falsos negativos por causa de case-sensitivity ou UUID format
+      // Regra 3: O ID atribuído deve bater com o ID do vendedor (UUID normalizado)
       const assignedId = String(l.assignedTo).trim().toLowerCase();
       return assignedId === currentUserId;
     });
@@ -55,7 +55,7 @@ export const SellerView: React.FC<SellerViewProps> = ({ user, leads, onLogCall }
     setShowCarrierModal(false);
     setStartTime(Date.now());
     
-    // Tenta abrir o discador nativo
+    // Tenta abrir o discador nativo do smartphone
     window.location.href = `tel:${formattedNumber}`;
   };
 
@@ -78,7 +78,7 @@ export const SellerView: React.FC<SellerViewProps> = ({ user, leads, onLogCall }
       setActiveCallLead(null);
       setStartTime(null);
     } catch (err) {
-      alert("Erro ao salvar resultado: " + (err instanceof Error ? err.message : "Desconhecido"));
+      alert("Erro ao registrar a ligação: " + (err instanceof Error ? err.message : "Desconhecido"));
     } finally {
       setIsSubmitting(false);
     }
@@ -88,9 +88,9 @@ export const SellerView: React.FC<SellerViewProps> = ({ user, leads, onLogCall }
     <div className="space-y-6 animate-in fade-in duration-500 max-w-2xl mx-auto">
       <div className="bg-white p-10 rounded-[3rem] border-2 border-indigo-100 shadow-sm flex justify-between items-center relative overflow-hidden">
         <div className="relative z-10">
-          <h2 className="text-gray-900 font-black text-2xl tracking-tighter uppercase italic">Vendas, {user.nome}!</h2>
+          <h2 className="text-gray-900 font-black text-2xl tracking-tighter uppercase italic">Boas vendas, {user.nome}!</h2>
           <p className="text-indigo-600 text-[10px] font-black uppercase tracking-widest mt-1 flex items-center gap-2">
-            <ListChecks className="w-4 h-4" /> {myLeads.length} leads na sua fila ativa
+            <ListChecks className="w-4 h-4" /> {myLeads.length} leads na sua fila
           </p>
         </div>
         <div className="bg-indigo-600 p-5 rounded-[2rem] shadow-xl text-white">
@@ -103,7 +103,7 @@ export const SellerView: React.FC<SellerViewProps> = ({ user, leads, onLogCall }
           <div className="bg-white rounded-[4rem] w-full max-w-md p-10 shadow-2xl animate-in zoom-in-95 duration-300">
             <div className="text-center space-y-6">
               <h3 className="text-2xl font-black text-gray-900 uppercase italic">Operadora</h3>
-              <p className="text-gray-400 text-[10px] font-black uppercase tracking-widest">Selecione para discagem direta</p>
+              <p className="text-gray-400 text-[10px] font-black uppercase tracking-widest">Escolha o prefixo para discagem</p>
               <div className="grid grid-cols-1 gap-3">
                 {CARRIERS.map((c) => (
                   <button key={c.name} onClick={() => handleCarrierSelection(c.code)} className={`flex items-center justify-between px-8 py-5 rounded-[2rem] text-white font-black uppercase tracking-widest text-xs transition-all active:scale-95 shadow-lg ${c.color}`}>{c.name} <span className="bg-white/20 px-3 py-1 rounded-full text-[10px]">{c.code}</span></button>
@@ -131,7 +131,7 @@ export const SellerView: React.FC<SellerViewProps> = ({ user, leads, onLogCall }
                 {isSubmitting ? (
                   <div className="flex flex-col items-center gap-2 py-6">
                     <Loader2 className="w-10 h-10 animate-spin text-indigo-600" />
-                    <p className="text-[10px] font-black uppercase text-gray-400 italic">Salvando Histórico...</p>
+                    <p className="text-[10px] font-black uppercase text-gray-400 italic">Gravando resultado...</p>
                   </div>
                 ) : (
                   <>
@@ -153,7 +153,7 @@ export const SellerView: React.FC<SellerViewProps> = ({ user, leads, onLogCall }
               <div className="flex-1 mr-4">
                 <p className="font-black text-gray-900 text-xl tracking-tighter italic uppercase truncate">{lead.nome}</p>
                 <div className="flex items-center gap-3 mt-1">
-                  <span className="bg-indigo-50 text-indigo-600 px-4 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-tighter">{lead.concurso || 'Fila Geral'}</span>
+                  <span className="bg-indigo-50 text-indigo-600 px-4 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-tighter">{lead.concurso || 'Geral'}</span>
                   <span className="text-gray-400 font-bold text-sm tracking-tighter">{lead.telefone}</span>
                 </div>
               </div>
@@ -165,8 +165,8 @@ export const SellerView: React.FC<SellerViewProps> = ({ user, leads, onLogCall }
         ) : (
           <div className="text-center py-40 bg-white border-2 border-dashed border-gray-100 rounded-[4rem]">
             <CheckCircle className="w-16 h-16 text-green-500 mx-auto mb-6 opacity-20" />
-            <p className="text-gray-900 font-black text-xl uppercase italic">Tudo limpo!</p>
-            <p className="text-gray-400 font-bold text-xs uppercase tracking-widest mt-2 px-8 leading-relaxed">Sua fila pessoal está vazia no momento. Aguarde a distribuição de novos leads pelo gestor.</p>
+            <p className="text-gray-900 font-black text-xl uppercase italic">Fila Vazia</p>
+            <p className="text-gray-400 font-bold text-xs uppercase tracking-widest mt-2 px-8 leading-relaxed">Não há novos leads para você agora. Toque em atualizar ou aguarde o gestor.</p>
           </div>
         )}
       </div>
