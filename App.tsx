@@ -157,8 +157,17 @@ const App: React.FC = () => {
   };
 
   const handleDistributeLeads = async () => {
-    const activeSellers = users.filter(u => u.tipo === 'vendedor' && u.online);
-    if (activeSellers.length === 0) return alert("Nenhum vendedor ONLINE disponível.");
+    // Tenta primeiro os online
+    let targetSellers = users.filter(u => u.tipo === 'vendedor' && u.online);
+    
+    // Se não houver ninguém online, pega todos os vendedores cadastrados
+    if (targetSellers.length === 0) {
+      targetSellers = users.filter(u => u.tipo === 'vendedor');
+    }
+
+    if (targetSellers.length === 0) {
+      return alert("Nenhum vendedor cadastrado no sistema para receber leads.");
+    }
     
     const { data: unassigned } = await supabase
       .from('leads')
@@ -171,11 +180,14 @@ const App: React.FC = () => {
     setIsSyncing(true);
     try {
       const updates = unassigned.map((lead, i) => {
-        const seller = activeSellers[i % activeSellers.length];
+        const seller = targetSellers[i % targetSellers.length];
         return supabase.from('leads').update({ assigned_to: seller.id }).eq('id', lead.id);
       });
       await Promise.all(updates);
-      alert(`${unassigned.length} leads distribuídos entre os vendedores online!`);
+      const msg = users.some(u => u.tipo === 'vendedor' && u.online) 
+        ? `${unassigned.length} leads distribuídos entre os vendedores online!`
+        : `${unassigned.length} leads distribuídos entre todos os vendedores (ninguém estava online).`;
+      alert(msg);
     } catch (err) {
       alert("Erro na distribuição.");
     } finally {
@@ -223,45 +235,4 @@ const App: React.FC = () => {
           await restoreSession(false);
         } catch (err: any) { setError(err.message); }
         finally { setIsSubmitting(false); }
-      }} className="w-full max-w-md bg-white text-gray-900 p-10 rounded-[3rem] shadow-2xl">
-        <h1 className="text-2xl font-black text-center mb-8 uppercase italic tracking-tighter">CallMaster <span className="text-indigo-600">Pro</span></h1>
-        {error && <div className="bg-red-50 text-red-600 p-4 rounded-xl text-[10px] font-black uppercase mb-4 text-center border-2 border-red-100">{error}</div>}
-        <div className="space-y-4">
-          <input type="email" placeholder="E-mail" value={email} onChange={e => setEmail(e.target.value)} className="w-full p-5 bg-gray-50 border-2 border-gray-100 rounded-2xl font-bold outline-none focus:border-indigo-600" />
-          <input type="password" placeholder="Senha" value={password} onChange={e => setPassword(e.target.value)} className="w-full p-5 bg-gray-50 border-2 border-gray-100 rounded-2xl font-bold outline-none focus:border-indigo-600" />
-        </div>
-        <button disabled={isSubmitting} className="w-full bg-indigo-600 text-white py-6 rounded-2xl font-black uppercase tracking-widest active:scale-95 transition-all mt-6 shadow-xl shadow-indigo-100">
-          {isSubmitting ? <Loader2 className="animate-spin mx-auto" /> : 'Entrar Agora'}
-        </button>
-      </form>
-    </div>
-  );
-
-  return (
-    <Layout user={currentUser} onLogout={async () => { await supabase.auth.signOut(); localStorage.removeItem('cm_master_session'); setCurrentUser(null); }}>
-      <div className="fixed top-20 right-8 z-[60]">
-        <button onClick={fetchData} disabled={isSyncing} className={`p-4 bg-white shadow-xl rounded-full text-indigo-600 hover:bg-indigo-50 transition-all border-2 border-indigo-100 ${isSyncing ? 'animate-spin' : ''}`}>
-          <RefreshCw className="w-6 h-6" />
-        </button>
-      </div>
-
-      {currentUser.tipo === 'adm' ? (
-        <AdminView 
-          users={users} 
-          leads={leads} 
-          calls={calls}
-          onImportLeads={handleImportLeads}
-          onDistributeLeads={handleDistributeLeads}
-          onToggleUserStatus={handleToggleUserStatus}
-          onPromoteUser={handlePromoteUser}
-          onDeleteUser={handleDeleteUser}
-          onTransferLeads={handleTransferLeads}
-        />
-      ) : (
-        <SellerView user={currentUser} leads={leads} onLogCall={handleLogCall} />
-      )}
-    </Layout>
-  );
-};
-
-export default App;
+      }} className="w-full max-w-md bg-white text-gray-900 p-10 rounded-[3rem
