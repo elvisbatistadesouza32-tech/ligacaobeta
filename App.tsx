@@ -98,7 +98,6 @@ const App: React.FC = () => {
           nome: l.nome,
           telefone: l.telefone,
           concurso: l.concurso,
-          // REPARO CRÍTICO: Removida a trava de length >= 36 que estava descartando leads válidos
           assignedTo: l.assigned_to ? String(l.assigned_to).toLowerCase().trim() : null,
           status: l.status || 'PENDING',
           createdAt: l.created_at
@@ -167,15 +166,22 @@ const App: React.FC = () => {
       }
 
       if (session?.user) {
-        const userEmail = session.user.email?.toLowerCase();
+        const userEmail = session.user.email?.toLowerCase().trim();
+        
         if (userEmail === MASTER_ADMIN_EMAIL.toLowerCase()) {
           setCurrentUser({ id: 'master-admin', nome: 'Admin Gestor', email: MASTER_ADMIN_EMAIL, tipo: 'adm', online: true });
         } else {
-          // Busca perfil usando o ID da sessão do Auth
-          const { data: profile } = await supabase.from('usuarios').select('*').eq('id', session.user.id).maybeSingle();
+          // CORREÇÃO CRÍTICA: Buscar o perfil pelo E-MAIL para obter o ID real do banco (PK da tabela usuarios)
+          // Isso resolve o problema de desalinhamento entre Auth UUID e Primary Key Serial/UUID da tabela usuarios.
+          const { data: profile } = await supabase
+            .from('usuarios')
+            .select('*')
+            .eq('email', userEmail)
+            .maybeSingle();
+
           if (profile) {
             setCurrentUser({
-              id: String(profile.id).toLowerCase().trim(),
+              id: String(profile.id).toLowerCase().trim(), // O ID que realmente está nos leads
               nome: profile.nome || 'Operador',
               email: profile.email || '',
               tipo: String(profile.tipo || 'vendedor').toLowerCase().includes('adm') ? 'adm' : 'vendedor',
@@ -183,14 +189,14 @@ const App: React.FC = () => {
             });
             await supabase.from('usuarios').update({ online: true }).eq('id', profile.id);
           } else {
-            // Se o usuário está no Auth mas não na tabela Usuarios, fazemos logout para limpar
+            console.warn("Usuário autenticado mas sem perfil na tabela 'usuarios'.");
             await handleLogout();
           }
         }
         await fetchData();
       }
     } catch (err) {
-      console.error("Erro na restauração:", err);
+      console.error("Erro na restauração de sessão:", err);
     } finally {
       if (isFirstLoad) setIsInitialLoading(false);
     }
@@ -224,7 +230,6 @@ const App: React.FC = () => {
         const { data: authData, error: signUpError } = await auth.signUp({ email: lowerEmail, password });
         if (signUpError) throw signUpError;
         if (authData?.user) {
-          // CRÍTICO: Inserção do ID vindo do Auth como Chave Primária
           await supabase.from('usuarios').insert([{ 
             id: authData.user.id, 
             nome: name, 
@@ -336,7 +341,7 @@ const App: React.FC = () => {
   if (isInitialLoading) return (
     <div className="min-h-screen bg-indigo-950 flex flex-col items-center justify-center text-white font-sans">
       <Loader2 className="w-12 h-12 animate-spin text-indigo-400 mb-4" />
-      <p className="font-black uppercase italic tracking-widest text-[10px]">Auditoria de Sincronização...</p>
+      <p className="font-black uppercase italic tracking-widest text-[10px]">Sincronizando Identidade Real...</p>
     </div>
   );
 
@@ -345,7 +350,7 @@ const App: React.FC = () => {
       <div className="w-full max-w-md bg-white rounded-[3rem] shadow-2xl overflow-hidden border-t-8 border-indigo-600">
         <div className="p-10 text-center">
           <h1 className="text-3xl font-black italic tracking-tighter uppercase text-indigo-950">CallMaster <span className="text-indigo-600">Pro</span></h1>
-          <p className="text-[10px] font-black uppercase text-gray-400 tracking-widest mt-2">Segurança de Dados</p>
+          <p className="text-[10px] font-black uppercase text-gray-400 tracking-widest mt-2">Acesso Seguro</p>
         </div>
         <form onSubmit={handleAuth} className="px-10 pb-12 space-y-6">
           {error && <div className="bg-red-50 text-red-600 p-5 rounded-2xl text-[10px] font-black uppercase text-center border-2 border-red-100">{error}</div>}
