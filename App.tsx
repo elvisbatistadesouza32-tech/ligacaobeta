@@ -1,10 +1,10 @@
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { User, Lead, CallRecord, CallStatus } from './types';
 import { Layout } from './components/Layout';
 import { SellerView } from './components/SellerView';
 import { AdminView } from './components/AdminView';
-import { Loader2, ArrowRight, AlertCircle, RefreshCw } from 'lucide-react';
+import { Loader2, ArrowRight, RefreshCw, Wifi, WifiOff } from 'lucide-react';
 import { supabase } from './supabase';
 
 const MASTER_ADMIN_EMAIL = "admin@callmaster.com";
@@ -16,6 +16,7 @@ const App: React.FC = () => {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [calls, setCalls] = useState<CallRecord[]>([]);
   const [isInitialLoading, setIsInitialLoading] = useState(true);
+  const [isSyncing, setIsSyncing] = useState(false);
   
   const [isRegistering, setIsRegistering] = useState(false);
   const [email, setEmail] = useState('');
@@ -25,12 +26,9 @@ const App: React.FC = () => {
   const [successMsg, setSuccessMsg] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const isFetchingRef = useRef(false);
-
+  // Função centralizada de busca
   const fetchData = useCallback(async () => {
-    if (isFetchingRef.current) return;
-    isFetchingRef.current = true;
-    
+    setIsSyncing(true);
     try {
       const [userData, leadData, callData] = await Promise.all([
         supabase.from('usuarios').select('*').order('nome'),
@@ -73,15 +71,15 @@ const App: React.FC = () => {
         })));
       }
     } catch (err: any) {
-      console.error("Erro ao sincronizar dados:", err);
+      console.error("Erro na sincronização:", err);
     } finally {
-      isFetchingRef.current = false;
+      setIsSyncing(false);
     }
   }, []);
 
+  // Restauração de Sessão
   const restoreSession = useCallback(async (isFirstLoad = false) => {
     if (isFirstLoad) setIsInitialLoading(true);
-
     try {
       const masterSession = localStorage.getItem('cm_master_session');
       if (masterSession === 'active') {
@@ -98,10 +96,8 @@ const App: React.FC = () => {
       }
 
       const { data: { session } } = await supabase.auth.getSession();
-      
       if (session?.user) {
         const userEmail = session.user.email?.toLowerCase();
-        
         if (userEmail === MASTER_ADMIN_EMAIL.toLowerCase()) {
           setCurrentUser({ 
             id: 'master-admin', 
@@ -112,12 +108,7 @@ const App: React.FC = () => {
             avatar: `https://ui-avatars.com/api/?name=Admin+Gestor&background=6366f1&color=fff`
           });
         } else {
-          const { data: profile } = await supabase
-            .from('usuarios')
-            .select('*')
-            .eq('email', userEmail)
-            .maybeSingle();
-
+          const { data: profile } = await supabase.from('usuarios').select('*').eq('email', userEmail).maybeSingle();
           if (profile) {
             setCurrentUser({
               id: profile.id,
@@ -139,9 +130,19 @@ const App: React.FC = () => {
     }
   }, [fetchData]);
 
+  // Efeito para Realtime e Polling de Segurança
   useEffect(() => {
     restoreSession(true);
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+
+    // ESCUTA REALTIME: Atualiza automaticamente quando qualquer tabela mudar
+    const channel = supabase
+      .channel('schema-db-changes')
+      .on('postgres_changes', { event: '*', schema: 'public' }, () => {
+        fetchData(); // Recarrega os dados instantaneamente ao detectar mudança
+      })
+      .subscribe();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
       if (event === 'SIGNED_OUT') {
         localStorage.removeItem('cm_master_session');
         setCurrentUser(null);
@@ -149,9 +150,11 @@ const App: React.FC = () => {
         restoreSession(false);
       }
     });
-    // Sincronização automática a cada 30 segundos
-    const interval = setInterval(() => fetchData(), 30000);
+
+    const interval = setInterval(() => fetchData(), 60000); // Polling de segurança mais longo
+    
     return () => {
+      channel.unsubscribe();
       subscription.unsubscribe();
       clearInterval(interval);
     };
@@ -223,43 +226,28 @@ const App: React.FC = () => {
 
   const handleDistributeLeads = async () => {
     const allSellers = users.filter(u => u.tipo === 'vendedor');
-    if (allSellers.length === 0) return alert("Não há vendedores cadastrados para receber leads.");
+    if (allSellers.length === 0) return alert("Não há vendedores cadastrados.");
     
-    const { data: freeLeads, error: selectError } = await supabase
-      .from('leads')
-      .select('id')
-      .is('assigned_to', null)
-      .eq('status', 'PENDING');
-      
-    if (selectError) return alert("Erro ao buscar fila: " + selectError.message);
-    if (!freeLeads || freeLeads.length === 0) return alert("A fila geral está vazia.");
+    const { data: freeLeads } = await supabase.from('leads').select('id').is('assigned_to', null).eq('status', 'PENDING');
+    if (!freeLeads || freeLeads.length === 0) return alert("Fila vazia.");
 
-    // Fazemos um update em lote se possível, ou sequencial rápido
     for (let i = 0; i < freeLeads.length; i++) {
       const sellerId = allSellers[i % allSellers.length].id;
-      await supabase
-        .from('leads')
-        .update({ assigned_to: sellerId })
-        .eq('id', freeLeads[i].id);
+      await supabase.from('leads').update({ assigned_to: sellerId }).eq('id', freeLeads[i].id);
     }
 
     await fetchData();
-    alert(`Sucesso! Leads distribuídos.`);
+    alert(`Leads distribuídos com sucesso!`);
   };
 
   const handleImportLeads = async (newLeads: Lead[], distributionMode: 'none' | 'balanced' | string) => {
-    // Garantir que temos os usuários mais recentes antes de distribuir
-    await fetchData();
     const allSellers = users.filter(u => u.tipo === 'vendedor');
-    
     const leadsToInsert = newLeads.map((l, i) => {
       let assignedTo: string | null = null;
-      
       if (distributionMode === 'balanced' && allSellers.length > 0) {
         assignedTo = allSellers[i % allSellers.length].id;
       } else if (distributionMode !== 'none' && distributionMode !== 'balanced' && distributionMode) {
-        // Se distributionMode for um ID de vendedor, usamos ele (exceto o master-admin mock)
-        assignedTo = distributionMode === 'master-admin' ? null : distributionMode;
+        assignedTo = distributionMode;
       }
 
       return {
@@ -271,12 +259,9 @@ const App: React.FC = () => {
       };
     });
 
-    if (leadsToInsert.length === 0) return;
-
     const { error: insertError } = await supabase.from('leads').insert(leadsToInsert);
     if (insertError) throw new Error("Erro no banco: " + insertError.message);
     
-    // Atualiza imediatamente o estado global
     await fetchData();
   };
 
@@ -289,7 +274,7 @@ const App: React.FC = () => {
   if (isInitialLoading && !currentUser) return (
     <div className="min-h-screen bg-indigo-950 flex flex-col items-center justify-center text-white text-center">
       <Loader2 className="w-12 h-12 animate-spin text-indigo-400 mb-4" />
-      <p className="font-black uppercase tracking-tighter italic">Sincronizando CallMaster...</p>
+      <p className="font-black uppercase tracking-tighter italic">Iniciando CallMaster Pro...</p>
     </div>
   );
 
@@ -319,9 +304,9 @@ const App: React.FC = () => {
             </div>
           </div>
           <button type="submit" disabled={isSubmitting} className="w-full bg-indigo-600 text-white py-6 rounded-[2rem] font-black flex items-center justify-center gap-4 active:scale-95 transition-all shadow-xl uppercase text-sm tracking-tighter hover:bg-indigo-700">
-            {isSubmitting ? <Loader2 className="animate-spin" /> : <>{isRegistering ? 'Cadastrar' : 'Entrar'} <ArrowRight className="w-5" /></>}
+            {isSubmitting ? <Loader2 className="animate-spin" /> : <>{isRegistering ? 'Cadastrar Operador' : 'Acessar Painel'} <ArrowRight className="w-5" /></>}
           </button>
-          <button type="button" onClick={() => {setIsRegistering(!isRegistering); setError('');}} className="w-full text-indigo-600 font-black text-[10px] uppercase tracking-[0.2em]">{isRegistering ? '← Voltar para o Login' : 'Criar nova conta'}</button>
+          <button type="button" onClick={() => {setIsRegistering(!isRegistering); setError('');}} className="w-full text-indigo-600 font-black text-[10px] uppercase tracking-[0.2em]">{isRegistering ? '← Já tenho conta' : 'Novo por aqui? Criar conta'}</button>
         </form>
       </div>
     </div>
@@ -329,10 +314,16 @@ const App: React.FC = () => {
 
   return (
     <Layout user={currentUser} onLogout={handleLogout}>
-       <div className="fixed top-20 right-8 z-[60]">
-         <button onClick={() => fetchData()} className="p-4 bg-white/90 backdrop-blur shadow-lg rounded-full text-indigo-600 hover:rotate-180 transition-all duration-700 border border-indigo-100">
-           <RefreshCw className="w-5 h-5" />
-         </button>
+       <div className="fixed top-20 right-8 z-[60] flex items-center gap-2">
+         {isSyncing ? (
+           <div className="bg-indigo-600 text-white px-4 py-2 rounded-full text-[9px] font-black uppercase flex items-center gap-2 shadow-lg animate-pulse">
+             <RefreshCw className="w-3 h-3 animate-spin" /> Sincronizando
+           </div>
+         ) : (
+           <button onClick={() => fetchData()} className="p-4 bg-white/90 backdrop-blur shadow-lg rounded-full text-indigo-600 hover:rotate-180 transition-all duration-700 border border-indigo-100">
+             <RefreshCw className="w-5 h-5" />
+           </button>
+         )}
        </div>
 
       {currentUser.tipo === 'adm' ? (

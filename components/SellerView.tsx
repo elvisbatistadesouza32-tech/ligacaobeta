@@ -23,9 +23,14 @@ export const SellerView: React.FC<SellerViewProps> = ({ user, leads, onLogCall }
   const [startTime, setStartTime] = useState<number | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Filtragem rigorosa: Somente leads atribuídos ao meu ID e com status PENDENTE
+  // Filtragem robusta: IDs como strings e status normalizado
   const myLeads = useMemo(() => {
-    return leads.filter(l => l.assignedTo === user.id && l.status === 'PENDING');
+    if (!user.id) return [];
+    return leads.filter(l => {
+      const isAssignedToMe = String(l.assignedTo).toLowerCase() === String(user.id).toLowerCase();
+      const isPending = l.status === 'PENDING';
+      return isAssignedToMe && isPending;
+    });
   }, [leads, user.id]);
 
   const initiateCallSequence = (lead: Lead) => {
