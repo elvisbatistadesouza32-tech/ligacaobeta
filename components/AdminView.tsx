@@ -46,11 +46,10 @@ export const AdminView: React.FC<AdminViewProps> = ({
   const sellers = useMemo(() => users.filter(u => u.tipo === 'vendedor'), [users]);
   
   const stats = useMemo(() => {
-    const totalPending = leads.filter(l => l.status === 'PENDING').length;
-    // Em UUID, unassigned é estritamente nulo
-    const unassignedLeads = leads.filter(l => !l.assignedTo && l.status === 'PENDING').length;
-    const assignedPending = leads.filter(l => !!l.assignedTo && l.status === 'PENDING').length;
-    const completedLeads = leads.filter(l => l.status === 'CALLED').length;
+    const totalPending = leads.filter(l => String(l.status).toUpperCase() === 'PENDING').length;
+    const unassignedLeads = leads.filter(l => (!l.assignedTo || l.assignedTo === "") && String(l.status).toUpperCase() === 'PENDING').length;
+    const assignedPending = leads.filter(l => (l.assignedTo && l.assignedTo !== "") && String(l.status).toUpperCase() === 'PENDING').length;
+    const completedLeads = leads.filter(l => String(l.status).toUpperCase() === 'CALLED').length;
     
     return { totalLeads: leads.length, totalPending, unassignedLeads, assignedPending, completedLeads };
   }, [leads]);
@@ -59,21 +58,23 @@ export const AdminView: React.FC<AdminViewProps> = ({
     return leads.filter(l => {
       const matchesSearch = l.nome.toLowerCase().includes(searchTerm.toLowerCase()) || l.telefone.includes(searchTerm);
       let matchesFilter = true;
-      if (leadFilter === 'pending') matchesFilter = l.status === 'PENDING';
-      if (leadFilter === 'assigned') matchesFilter = !!l.assignedTo && l.status === 'PENDING';
-      if (leadFilter === 'unassigned') matchesFilter = !l.assignedTo && l.status === 'PENDING';
+      const isPending = String(l.status).toUpperCase() === 'PENDING';
+      const hasAssignee = l.assignedTo && l.assignedTo !== "";
+
+      if (leadFilter === 'pending') matchesFilter = isPending;
+      if (leadFilter === 'assigned') matchesFilter = hasAssignee && isPending;
+      if (leadFilter === 'unassigned') matchesFilter = !hasAssignee && isPending;
       return matchesSearch && matchesFilter;
     });
   }, [leads, searchTerm, leadFilter]);
 
   const sellerPerformance = useMemo(() => {
     return sellers.map(seller => {
-      const sellerIdLower = String(seller.id).toLowerCase();
-      const sellerCalls = calls.filter(c => String(c.sellerId).toLowerCase() === sellerIdLower);
+      // IDs já estão normalizados no App.tsx, comparação direta funciona
+      const sellerCalls = calls.filter(c => c.sellerId === seller.id);
       const sellerLeadsCount = leads.filter(l => 
-        l.assignedTo && 
-        String(l.assignedTo).toLowerCase() === sellerIdLower && 
-        l.status === 'PENDING'
+        l.assignedTo === seller.id && 
+        String(l.status).toUpperCase() === 'PENDING'
       ).length;
       return { ...seller, totalCalls: sellerCalls.length, pendingLeads: sellerLeadsCount };
     }).sort((a, b) => b.totalCalls - a.totalCalls);
@@ -95,7 +96,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
           if (fone.length >= 8) return { id: `temp-${idx}`, nome: String(row[0] || 'Lead').trim(), concurso: String(row[1] || 'Geral').trim(), telefone: fone, status: 'PENDING' };
           return null;
         }).filter(Boolean) as Lead[];
-        if (parsedLeads.length === 0) setNotification({ message: "Arquivo vazio ou inválido.", type: 'error' });
+        if (parsedLeads.length === 0) setNotification({ message: "Arquivo inválido.", type: 'error' });
         else setPendingLeads(parsedLeads);
       } catch (err) { setNotification({ message: "Erro ao ler Excel.", type: 'error' }); }
       finally { setIsImporting(false); }
@@ -116,7 +117,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
   };
 
   return (
-    <div className="space-y-6 pb-20 animate-in fade-in duration-500">
+    <div className="space-y-6 pb-20 animate-in fade-in duration-500 font-sans">
       {notification && (
         <div className={`fixed top-24 left-1/2 -translate-x-1/2 z-[200] px-10 py-5 rounded-full shadow-2xl flex items-center gap-4 animate-in slide-in-from-top-10 border-2 ${notification.type === 'success' ? 'bg-indigo-600 border-indigo-400 text-white' : 'bg-red-600 border-red-400 text-white'}`}>
           <span className="font-black uppercase text-xs italic tracking-widest">{notification.message}</span>
@@ -124,14 +125,14 @@ export const AdminView: React.FC<AdminViewProps> = ({
       )}
 
       {pendingLeads && (
-        <div className="fixed inset-0 z-[220] bg-indigo-950/95 backdrop-blur-2xl flex items-center justify-center p-6">
+        <div className="fixed inset-0 z-[220] bg-indigo-950/95 backdrop-blur-2xl flex items-center justify-center p-6 text-gray-900">
           <div className="bg-white rounded-[4rem] w-full max-w-2xl p-10 shadow-2xl">
-             <h3 className="text-2xl font-black text-gray-900 uppercase italic mb-6">Processar {pendingLeads.length} Leads</h3>
+             <h3 className="text-2xl font-black text-gray-900 uppercase italic mb-6 tracking-tighter">Processar {pendingLeads.length} Leads</h3>
              <div className="space-y-6 mb-8">
-                <p className="text-[10px] font-black uppercase text-gray-400 tracking-widest">Para quem enviar?</p>
+                <p className="text-[10px] font-black uppercase text-gray-400 tracking-widest">Escolha o Destino:</p>
                 <div className="grid grid-cols-2 gap-4">
-                  <button onClick={() => setImportDistributionMode('none')} className={`p-6 rounded-3xl border-2 font-black text-[10px] uppercase ${importDistributionMode === 'none' ? 'border-indigo-600 bg-indigo-50 text-indigo-600' : 'border-gray-100 text-gray-400'}`}>Fila Geral</button>
-                  <button onClick={() => setImportDistributionMode('balanced')} className={`p-6 rounded-3xl border-2 font-black text-[10px] uppercase ${importDistributionMode === 'balanced' ? 'border-indigo-600 bg-indigo-50 text-indigo-600' : 'border-gray-100 text-gray-400'}`}>Distribuir Agora</button>
+                  <button onClick={() => setImportDistributionMode('none')} className={`p-6 rounded-3xl border-2 font-black text-[10px] uppercase transition-all ${importDistributionMode === 'none' ? 'border-indigo-600 bg-indigo-50 text-indigo-600' : 'border-gray-100 text-gray-400'}`}>Fila Geral</button>
+                  <button onClick={() => setImportDistributionMode('balanced')} className={`p-6 rounded-3xl border-2 font-black text-[10px] uppercase transition-all ${importDistributionMode === 'balanced' ? 'border-indigo-600 bg-indigo-50 text-indigo-600' : 'border-gray-100 text-gray-400'}`}>Distribuir Agora</button>
                 </div>
                 <select value={importDistributionMode.length > 20 ? importDistributionMode : ''} onChange={(e) => setImportDistributionMode(e.target.value)} className="w-full p-5 bg-gray-50 border-2 border-gray-100 rounded-3xl font-bold text-xs outline-none focus:border-indigo-600">
                   <option value="">Ou selecione um vendedor...</option>
@@ -139,34 +140,34 @@ export const AdminView: React.FC<AdminViewProps> = ({
                 </select>
              </div>
              <div className="grid grid-cols-2 gap-4">
-                <button onClick={() => setPendingLeads(null)} className="py-6 rounded-3xl font-black uppercase text-xs border-2 border-gray-100">Cancelar</button>
-                <button onClick={confirmImport} className="py-6 rounded-3xl bg-indigo-600 text-white font-black uppercase text-xs">Confirmar Importação</button>
+                <button onClick={() => setPendingLeads(null)} className="py-6 rounded-3xl font-black uppercase text-xs border-2 border-gray-100 text-gray-400">Cancelar</button>
+                <button onClick={confirmImport} className="py-6 rounded-3xl bg-indigo-600 text-white font-black uppercase text-xs shadow-xl shadow-indigo-100">Confirmar</button>
              </div>
           </div>
         </div>
       )}
 
       {transferModal && (
-        <div className="fixed inset-0 z-[210] bg-indigo-950/90 backdrop-blur-xl flex items-center justify-center p-6">
+        <div className="fixed inset-0 z-[210] bg-indigo-950/90 backdrop-blur-xl flex items-center justify-center p-6 text-gray-900">
           <div className="bg-white rounded-[4rem] w-full max-w-md p-12 shadow-2xl">
-            <h3 className="text-2xl font-black uppercase italic mb-8 text-center">Transferir Fila de {transferModal.fromName}</h3>
-            <select value={targetSellerId} onChange={(e) => setTargetSellerId(e.target.value)} className="w-full bg-gray-50 border-2 border-gray-100 p-6 rounded-3xl font-bold mb-6">
-              <option value="">Escolha o novo destino...</option>
+            <h3 className="text-2xl font-black uppercase italic mb-8 text-center tracking-tighter">Transferir Fila de {transferModal.fromName}</h3>
+            <select value={targetSellerId} onChange={(e) => setTargetSellerId(e.target.value)} className="w-full bg-gray-50 border-2 border-gray-100 p-6 rounded-3xl font-bold mb-6 text-sm">
+              <option value="">Novo Destino...</option>
               {sellers.filter(s => s.id !== transferModal.fromId).map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
             </select>
             <div className="flex gap-4">
-              <button onClick={() => setTransferModal(null)} className="flex-1 py-5 rounded-2xl border-2 font-black uppercase text-[10px]">Voltar</button>
-              <button onClick={() => { onTransferLeads(transferModal.fromId, targetSellerId); setTransferModal(null); }} className="flex-1 py-5 rounded-2xl bg-indigo-600 text-white font-black uppercase text-[10px]">Transferir Agora</button>
+              <button onClick={() => setTransferModal(null)} className="flex-1 py-5 rounded-2xl border-2 font-black uppercase text-[10px] text-gray-400">Voltar</button>
+              <button onClick={() => { onTransferLeads(transferModal.fromId, targetSellerId); setTransferModal(null); }} className="flex-1 py-5 rounded-2xl bg-indigo-600 text-white font-black uppercase text-[10px] shadow-lg shadow-indigo-100">Transferir</button>
             </div>
           </div>
         </div>
       )}
 
       <div className="flex bg-white p-2 rounded-full shadow-sm border overflow-x-auto scrollbar-hide">
-        <button onClick={() => setActiveTab('stats')} className={`flex items-center gap-2 px-10 py-4 rounded-full font-black text-xs uppercase transition-all ${activeTab === 'stats' ? 'bg-indigo-600 text-white' : 'text-gray-400 hover:bg-gray-50'}`}><TrendingUp className="w-4" /> Monitor</button>
-        <button onClick={() => setActiveTab('leads')} className={`flex items-center gap-2 px-10 py-4 rounded-full font-black text-xs uppercase transition-all ${activeTab === 'leads' ? 'bg-indigo-600 text-white' : 'text-gray-400 hover:bg-gray-50'}`}><Database className="w-4" /> Gestão</button>
-        <button onClick={() => setActiveTab('users')} className={`flex items-center gap-2 px-10 py-4 rounded-full font-black text-xs uppercase transition-all ${activeTab === 'users' ? 'bg-indigo-600 text-white' : 'text-gray-400 hover:bg-gray-50'}`}><Users className="w-4" /> Equipe</button>
-        <button onClick={() => setActiveTab('history')} className={`flex items-center gap-2 px-10 py-4 rounded-full font-black text-xs uppercase transition-all ${activeTab === 'history' ? 'bg-indigo-600 text-white' : 'text-gray-400 hover:bg-gray-50'}`}><PhoneIncoming className="w-4" /> Logs</button>
+        <button onClick={() => setActiveTab('stats')} className={`flex items-center gap-2 px-10 py-4 rounded-full font-black text-xs uppercase transition-all shrink-0 ${activeTab === 'stats' ? 'bg-indigo-600 text-white shadow-lg' : 'text-gray-400 hover:bg-gray-50'}`}><TrendingUp className="w-4" /> Monitor</button>
+        <button onClick={() => setActiveTab('leads')} className={`flex items-center gap-2 px-10 py-4 rounded-full font-black text-xs uppercase transition-all shrink-0 ${activeTab === 'leads' ? 'bg-indigo-600 text-white shadow-lg' : 'text-gray-400 hover:bg-gray-50'}`}><Database className="w-4" /> Gestão</button>
+        <button onClick={() => setActiveTab('users')} className={`flex items-center gap-2 px-10 py-4 rounded-full font-black text-xs uppercase transition-all shrink-0 ${activeTab === 'users' ? 'bg-indigo-600 text-white shadow-lg' : 'text-gray-400 hover:bg-gray-50'}`}><Users className="w-4" /> Equipe</button>
+        <button onClick={() => setActiveTab('history')} className={`flex items-center gap-2 px-10 py-4 rounded-full font-black text-xs uppercase transition-all shrink-0 ${activeTab === 'history' ? 'bg-indigo-600 text-white shadow-lg' : 'text-gray-400 hover:bg-gray-50'}`}><PhoneIncoming className="w-4" /> Logs</button>
       </div>
 
       {activeTab === 'stats' && (
@@ -190,26 +191,26 @@ export const AdminView: React.FC<AdminViewProps> = ({
              </div>
           </div>
 
-          <div className="bg-white p-10 rounded-[4rem] border-2 border-gray-100 shadow-sm">
-             <div className="flex items-center gap-3 mb-8">
+          <div className="bg-white p-10 rounded-[4rem] border-2 border-gray-100 shadow-sm overflow-hidden">
+             <div className="flex items-center gap-3 mb-8 px-2">
                <Headphones className="text-indigo-600" />
-               <h3 className="font-black text-xl uppercase italic">Status dos Operadores</h3>
+               <h3 className="font-black text-xl uppercase italic tracking-tighter">Status dos Operadores</h3>
              </div>
-             <div className="overflow-x-auto">
-                <table className="w-full text-left">
+             <div className="overflow-x-auto scrollbar-hide">
+                <table className="w-full text-left min-w-[500px]">
                   <thead className="text-[10px] font-black uppercase text-gray-400 border-b">
                     <tr><th className="pb-6">Operador</th><th className="pb-6 text-center">Ligações</th><th className="pb-6 text-center">Fila Pendente</th><th className="pb-6 text-right">Ação</th></tr>
                   </thead>
                   <tbody>
                     {sellerPerformance.map(s => (
-                      <tr key={s.id} className="border-t border-gray-50">
+                      <tr key={s.id} className="border-t border-gray-50 hover:bg-gray-50 transition-all">
                         <td className="py-6 flex items-center gap-3">
                            <span className={`w-2 h-2 rounded-full ${s.online ? 'bg-green-500 animate-pulse' : 'bg-gray-300'}`}></span>
-                           <span className="font-black uppercase text-xs">{s.nome}</span>
+                           <span className="font-black uppercase text-xs tracking-tighter">{s.nome}</span>
                         </td>
                         <td className="py-6 text-center font-bold">{s.totalCalls}</td>
                         <td className="py-6 text-center">
-                           <span className={`px-4 py-1 rounded-full font-black text-[9px] ${s.pendingLeads > 0 ? 'bg-orange-100 text-orange-600' : 'bg-green-50 text-green-600'}`}>
+                           <span className={`px-4 py-1 rounded-full font-black text-[9px] ${s.pendingLeads > 0 ? 'bg-orange-100 text-orange-600 border border-orange-200' : 'bg-green-50 text-green-600 border border-green-200'}`}>
                               {s.pendingLeads} LEADS
                            </span>
                         </td>
@@ -230,20 +231,20 @@ export const AdminView: React.FC<AdminViewProps> = ({
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="bg-white p-10 rounded-[3rem] border-2 border-dashed border-gray-200 flex flex-col items-center text-center gap-6 group cursor-pointer hover:border-indigo-600 transition-all" onClick={() => fileInputRef.current?.click()}>
               <div className="w-20 h-20 bg-indigo-50 rounded-[2rem] flex items-center justify-center text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white transition-all"><Upload className="w-10 h-10" /></div>
-              <h3 className="font-black text-xl uppercase italic">Importar Excel</h3>
+              <h3 className="font-black text-xl uppercase italic tracking-tighter">Importar Excel</h3>
               <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept=".xlsx" className="hidden" />
             </div>
-            <div className="bg-indigo-600 p-10 rounded-[3rem] text-white flex flex-col items-center text-center gap-6 group cursor-pointer hover:bg-indigo-700 transition-all shadow-xl" onClick={onDistributeLeads}>
+            <div className="bg-indigo-600 p-10 rounded-[3rem] text-white flex flex-col items-center text-center gap-6 group cursor-pointer hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-100" onClick={onDistributeLeads}>
               <div className="w-20 h-20 bg-white/10 rounded-[2rem] flex items-center justify-center group-hover:scale-110 transition-all"><ArrowRightLeft className="w-10 h-10" /></div>
-              <h3 className="font-black text-xl uppercase italic">Distribuir Fila Geral</h3>
+              <h3 className="font-black text-xl uppercase italic tracking-tighter">Distribuir Fila Geral</h3>
             </div>
           </div>
 
           <div className="bg-white rounded-[3.5rem] border-2 border-gray-100 overflow-hidden shadow-sm">
-            <div className="p-10 border-b flex flex-col lg:flex-row justify-between items-center gap-6 bg-gray-50/50">
-              <h3 className="font-black text-2xl uppercase italic">Audit de Leads</h3>
+            <div className="p-8 lg:p-10 border-b flex flex-col lg:flex-row justify-between items-center gap-6 bg-gray-50/50">
+              <h3 className="font-black text-2xl uppercase italic tracking-tighter">Audit de Leads</h3>
               <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto">
-                <select value={leadFilter} onChange={(e: any) => setLeadFilter(e.target.value)} className="p-4 bg-white border-2 border-gray-100 rounded-2xl font-black text-[10px] uppercase outline-none focus:border-indigo-600">
+                <select value={leadFilter} onChange={(e: any) => setLeadFilter(e.target.value)} className="flex-1 lg:flex-none p-4 bg-white border-2 border-gray-100 rounded-2xl font-black text-[10px] uppercase outline-none focus:border-indigo-600">
                   <option value="all">Todos</option>
                   <option value="pending">Aguardando</option>
                   <option value="assigned">Com Vendedor</option>
@@ -251,34 +252,34 @@ export const AdminView: React.FC<AdminViewProps> = ({
                 </select>
                 <div className="relative flex-1 lg:w-80">
                   <Search className="absolute left-6 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                  <input type="text" placeholder="Pesquisar lead..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pl-14 pr-6 py-4 bg-white border-2 border-gray-100 rounded-2xl font-bold text-xs outline-none focus:border-indigo-600" />
+                  <input type="text" placeholder="Filtrar..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pl-14 pr-6 py-4 bg-white border-2 border-gray-100 rounded-2xl font-bold text-xs outline-none focus:border-indigo-600" />
                 </div>
               </div>
             </div>
             <div className="overflow-x-auto max-h-[600px] scrollbar-hide">
-              <table className="w-full text-left">
+              <table className="w-full text-left min-w-[600px]">
                 <thead className="bg-white text-[10px] font-black uppercase text-gray-400 sticky top-0 z-10 border-b">
-                  <tr><th className="px-10 py-6">Lead</th><th className="px-10 py-6">Vendedor</th><th className="px-10 py-6 text-center">Status</th><th className="px-10 py-6 text-right">Importado em</th></tr>
+                  <tr><th className="px-10 py-6">Lead</th><th className="px-10 py-6">Vendedor</th><th className="px-10 py-6 text-center">Status</th><th className="px-10 py-6 text-right">Data</th></tr>
                 </thead>
-                <tbody className="divide-y divide-gray-50">
+                <tbody className="divide-y divide-gray-50 bg-white">
                   {filteredLeads.map(l => (
                     <tr key={l.id} className="hover:bg-indigo-50/10 transition-colors">
                       <td className="px-10 py-6">
-                        <p className="font-black uppercase text-xs text-gray-900">{l.nome}</p>
+                        <p className="font-black uppercase text-xs text-gray-900 tracking-tighter">{l.nome}</p>
                         <p className="text-[10px] font-bold text-indigo-600">{l.telefone}</p>
                       </td>
                       <td className="px-10 py-6">
                         {l.assignedTo ? (
-                          <span className="font-black uppercase text-[10px] text-gray-700">
-                             {users.find(u => String(u.id).toLowerCase() === String(l.assignedTo).toLowerCase())?.nome || 'Operador'}
+                          <span className="font-black uppercase text-[10px] text-gray-700 tracking-tighter">
+                             {users.find(u => u.id === l.assignedTo)?.nome || 'Operador'}
                           </span>
                         ) : (
-                          <span className="bg-gray-100 text-gray-400 px-3 py-1 rounded-full font-black text-[9px] uppercase italic">Pendente de Atribuição</span>
+                          <span className="bg-gray-100 text-gray-400 px-3 py-1 rounded-full font-black text-[9px] uppercase italic">Pendente</span>
                         )}
                       </td>
                       <td className="px-10 py-6 text-center">
-                        <span className={`px-4 py-1.5 rounded-full font-black text-[9px] uppercase ${l.status === 'PENDING' ? 'bg-orange-50 text-orange-600' : 'bg-green-50 text-green-600'}`}>
-                           {l.status === 'PENDING' ? 'Aguardando' : 'Finalizado'}
+                        <span className={`px-4 py-1.5 rounded-full font-black text-[9px] uppercase ${String(l.status).toUpperCase() === 'PENDING' ? 'bg-orange-50 text-orange-600 border border-orange-100' : 'bg-green-50 text-green-600 border border-green-100'}`}>
+                           {String(l.status).toUpperCase() === 'PENDING' ? 'Aguardando' : 'Finalizado'}
                         </span>
                       </td>
                       <td className="px-10 py-6 text-right font-mono text-[10px] text-gray-400">{new Date(l.createdAt || '').toLocaleDateString('pt-BR')}</td>
@@ -294,10 +295,10 @@ export const AdminView: React.FC<AdminViewProps> = ({
       {activeTab === 'users' && (
         <div className="bg-white rounded-[3.5rem] border-2 border-gray-100 overflow-hidden shadow-sm">
           <div className="p-12 border-b flex justify-between items-center bg-gray-50/50">
-            <h3 className="font-black text-3xl uppercase italic tracking-tighter">Gestão de Equipe</h3>
+            <h3 className="font-black text-3xl uppercase italic tracking-tighter">Equipe</h3>
           </div>
           <div className="overflow-x-auto">
-            <table className="w-full">
+            <table className="w-full min-w-[500px]">
               <thead className="bg-gray-50 text-[11px] uppercase text-gray-400 font-black">
                 <tr><th className="px-12 py-8 text-left">Membro</th><th className="px-12 py-8 text-left">Nível</th><th className="px-12 py-8 text-right">Ações</th></tr>
               </thead>
@@ -325,7 +326,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
                       {u.tipo !== 'adm' && (
                         <button onClick={() => onPromoteUser(u.id)} className="p-4 bg-amber-50 text-amber-600 hover:bg-amber-600 hover:text-white rounded-2xl transition-all"><ShieldCheck className="w-5 h-5" /></button>
                       )}
-                      {u.id !== 'master-admin' && (
+                      {u.id !== 'masteradmin' && (
                         <button onClick={() => onDeleteUser(u.id)} className="p-4 bg-red-50 text-red-600 hover:bg-red-600 hover:text-white rounded-2xl transition-all"><Trash2 className="w-5 h-5" /></button>
                       )}
                     </td>

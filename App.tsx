@@ -9,6 +9,12 @@ import { supabase } from './supabase';
 
 const MASTER_ADMIN_EMAIL = "admin@callmaster.com";
 
+// Função Universal de Normalização de ID
+const normalizeId = (id: any): string => {
+  if (!id) return "";
+  return String(id).toLowerCase().trim().replace(/[^a-z0-9]/g, '');
+};
+
 const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [users, setUsers] = useState<User[]>([]);
@@ -22,7 +28,7 @@ const App: React.FC = () => {
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Busca de dados centralizada
+  // Busca de dados com Normalização Imediata
   const fetchData = useCallback(async () => {
     setIsSyncing(true);
     try {
@@ -34,7 +40,7 @@ const App: React.FC = () => {
 
       if (userData.data) {
         setUsers(userData.data.map((u: any) => ({
-          id: u.id,
+          id: normalizeId(u.id), // ID Normalizado
           nome: u.nome || 'Operador',
           email: u.email || '',
           tipo: String(u.tipo || 'vendedor').toLowerCase().includes('adm') ? 'adm' : 'vendedor',
@@ -49,7 +55,7 @@ const App: React.FC = () => {
           nome: l.nome,
           telefone: l.telefone,
           concurso: l.concurso,
-          assignedTo: l.assigned_to,
+          assignedTo: normalizeId(l.assigned_to), // ID Normalizado
           status: l.status || 'PENDING',
           createdAt: l.created_at
         })));
@@ -59,7 +65,7 @@ const App: React.FC = () => {
         setCalls(callData.data.map((c: any) => ({
           id: c.id,
           leadId: c.lead_id,
-          sellerId: c.seller_id,
+          sellerId: normalizeId(c.seller_id), // ID Normalizado
           status: c.status,
           durationSeconds: c.duration_seconds,
           timestamp: c.timestamp
@@ -72,23 +78,13 @@ const App: React.FC = () => {
     }
   }, []);
 
-  // Habilitar Realtime para Leads e Usuários
   useEffect(() => {
     const channel = supabase
       .channel('schema-db-changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'leads' }, () => {
-        console.log("Realtime: Atualização detectada em Leads");
-        fetchData();
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'usuarios' }, () => {
-        console.log("Realtime: Atualização detectada em Usuários");
-        fetchData();
-      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'leads' }, fetchData)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'usuarios' }, fetchData)
       .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
+    return () => { supabase.removeChannel(channel); };
   }, [fetchData]);
 
   const restoreSession = useCallback(async (isFirstLoad = false) => {
@@ -96,7 +92,7 @@ const App: React.FC = () => {
     try {
       const masterSession = localStorage.getItem('cm_master_session');
       if (masterSession === 'active') {
-        setCurrentUser({ id: 'master-admin', nome: 'Admin Gestor', email: MASTER_ADMIN_EMAIL, tipo: 'adm', online: true });
+        setCurrentUser({ id: 'masteradmin', nome: 'Admin Gestor', email: MASTER_ADMIN_EMAIL, tipo: 'adm', online: true });
         await fetchData();
         return;
       }
@@ -108,7 +104,7 @@ const App: React.FC = () => {
 
         if (profile) {
           setCurrentUser({
-            id: profile.id,
+            id: normalizeId(profile.id), // ID Normalizado para o sistema React
             nome: profile.nome || 'Operador',
             email: profile.email || '',
             tipo: String(profile.tipo || 'vendedor').toLowerCase().includes('adm') ? 'adm' : 'vendedor',
@@ -133,6 +129,7 @@ const App: React.FC = () => {
   }, [restoreSession]);
 
   const handleLogCall = async (call: CallRecord) => {
+    // Nota: O Postgres aceita o ID normalizado (sem hifens) se a coluna for UUID
     const { error: callError } = await supabase.from('calls').insert([{ 
       lead_id: call.leadId, 
       seller_id: call.sellerId, 
@@ -141,12 +138,11 @@ const App: React.FC = () => {
     }]);
     if (!callError) {
       await supabase.from('leads').update({ status: 'CALLED' }).eq('id', call.leadId);
-      // fetchData será chamado pelo Realtime
     }
   };
 
   const handleImportLeads = async (newLeads: Lead[], distributionMode: string) => {
-    const activeSellers = users.filter(u => u.tipo === 'vendedor' && u.id !== 'master-admin');
+    const activeSellers = users.filter(u => u.tipo === 'vendedor' && u.id !== 'masteradmin');
     const leadsToInsert = newLeads.map((l, i) => {
       let assignedTo: any = null;
       if (distributionMode === 'balanced' && activeSellers.length > 0) {
@@ -159,7 +155,7 @@ const App: React.FC = () => {
         concurso: l.concurso || 'Geral',
         telefone: l.telefone.replace(/\D/g, ''),
         status: 'PENDING',
-        assigned_to: assignedTo || null // Garante NULL em vez de string vazia
+        assigned_to: assignedTo || null
       };
     });
     const { error } = await supabase.from('leads').insert(leadsToInsert);
@@ -167,17 +163,15 @@ const App: React.FC = () => {
   };
 
   const handleDistributeLeads = async () => {
-    const activeSellers = users.filter(u => u.tipo === 'vendedor' && u.id !== 'master-admin');
-    if (activeSellers.length === 0) return alert("Nenhum vendedor disponível para receber leads.");
+    const activeSellers = users.filter(u => u.tipo === 'vendedor' && u.id !== 'masteradmin');
+    if (activeSellers.length === 0) return alert("Nenhum vendedor disponível.");
     
-    // Busca leads que estão REALMENTE sem dono (null ou vazio)
-    const { data: unassigned, error: fetchErr } = await supabase
+    const { data: unassigned } = await supabase
       .from('leads')
       .select('id')
       .or('assigned_to.is.null,assigned_to.eq.""')
       .eq('status', 'PENDING');
     
-    if (fetchErr) return alert("Erro ao buscar fila geral.");
     if (!unassigned || unassigned.length === 0) return alert("A Fila Geral está vazia.");
     
     setIsSyncing(true);
@@ -187,7 +181,7 @@ const App: React.FC = () => {
         return supabase.from('leads').update({ assigned_to: seller.id }).eq('id', lead.id);
       });
       await Promise.all(updates);
-      alert(`${unassigned.length} leads foram distribuídos entre ${activeSellers.length} vendedores!`);
+      alert(`${unassigned.length} leads distribuídos!`);
     } catch (err) {
       alert("Erro na distribuição.");
     } finally {
@@ -206,26 +200,25 @@ const App: React.FC = () => {
   };
 
   const handleDeleteUser = async (userId: string) => {
-    if (!confirm("Excluir este usuário permanentemente?")) return;
+    if (!confirm("Excluir usuário?")) return;
     await supabase.from('usuarios').delete().eq('id', userId);
   };
 
   const handleTransferLeads = async (fromUserId: string, toUserId: string) => {
     if (!toUserId) return;
     const { error } = await supabase.from('leads').update({ assigned_to: toUserId }).eq('assigned_to', fromUserId).eq('status', 'PENDING');
-    if (!error) alert("Fila transferida com sucesso!");
-    else alert("Erro ao transferir fila.");
+    if (!error) alert("Fila transferida!");
   };
 
   if (isInitialLoading) return (
     <div className="min-h-screen bg-indigo-950 flex flex-col items-center justify-center text-white font-sans">
       <Loader2 className="w-12 h-12 animate-spin text-indigo-400 mb-4" />
-      <p className="font-black uppercase italic tracking-widest text-[10px]">Auditando Identidades e Conexões...</p>
+      <p className="font-black uppercase italic tracking-widest text-[10px]">Normalizando Identidades...</p>
     </div>
   );
 
   if (!currentUser) return (
-    <div className="min-h-screen bg-indigo-950 flex items-center justify-center p-6">
+    <div className="min-h-screen bg-indigo-950 flex items-center justify-center p-6 text-white font-sans">
       <form onSubmit={async (e) => {
         e.preventDefault();
         setError('');
@@ -236,15 +229,15 @@ const App: React.FC = () => {
           await restoreSession(false);
         } catch (err: any) { setError(err.message); }
         finally { setIsSubmitting(false); }
-      }} className="w-full max-w-md bg-white p-10 rounded-[3rem] shadow-2xl">
+      }} className="w-full max-w-md bg-white text-gray-900 p-10 rounded-[3rem] shadow-2xl">
         <h1 className="text-2xl font-black text-center mb-8 uppercase italic tracking-tighter">CallMaster <span className="text-indigo-600">Pro</span></h1>
         {error && <div className="bg-red-50 text-red-600 p-4 rounded-xl text-[10px] font-black uppercase mb-4 text-center border-2 border-red-100">{error}</div>}
         <div className="space-y-4">
           <input type="email" placeholder="E-mail" value={email} onChange={e => setEmail(e.target.value)} className="w-full p-5 bg-gray-50 border-2 border-gray-100 rounded-2xl font-bold outline-none focus:border-indigo-600" />
           <input type="password" placeholder="Senha" value={password} onChange={e => setPassword(e.target.value)} className="w-full p-5 bg-gray-50 border-2 border-gray-100 rounded-2xl font-bold outline-none focus:border-indigo-600" />
         </div>
-        <button disabled={isSubmitting} className="w-full bg-indigo-600 text-white py-6 rounded-2xl font-black uppercase tracking-widest active:scale-95 transition-all mt-6 shadow-xl shadow-indigo-200">
-          {isSubmitting ? <Loader2 className="animate-spin mx-auto" /> : 'Entrar no Sistema'}
+        <button disabled={isSubmitting} className="w-full bg-indigo-600 text-white py-6 rounded-2xl font-black uppercase tracking-widest active:scale-95 transition-all mt-6">
+          {isSubmitting ? <Loader2 className="animate-spin mx-auto" /> : 'Acessar CallMaster'}
         </button>
       </form>
     </div>
@@ -253,7 +246,7 @@ const App: React.FC = () => {
   return (
     <Layout user={currentUser} onLogout={async () => { await supabase.auth.signOut(); localStorage.removeItem('cm_master_session'); setCurrentUser(null); }}>
       <div className="fixed top-20 right-8 z-[60]">
-        <button onClick={fetchData} disabled={isSyncing} title="Sincronizar Manualmente" className={`p-4 bg-white shadow-xl rounded-full text-indigo-600 hover:bg-indigo-50 transition-all border-2 border-indigo-100 ${isSyncing ? 'animate-spin' : ''}`}>
+        <button onClick={fetchData} disabled={isSyncing} className={`p-4 bg-white shadow-xl rounded-full text-indigo-600 hover:bg-indigo-50 transition-all border-2 border-indigo-100 ${isSyncing ? 'animate-spin' : ''}`}>
           <RefreshCw className="w-6 h-6" />
         </button>
       </div>
