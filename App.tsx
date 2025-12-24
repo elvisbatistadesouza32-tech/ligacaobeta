@@ -4,7 +4,7 @@ import { User, Lead, CallRecord, CallStatus } from './types';
 import { Layout } from './components/Layout';
 import { SellerView } from './components/SellerView';
 import { AdminView } from './components/AdminView';
-import { Loader2, ArrowRight, RefreshCw } from 'lucide-react';
+import { Loader2, RefreshCw } from 'lucide-react';
 import { supabase } from './supabase';
 
 const MASTER_ADMIN_EMAIL = "admin@callmaster.com";
@@ -23,7 +23,6 @@ const App: React.FC = () => {
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [error, setError] = useState('');
-  const [successMsg, setSuccessMsg] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const fetchData = useCallback(async () => {
@@ -37,7 +36,7 @@ const App: React.FC = () => {
 
       if (userData.data) {
         setUsers(userData.data.map((u: any) => ({
-          id: u.id,
+          id: String(u.id),
           nome: u.nome,
           email: u.email,
           tipo: u.tipo,
@@ -99,12 +98,11 @@ const App: React.FC = () => {
         if (userEmail === MASTER_ADMIN_EMAIL.toLowerCase()) {
           setCurrentUser({ id: 'master-admin', nome: 'Admin Gestor', email: MASTER_ADMIN_EMAIL, tipo: 'adm', online: true });
         } else {
-          // Busca o perfil do usuário pelo ID do Auth para garantir correspondência exata
+          // Busca o perfil usando o ID exato da sessão para garantir integridade do vendedor
           const { data: profile } = await supabase.from('usuarios').select('*').eq('id', session.user.id).maybeSingle();
-          
           if (profile) {
             setCurrentUser({
-              id: profile.id,
+              id: String(profile.id),
               nome: profile.nome,
               email: profile.email,
               tipo: profile.tipo as 'adm' | 'vendedor',
@@ -112,13 +110,8 @@ const App: React.FC = () => {
             });
             await supabase.from('usuarios').update({ online: true }).eq('id', profile.id);
           } else {
-            // Caso o perfil não exista (erro de sincronização prévio), tenta buscar por e-mail e corrigir o ID
-            const { data: legacyProfile } = await supabase.from('usuarios').select('*').eq('email', userEmail).maybeSingle();
-            if (legacyProfile) {
-              await supabase.from('usuarios').update({ id: session.user.id, online: true }).eq('email', userEmail);
-              restoreSession(false); // Reinicia para pegar o ID correto
-              return;
-            }
+            // Caso raro: Usuário tem Auth mas não tem perfil (limpeza de banco parcial)
+            await handleLogout();
           }
         }
         await fetchData();
@@ -132,7 +125,7 @@ const App: React.FC = () => {
 
   useEffect(() => {
     restoreSession(true);
-    const channel = supabase.channel('schema-db-changes').on('postgres_changes', { event: '*', schema: 'public' }, () => fetchData()).subscribe();
+    const channel = supabase.channel('db-global-sync').on('postgres_changes', { event: '*', schema: 'public' }, () => fetchData()).subscribe();
     return () => { channel.unsubscribe(); };
   }, [restoreSession, fetchData]);
 
@@ -143,6 +136,7 @@ const App: React.FC = () => {
     try {
       const lowerEmail = email.toLowerCase().trim();
       
+      // Lógica do Admin Master Fixo
       if (lowerEmail === MASTER_ADMIN_EMAIL.toLowerCase() && password === ADMIN_MASTER_PASSWORD) {
         localStorage.setItem('cm_master_session', 'active');
         await restoreSession(false);
@@ -150,23 +144,23 @@ const App: React.FC = () => {
       }
 
       if (isRegistering) {
-        // 1. Cria o usuário no Auth
+        // 1. Criar no Supabase Auth
         const { data: authData, error: signUpError } = await supabase.auth.signUp({ email: lowerEmail, password });
         if (signUpError) throw signUpError;
         
+        // 2. Criar obrigatoriamente com o MESMO ID no banco publico
         if (authData.user) {
-          // 2. Cria o perfil na tabela usuarios usando o MESMO ID do Auth
-          const { error: profileError } = await supabase.from('usuarios').insert([{ 
+          const { error: insertError } = await supabase.from('usuarios').insert([{ 
             id: authData.user.id, 
             nome: name, 
             email: lowerEmail, 
             tipo: 'vendedor', 
             online: false 
           }]);
-          if (profileError) throw profileError;
+          if (insertError) throw insertError;
         }
         
-        setSuccessMsg("Conta criada com sucesso!");
+        alert("Conta criada com sucesso! Faça login para entrar.");
         setIsRegistering(false);
       } else {
         const { error: loginError } = await supabase.auth.signInWithPassword({ email: lowerEmail, password });
@@ -203,49 +197,43 @@ const App: React.FC = () => {
   };
 
   const handleDistributeLeads = async () => {
-    // Apenas vendedores com UUID (IDs longos)
-    const allSellers = users.filter(u => u.tipo === 'vendedor' && u.id.length > 20);
-    if (allSellers.length === 0) return alert("Cadastre vendedores para receber leads.");
+    // Apenas vendedores com IDs UUID válidos (ID longo do Auth)
+    const activeSellers = users.filter(u => u.tipo === 'vendedor' && u.id.length > 20);
+    if (activeSellers.length === 0) return alert("Erro: Não há vendedores cadastrados com ID válido para receber leads.");
     
     setIsSyncing(true);
-    // Busca leads pendentes e sem dono
-    const { data: leadsToFix, error: fetchError } = await supabase
+    
+    // Busca leads pendentes onde assigned_to é NULL ou VAZIO
+    const { data: leadsToDist, error: fetchError } = await supabase
       .from('leads')
       .select('id')
       .or('assigned_to.is.null,assigned_to.eq.""')
       .eq('status', 'PENDING');
     
-    if (fetchError) {
-       setIsSyncing(false);
-       return alert("Erro ao buscar leads: " + fetchError.message);
-    }
-
-    if (!leadsToFix || leadsToFix.length === 0) {
+    if (fetchError || !leadsToDist || leadsToDist.length === 0) {
       setIsSyncing(false);
-      return alert("Não há leads novos na Fila Geral.");
+      return alert(fetchError ? "Erro no banco: " + fetchError.message : "Não há leads disponíveis na Fila Geral.");
     }
 
-    let successCount = 0;
-    // Processamento em lote (simulado via loop com verificação individual)
-    const updates = leadsToFix.map((lead, i) => {
-      const sellerId = allSellers[i % allSellers.length].id;
+    const updates = leadsToDist.map((lead, i) => {
+      const sellerId = activeSellers[i % activeSellers.length].id;
       return supabase.from('leads').update({ assigned_to: sellerId }).eq('id', lead.id);
     });
 
     const results = await Promise.all(updates);
-    successCount = results.filter(r => !r.error).length;
+    const successes = results.filter(r => !r.error).length;
 
     await fetchData();
-    alert(`${successCount} leads entregues. Os vendedores já podem ver em suas telas.`);
+    alert(`${successes} leads distribuídos entre o time!`);
     setIsSyncing(false);
   };
 
   const handleImportLeads = async (newLeads: Lead[], distributionMode: 'none' | 'balanced' | string) => {
-    const allSellers = users.filter(u => u.tipo === 'vendedor' && u.id.length > 20);
+    const activeSellers = users.filter(u => u.tipo === 'vendedor' && u.id.length > 20);
     const leadsToInsert = newLeads.map((l, i) => {
       let assignedTo: string | null = null;
-      if (distributionMode === 'balanced' && allSellers.length > 0) {
-        assignedTo = allSellers[i % allSellers.length].id;
+      if (distributionMode === 'balanced' && activeSellers.length > 0) {
+        assignedTo = activeSellers[i % activeSellers.length].id;
       } else if (distributionMode !== 'none' && distributionMode !== 'balanced' && distributionMode.length > 20) {
         assignedTo = distributionMode;
       }
@@ -254,26 +242,26 @@ const App: React.FC = () => {
         concurso: l.concurso || 'Geral',
         telefone: l.telefone.replace(/\D/g, ''),
         status: 'PENDING',
-        assigned_to: assignedTo
+        assigned_to: assignedTo // Enviando NULL se não houver dono, evitando ""
       };
     });
 
     const { error: insertError } = await supabase.from('leads').insert(leadsToInsert);
-    if (insertError) throw new Error("Erro ao importar: " + insertError.message);
+    if (insertError) throw new Error("Falha na importação: " + insertError.message);
     await fetchData();
   };
 
   const handleTransferLeads = async (fromUserId: string, toUserId: string) => {
-    if (toUserId.length < 20) return alert("Selecione um vendedor válido.");
+    if (toUserId.length < 20) return alert("O destino deve ser um vendedor ativo.");
     const { error } = await supabase.from('leads').update({ assigned_to: toUserId }).eq('assigned_to', fromUserId).eq('status', 'PENDING');
-    if (error) alert("Erro: " + error.message);
-    else { await fetchData(); alert("Fila transferida!"); }
+    if (error) alert("Erro na transferência: " + error.message);
+    else { await fetchData(); alert("Fila transferida com sucesso!"); }
   };
 
   if (isInitialLoading) return (
     <div className="min-h-screen bg-indigo-950 flex flex-col items-center justify-center text-white">
-      <Loader2 className="w-10 h-10 animate-spin text-indigo-400 mb-4" />
-      <p className="font-black uppercase italic text-[10px] tracking-[0.3em]">Carregando CallMaster...</p>
+      <Loader2 className="w-12 h-12 animate-spin text-indigo-400 mb-4" />
+      <p className="font-black uppercase italic tracking-widest text-[10px]">CallMaster Pro - Inicializando...</p>
     </div>
   );
 
@@ -320,7 +308,7 @@ const App: React.FC = () => {
             if (u) { await supabase.from('usuarios').update({ online: !u.online }).eq('id', id); await fetchData(); }
           }} 
           onPromoteUser={async (id) => { await supabase.from('usuarios').update({ tipo: 'adm' }).eq('id', id); await fetchData(); }} 
-          onDeleteUser={async (id) => { if(confirm("Atenção: Esta ação é irreversível. Remover usuário?")){ await supabase.from('usuarios').delete().eq('id', id); await fetchData(); } }}
+          onDeleteUser={async (id) => { if(confirm("Atenção: Excluir usuário permanentemente?")){ await supabase.from('usuarios').delete().eq('id', id); await fetchData(); } }}
           onTransferLeads={handleTransferLeads}
         />
       ) : (
