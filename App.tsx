@@ -98,10 +98,8 @@ const App: React.FC = () => {
           nome: l.nome,
           telefone: l.telefone,
           concurso: l.concurso,
-          // Normalização absoluta: se não for um UUID de 36 caracteres, é NULL
-          assignedTo: (l.assigned_to && String(l.assigned_to).trim().length >= 36) 
-            ? String(l.assigned_to).toLowerCase().trim() 
-            : null,
+          // REPARO CRÍTICO: Removida a trava de length >= 36 que estava descartando leads válidos
+          assignedTo: l.assigned_to ? String(l.assigned_to).toLowerCase().trim() : null,
           status: l.status || 'PENDING',
           createdAt: l.created_at
         })));
@@ -135,7 +133,6 @@ const App: React.FC = () => {
       } catch (e) {}
     }
     
-    // Fix: Using type assertion to bypass property existence errors on SupabaseAuthClient
     const auth = supabase.auth as any;
     if (auth.signOut) {
       await auth.signOut();
@@ -160,7 +157,6 @@ const App: React.FC = () => {
         return;
       }
 
-      // Fix: Using type assertion to handle potential missing getSession or session properties
       const auth = supabase.auth as any;
       let session = null;
       if (auth.getSession) {
@@ -175,6 +171,7 @@ const App: React.FC = () => {
         if (userEmail === MASTER_ADMIN_EMAIL.toLowerCase()) {
           setCurrentUser({ id: 'master-admin', nome: 'Admin Gestor', email: MASTER_ADMIN_EMAIL, tipo: 'adm', online: true });
         } else {
+          // Busca perfil usando o ID da sessão do Auth
           const { data: profile } = await supabase.from('usuarios').select('*').eq('id', session.user.id).maybeSingle();
           if (profile) {
             setCurrentUser({
@@ -186,6 +183,7 @@ const App: React.FC = () => {
             });
             await supabase.from('usuarios').update({ online: true }).eq('id', profile.id);
           } else {
+            // Se o usuário está no Auth mas não na tabela Usuarios, fazemos logout para limpar
             await handleLogout();
           }
         }
@@ -223,10 +221,10 @@ const App: React.FC = () => {
 
       const auth = supabase.auth as any;
       if (isRegistering) {
-        // Fix: Using type assertion for signUp call
         const { data: authData, error: signUpError } = await auth.signUp({ email: lowerEmail, password });
         if (signUpError) throw signUpError;
         if (authData?.user) {
+          // CRÍTICO: Inserção do ID vindo do Auth como Chave Primária
           await supabase.from('usuarios').insert([{ 
             id: authData.user.id, 
             nome: name, 
@@ -238,9 +236,8 @@ const App: React.FC = () => {
         alert("Conta criada! Entre com seu e-mail e senha.");
         setIsRegistering(false);
       } else {
-        // Fix: Fallback between signInWithPassword (v2) and signIn (v1)
         const signInMethod = auth.signInWithPassword || auth.signIn;
-        if (!signInMethod) throw new Error("Authentication method not available");
+        if (!signInMethod) throw new Error("Método de login indisponível.");
         const { error: loginError } = await signInMethod({ email: lowerEmail, password });
         if (loginError) throw loginError;
         await restoreSession(false);
@@ -267,13 +264,9 @@ const App: React.FC = () => {
 
   const handleDistributeLeads = async () => {
     const activeSellers = users.filter(u => u.tipo === 'vendedor' && u.id !== 'master-admin');
-    
-    if (activeSellers.length === 0) {
-      return alert("Nenhum vendedor disponível.");
-    }
+    if (activeSellers.length === 0) return alert("Nenhum vendedor disponível.");
     
     setIsSyncing(true);
-    
     const { data: leadsToDist, error: fetchErr } = await supabase
       .from('leads')
       .select('id')
@@ -303,7 +296,7 @@ const App: React.FC = () => {
       await fetchData();
       alert("Leads distribuídos com sucesso!");
     } catch (err: any) {
-      alert("Houve um erro na distribuição.");
+      alert("Erro na distribuição.");
     } finally {
       setIsSyncing(false);
     }
@@ -343,7 +336,7 @@ const App: React.FC = () => {
   if (isInitialLoading) return (
     <div className="min-h-screen bg-indigo-950 flex flex-col items-center justify-center text-white font-sans">
       <Loader2 className="w-12 h-12 animate-spin text-indigo-400 mb-4" />
-      <p className="font-black uppercase italic tracking-widest text-[10px]">Auditoria de Sistema CallMaster...</p>
+      <p className="font-black uppercase italic tracking-widest text-[10px]">Auditoria de Sincronização...</p>
     </div>
   );
 
@@ -352,19 +345,19 @@ const App: React.FC = () => {
       <div className="w-full max-w-md bg-white rounded-[3rem] shadow-2xl overflow-hidden border-t-8 border-indigo-600">
         <div className="p-10 text-center">
           <h1 className="text-3xl font-black italic tracking-tighter uppercase text-indigo-950">CallMaster <span className="text-indigo-600">Pro</span></h1>
-          <p className="text-[10px] font-black uppercase text-gray-400 tracking-widest mt-2">Painel de Acesso</p>
+          <p className="text-[10px] font-black uppercase text-gray-400 tracking-widest mt-2">Segurança de Dados</p>
         </div>
         <form onSubmit={handleAuth} className="px-10 pb-12 space-y-6">
           {error && <div className="bg-red-50 text-red-600 p-5 rounded-2xl text-[10px] font-black uppercase text-center border-2 border-red-100">{error}</div>}
           <div className="space-y-4">
-            {isRegistering && ( <input type="text" placeholder="Nome" required value={name} onChange={e => setName(e.target.value)} className="w-full p-5 bg-gray-50 border-2 rounded-2xl outline-none focus:border-indigo-600 font-bold" /> )}
+            {isRegistering && ( <input type="text" placeholder="Nome Completo" required value={name} onChange={e => setName(e.target.value)} className="w-full p-5 bg-gray-50 border-2 rounded-2xl outline-none focus:border-indigo-600 font-bold" /> )}
             <input type="email" placeholder="E-mail" required value={email} onChange={e => setEmail(e.target.value)} className="w-full p-5 bg-gray-50 border-2 rounded-2xl outline-none focus:border-indigo-600 font-bold" />
             <input type="password" placeholder="Senha" required value={password} onChange={e => setPassword(e.target.value)} className="w-full p-5 bg-gray-50 border-2 rounded-2xl outline-none focus:border-indigo-600 font-bold" />
           </div>
           <button type="submit" disabled={isSubmitting} className="w-full bg-indigo-600 text-white py-6 rounded-2xl font-black uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-xl active:scale-95">
-            {isSubmitting ? <Loader2 className="animate-spin mx-auto" /> : (isRegistering ? 'Cadastrar Agora' : 'Entrar no Sistema')}
+            {isSubmitting ? <Loader2 className="animate-spin mx-auto" /> : (isRegistering ? 'Criar Acesso' : 'Entrar no Painel')}
           </button>
-          <button type="button" onClick={() => {setIsRegistering(!isRegistering); setError('');}} className="w-full text-indigo-600 font-black text-[10px] uppercase tracking-widest">{isRegistering ? 'Já sou cadastrado' : 'Novo por aqui? Crie uma conta'}</button>
+          <button type="button" onClick={() => {setIsRegistering(!isRegistering); setError('');}} className="w-full text-indigo-600 font-black text-[10px] uppercase tracking-widest">{isRegistering ? 'Já tenho acesso' : 'Quero me cadastrar'}</button>
         </form>
       </div>
     </div>
@@ -385,7 +378,7 @@ const App: React.FC = () => {
       onLogCall={handleLogCall}
       onToggleUserStatus={async (id) => { const u = users.find(x => x.id === id); if (u) { await supabase.from('usuarios').update({ online: !u.online }).eq('id', id); await fetchData(); } }}
       onPromoteUser={async (id) => { await supabase.from('usuarios').update({ tipo: 'adm' }).eq('id', id); await fetchData(); }}
-      onDeleteUser={async (id) => { if(confirm("Deseja realmente excluir?")){ await supabase.from('usuarios').delete().eq('id', id); await fetchData(); } }}
+      onDeleteUser={async (id) => { if(confirm("Remover usuário? Isso não apagará os leads dele.")){ await supabase.from('usuarios').delete().eq('id', id); await fetchData(); } }}
       onTransferLeads={handleTransferLeads}
     />
   );

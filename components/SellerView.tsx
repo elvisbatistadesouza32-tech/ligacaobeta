@@ -26,18 +26,21 @@ export const SellerView: React.FC<SellerViewProps> = ({ user, leads, onLogCall }
   const myLeads = useMemo(() => {
     if (!user || !user.id) return [];
     
-    // Normalização rigorosa do ID do vendedor logado
+    // Normalização simples e segura
     const currentUserId = String(user.id).trim().toLowerCase();
     
     return leads.filter(l => {
       // Regra 1: O lead deve estar PENDENTE
       if (l.status !== 'PENDING') return false;
       
-      // Regra 2: O lead deve ter alguém atribuído
+      // Regra 2: Comparação direta de IDs sem travas de comprimento
       if (!l.assignedTo) return false;
       
-      // Regra 3: O ID atribuído deve bater com o ID do vendedor (UUID normalizado)
       const assignedId = String(l.assignedTo).trim().toLowerCase();
+      
+      // Debug silencioso para o console caso precise auditar em tempo real
+      // console.log(`Comparando Lead ${l.nome}: Assigned(${assignedId}) vs Me(${currentUserId})`);
+      
       return assignedId === currentUserId;
     });
   }, [leads, user]);
@@ -54,8 +57,6 @@ export const SellerView: React.FC<SellerViewProps> = ({ user, leads, onLogCall }
     setPendingLead(null);
     setShowCarrierModal(false);
     setStartTime(Date.now());
-    
-    // Tenta abrir o discador nativo do smartphone
     window.location.href = `tel:${formattedNumber}`;
   };
 
@@ -78,7 +79,7 @@ export const SellerView: React.FC<SellerViewProps> = ({ user, leads, onLogCall }
       setActiveCallLead(null);
       setStartTime(null);
     } catch (err) {
-      alert("Erro ao registrar a ligação: " + (err instanceof Error ? err.message : "Desconhecido"));
+      alert("Erro ao registrar: " + (err instanceof Error ? err.message : "Desconhecido"));
     } finally {
       setIsSubmitting(false);
     }
@@ -88,13 +89,13 @@ export const SellerView: React.FC<SellerViewProps> = ({ user, leads, onLogCall }
     <div className="space-y-6 animate-in fade-in duration-500 max-w-2xl mx-auto">
       <div className="bg-white p-10 rounded-[3rem] border-2 border-indigo-100 shadow-sm flex justify-between items-center relative overflow-hidden">
         <div className="relative z-10">
-          <h2 className="text-gray-900 font-black text-2xl tracking-tighter uppercase italic">Boas vendas, {user.nome}!</h2>
+          <h2 className="text-gray-900 font-black text-2xl tracking-tighter uppercase italic">Operador: {user.nome}</h2>
           <p className="text-indigo-600 text-[10px] font-black uppercase tracking-widest mt-1 flex items-center gap-2">
-            <ListChecks className="w-4 h-4" /> {myLeads.length} leads na sua fila
+            <ListChecks className="w-4 h-4" /> {myLeads.length} leads disponíveis
           </p>
         </div>
         <div className="bg-indigo-600 p-5 rounded-[2rem] shadow-xl text-white">
-          <Users className="w-8 h-8" />
+          <Smartphone className="w-8 h-8" />
         </div>
       </div>
 
@@ -102,8 +103,7 @@ export const SellerView: React.FC<SellerViewProps> = ({ user, leads, onLogCall }
         <div className="fixed inset-0 z-[110] bg-indigo-950/90 backdrop-blur-xl flex items-center justify-center p-6">
           <div className="bg-white rounded-[4rem] w-full max-w-md p-10 shadow-2xl animate-in zoom-in-95 duration-300">
             <div className="text-center space-y-6">
-              <h3 className="text-2xl font-black text-gray-900 uppercase italic">Operadora</h3>
-              <p className="text-gray-400 text-[10px] font-black uppercase tracking-widest">Escolha o prefixo para discagem</p>
+              <h3 className="text-2xl font-black text-gray-900 uppercase italic">Prefixo de Discagem</h3>
               <div className="grid grid-cols-1 gap-3">
                 {CARRIERS.map((c) => (
                   <button key={c.name} onClick={() => handleCarrierSelection(c.code)} className={`flex items-center justify-between px-8 py-5 rounded-[2rem] text-white font-black uppercase tracking-widest text-xs transition-all active:scale-95 shadow-lg ${c.color}`}>{c.name} <span className="bg-white/20 px-3 py-1 rounded-full text-[10px]">{c.code}</span></button>
@@ -123,7 +123,7 @@ export const SellerView: React.FC<SellerViewProps> = ({ user, leads, onLogCall }
                 <Phone className="w-12 h-12 text-indigo-600" />
               </div>
               <div>
-                <h3 className="text-3xl font-black text-gray-900 uppercase italic">Chamando...</h3>
+                <h3 className="text-3xl font-black text-gray-900 uppercase italic">Discando...</h3>
                 <p className="text-indigo-600 font-black text-xl mt-2">{activeCallLead.nome}</p>
                 <p className="text-gray-400 font-bold uppercase text-xs">{activeCallLead.telefone}</p>
               </div>
@@ -131,11 +131,11 @@ export const SellerView: React.FC<SellerViewProps> = ({ user, leads, onLogCall }
                 {isSubmitting ? (
                   <div className="flex flex-col items-center gap-2 py-6">
                     <Loader2 className="w-10 h-10 animate-spin text-indigo-600" />
-                    <p className="text-[10px] font-black uppercase text-gray-400 italic">Gravando resultado...</p>
+                    <p className="text-[10px] font-black uppercase text-gray-400 italic">Salvando resultado...</p>
                   </div>
                 ) : (
                   <>
-                    <button onClick={() => handleStatusSelect(CallStatus.ANSWERED)} className="flex items-center justify-center w-full py-6 bg-green-500 text-white rounded-[2rem] font-black uppercase shadow-lg hover:bg-green-600 active:scale-95 transition-all">Atendido / Venda</button>
+                    <button onClick={() => handleStatusSelect(CallStatus.ANSWERED)} className="flex items-center justify-center w-full py-6 bg-green-500 text-white rounded-[2rem] font-black uppercase shadow-lg hover:bg-green-600 active:scale-95 transition-all">Contato Efetivo</button>
                     <button onClick={() => handleStatusSelect(CallStatus.NO_ANSWER)} className="flex items-center justify-center w-full py-6 bg-red-500 text-white rounded-[2rem] font-black uppercase shadow-lg hover:bg-red-600 active:scale-95 transition-all">Não Atendeu</button>
                     <button onClick={() => handleStatusSelect(CallStatus.INVALID_NUMBER)} className="py-4 bg-orange-100 text-orange-600 rounded-[2rem] font-black uppercase text-[10px] active:scale-95 transition-all">Número Inválido</button>
                   </>
@@ -166,7 +166,7 @@ export const SellerView: React.FC<SellerViewProps> = ({ user, leads, onLogCall }
           <div className="text-center py-40 bg-white border-2 border-dashed border-gray-100 rounded-[4rem]">
             <CheckCircle className="w-16 h-16 text-green-500 mx-auto mb-6 opacity-20" />
             <p className="text-gray-900 font-black text-xl uppercase italic">Fila Vazia</p>
-            <p className="text-gray-400 font-bold text-xs uppercase tracking-widest mt-2 px-8 leading-relaxed">Não há novos leads para você agora. Toque em atualizar ou aguarde o gestor.</p>
+            <p className="text-gray-400 font-bold text-xs uppercase tracking-widest mt-2 px-8 leading-relaxed">Nenhum lead atribuído a você no momento.</p>
           </div>
         )}
       </div>
