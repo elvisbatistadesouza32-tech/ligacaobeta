@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo, useRef } from 'react';
 import { User, Lead, CallRecord, CallStatus } from '../types';
-import { Users, Database, Power, Search, Trash2, Loader2, FileSpreadsheet, Check, BarChart3, Clock, AlertCircle } from 'lucide-react';
+import { Users, Database, Power, Search, Trash2, Loader2, FileSpreadsheet, Check, BarChart3, Clock, AlertCircle, Share2, X, ChevronRight } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import * as XLSX from 'xlsx';
 
@@ -12,9 +12,10 @@ interface AdminViewProps {
   onImportLeads: (leads: Lead[], target: 'none' | 'online' | string) => Promise<void>;
   onToggleUserStatus: (id: string) => void;
   onDeleteUser: (id: string) => void;
+  onTransferLeads: (leadIds: string[], userId: string | null) => Promise<void>;
 }
 
-export const AdminView: React.FC<AdminViewProps> = ({ users, leads, calls, onImportLeads, onToggleUserStatus, onDeleteUser }) => {
+export const AdminView: React.FC<AdminViewProps> = ({ users, leads, calls, onImportLeads, onToggleUserStatus, onDeleteUser, onTransferLeads }) => {
   const [tab, setTab] = useState<'dash' | 'leads' | 'users'>('dash');
   const [viewMode, setViewMode] = useState<'month' | 'day'>('month');
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
@@ -24,7 +25,11 @@ export const AdminView: React.FC<AdminViewProps> = ({ users, leads, calls, onImp
   const [loading, setLoading] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
 
-  const sellers = users.filter(u => u.tipo === 'vendedor');
+  // Transfer State
+  const [selectedLeads, setSelectedLeads] = useState<string[]>([]);
+  const [isTransferring, setIsTransferring] = useState(false);
+
+  const sellers = useMemo(() => users.filter(u => u.tipo === 'vendedor'), [users]);
   
   const stats = useMemo(() => {
     const filtered = calls.filter(c => viewMode === 'day' ? c.timestamp.startsWith(date) : c.timestamp.startsWith(date.slice(0, 7)));
@@ -40,6 +45,14 @@ export const AdminView: React.FC<AdminViewProps> = ({ users, leads, calls, onImp
       ].filter(d => d.value > 0)
     };
   }, [calls, date, viewMode]);
+
+  const filteredLeads = useMemo(() => {
+    return leads.filter(l => 
+      l.nome.toLowerCase().includes(search.toLowerCase()) || 
+      l.telefone.includes(search) ||
+      l.base.toLowerCase().includes(search.toLowerCase())
+    );
+  }, [leads, search]);
 
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
@@ -71,38 +84,38 @@ export const AdminView: React.FC<AdminViewProps> = ({ users, leads, calls, onImp
     setLoading(false);
   };
 
+  const toggleLeadSelection = (id: string) => {
+    setSelectedLeads(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  };
+
+  const handleBulkTransfer = async (destId: string | null) => {
+    if (selectedLeads.length === 0) return;
+    setLoading(true);
+    await onTransferLeads(selectedLeads, destId);
+    setSelectedLeads([]);
+    setIsTransferring(false);
+    setLoading(false);
+  };
+
   return (
-    <div className="space-y-6 animate-in fade-in slide-in-from-top-4 duration-700">
+    <div className="space-y-6 animate-in fade-in slide-in-from-top-4 duration-700 relative">
+      
+      {/* Modal de Importação */}
       {pendingLeads && (
         <div className="fixed inset-0 z-[100] bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-6">
           <div className="bg-white rounded-[3rem] w-full max-w-lg p-10 shadow-2xl animate-in zoom-in-95 duration-300">
             <h3 className="text-xl font-black mb-6 uppercase italic text-center text-slate-900">Distribuir {pendingLeads.length} Leads</h3>
             <div className="space-y-3">
-              <button 
-                onClick={() => setTarget('none')} 
-                className={`w-full p-5 rounded-2xl border-2 flex justify-between items-center transition-all ${target === 'none' ? 'border-sky-600 bg-sky-50 text-sky-700' : 'border-gray-100 hover:border-gray-200'}`}
-              >
-                <div className="text-left">
-                  <p className="font-black uppercase text-sm">Fila Geral</p>
-                  <p className="text-[10px] opacity-60">Fica disponível para qualquer vendedor pegar</p>
-                </div>
+              <button onClick={() => setTarget('none')} className={`w-full p-5 rounded-2xl border-2 flex justify-between items-center transition-all ${target === 'none' ? 'border-sky-600 bg-sky-50 text-sky-700' : 'border-gray-100 hover:border-gray-200'}`}>
+                <div className="text-left"><p className="font-black uppercase text-sm">Fila Geral</p><p className="text-[10px] opacity-60">Fica disponível para qualquer vendedor pegar</p></div>
                 <Check className={target === 'none' ? 'block' : 'hidden'} />
               </button>
-              <button 
-                onClick={() => setTarget('online')} 
-                className={`w-full p-5 rounded-2xl border-2 flex justify-between items-center transition-all ${target === 'online' ? 'border-sky-600 bg-sky-50 text-sky-700' : 'border-gray-100 hover:border-gray-200'}`}
-              >
-                <div className="text-left">
-                  <p className="font-black uppercase text-sm">Vendedores Online</p>
-                  <p className="text-[10px] opacity-60">Distribui proporcionalmente entre quem está logado</p>
-                </div>
+              <button onClick={() => setTarget('online')} className={`w-full p-5 rounded-2xl border-2 flex justify-between items-center transition-all ${target === 'online' ? 'border-sky-600 bg-sky-50 text-sky-700' : 'border-gray-100 hover:border-gray-200'}`}>
+                <div className="text-left"><p className="font-black uppercase text-sm">Vendedores Online</p><p className="text-[10px] opacity-60">Distribui proporcionalmente entre quem está logado</p></div>
                 <Check className={target === 'online' ? 'block' : 'hidden'} />
               </button>
               <div className="relative">
-                <select 
-                  onChange={e => setTarget(e.target.value)} 
-                  className="w-full p-5 bg-gray-50 rounded-2xl border-2 border-gray-100 font-bold outline-none focus:border-sky-600 appearance-none transition-all"
-                >
+                <select onChange={e => setTarget(e.target.value)} className="w-full p-5 bg-gray-50 rounded-2xl border-2 border-gray-100 font-bold outline-none focus:border-sky-600 appearance-none transition-all">
                   <option value="">Destinar a Vendedor Específico...</option>
                   {sellers.map(s => <option key={s.id} value={s.id}>{s.nome} ({s.online ? 'Online' : 'Offline'})</option>)}
                 </select>
@@ -110,13 +123,86 @@ export const AdminView: React.FC<AdminViewProps> = ({ users, leads, calls, onImp
             </div>
             <div className="grid grid-cols-2 gap-4 mt-8">
               <button onClick={() => setPendingLeads(null)} className="py-4 font-black uppercase text-xs text-gray-400 hover:text-gray-600 transition-colors">Descartar</button>
-              <button 
-                onClick={confirmImport} 
-                disabled={loading} 
-                className="py-4 bg-sky-600 text-white rounded-2xl font-black uppercase text-xs flex justify-center items-center shadow-lg shadow-sky-100 hover:bg-sky-700 active:scale-95 transition-all"
-              >
+              <button onClick={confirmImport} disabled={loading} className="py-4 bg-sky-600 text-white rounded-2xl font-black uppercase text-xs flex justify-center items-center shadow-lg shadow-sky-100 hover:bg-sky-700 active:scale-95 transition-all">
                 {loading ? <Loader2 className="animate-spin" /> : 'Confirmar Importação'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Transferência */}
+      {isTransferring && (
+        <div className="fixed inset-0 z-[110] bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-6">
+          <div className="bg-white rounded-[3.5rem] w-full max-w-lg p-10 shadow-2xl animate-in zoom-in-95 duration-300">
+            <div className="flex justify-between items-center mb-8">
+               <h3 className="text-xl font-black uppercase italic text-slate-900 tracking-tight">Transferir {selectedLeads.length} Lead(s)</h3>
+               <button onClick={() => setIsTransferring(false)} className="p-2 text-gray-400 hover:text-red-500 transition-colors"><X /></button>
+            </div>
+            
+            <div className="max-h-96 overflow-y-auto space-y-3 pr-2 custom-scrollbar">
+              <button 
+                onClick={() => handleBulkTransfer(null)} 
+                className="w-full p-5 rounded-3xl border-2 border-gray-100 hover:border-amber-400 hover:bg-amber-50 group flex justify-between items-center transition-all"
+              >
+                <div className="text-left">
+                  <p className="font-black uppercase text-xs text-slate-800">Mover para Fila Geral</p>
+                  <p className="text-[10px] text-gray-400">Remove o vendedor atual e deixa em aberto</p>
+                </div>
+                <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-amber-500 transition-colors" />
+              </button>
+
+              <div className="h-px bg-gray-50 my-2"></div>
+              
+              {sellers.map(s => (
+                <button 
+                  key={s.id}
+                  onClick={() => handleBulkTransfer(s.id)}
+                  className="w-full p-5 rounded-3xl border-2 border-gray-100 hover:border-sky-500 hover:bg-sky-50 group flex justify-between items-center transition-all"
+                >
+                  <div className="flex items-center gap-4">
+                    <div className={`w-2.5 h-2.5 rounded-full ${s.online ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]' : 'bg-gray-300'}`}></div>
+                    <div className="text-left">
+                      <p className="font-black uppercase text-xs text-slate-800">{s.nome}</p>
+                      <p className="text-[10px] text-gray-400">{s.online ? 'Disponível agora' : 'Indisponível'}</p>
+                    </div>
+                  </div>
+                  <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-sky-500 transition-colors" />
+                </button>
+              ))}
+            </div>
+
+            {loading && (
+              <div className="mt-6 flex justify-center">
+                <Loader2 className="animate-spin text-sky-600" />
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Floating Action Bar (Bulk Selection) */}
+      {selectedLeads.length > 0 && (
+        <div className="fixed bottom-10 left-1/2 -translate-x-1/2 z-[90] animate-in slide-in-from-bottom-10 duration-500">
+          <div className="bg-slate-900 text-white px-8 py-5 rounded-full shadow-2xl flex items-center gap-8 border border-white/10">
+            <div className="flex items-center gap-3">
+              <span className="bg-sky-600 w-8 h-8 rounded-full flex items-center justify-center font-black text-xs">{selectedLeads.length}</span>
+              <p className="font-black uppercase text-[10px] tracking-[0.2em]">Leads Selecionados</p>
+            </div>
+            <div className="w-px h-6 bg-white/10"></div>
+            <div className="flex items-center gap-4">
+               <button 
+                onClick={() => setIsTransferring(true)}
+                className="flex items-center gap-2 bg-white text-slate-900 px-6 py-2.5 rounded-full font-black uppercase text-[10px] hover:bg-sky-400 hover:text-white transition-all active:scale-95"
+               >
+                 <Share2 className="w-3.5 h-3.5" /> Transferir
+               </button>
+               <button 
+                onClick={() => setSelectedLeads([])}
+                className="text-white/40 hover:text-white font-black uppercase text-[10px] transition-colors"
+               >
+                 Cancelar
+               </button>
             </div>
           </div>
         </div>
@@ -130,7 +216,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ users, leads, calls, onImp
         ].map((t) => (
           <button 
             key={t.id} 
-            onClick={() => setTab(t.id as any)} 
+            onClick={() => { setTab(t.id as any); setSelectedLeads([]); }} 
             className={`flex-1 flex items-center justify-center gap-2 py-3.5 rounded-full font-black text-[10px] uppercase transition-all duration-300 ${tab === t.id ? 'bg-sky-600 text-white shadow-xl shadow-sky-100 translate-y-[-2px]' : 'text-gray-400 hover:bg-gray-50'}`}
           >
             <t.icon className="w-3.5 h-3.5" />
@@ -261,24 +347,54 @@ export const AdminView: React.FC<AdminViewProps> = ({ users, leads, calls, onImp
                 <input 
                   value={search} 
                   onChange={e => setSearch(e.target.value)} 
-                  placeholder="Pesquisar por nome ou telefone..." 
+                  placeholder="Pesquisar por nome, base ou telefone..." 
                   className="w-full pl-16 pr-6 py-4 bg-gray-50 rounded-2xl border-2 border-transparent focus:border-sky-600 focus:bg-white font-bold outline-none transition-all" 
                 />
               </div>
+              {filteredLeads.length > 0 && (
+                <button 
+                  onClick={() => {
+                    const allIds = filteredLeads.map(l => l.id);
+                    setSelectedLeads(selectedLeads.length === allIds.length ? [] : allIds);
+                  }}
+                  className="px-6 py-4 rounded-2xl bg-gray-50 border-2 border-gray-100 font-black uppercase text-[10px] tracking-widest text-gray-500 hover:bg-gray-100 transition-all"
+                >
+                  {selectedLeads.length === filteredLeads.length ? 'Desmarcar Todos' : 'Selecionar Tudo'}
+                </button>
+              )}
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-left">
                 <thead className="bg-gray-50/50 font-black uppercase text-[10px] text-gray-400 tracking-widest border-b border-gray-100">
                   <tr>
+                    <th className="px-6 py-6 w-12 text-center">
+                      <div className="flex items-center justify-center">
+                        <Check className={`w-4 h-4 transition-all ${selectedLeads.length > 0 ? 'text-sky-600' : 'text-gray-200'}`} />
+                      </div>
+                    </th>
                     <th className="px-10 py-6">Lead / Contato</th>
                     <th className="px-10 py-6">Base / Origem</th>
                     <th className="px-10 py-6">Operador Atribuído</th>
                     <th className="px-10 py-6 text-center">Status</th>
+                    <th className="px-10 py-6 text-right">Ação</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
-                  {leads.filter(l => l.nome.toLowerCase().includes(search.toLowerCase()) || l.telefone.includes(search)).map(l => (
-                    <tr key={l.id} className="hover:bg-gray-50/50 transition-colors">
+                  {filteredLeads.map(l => (
+                    <tr 
+                      key={l.id} 
+                      className={`transition-all ${selectedLeads.includes(l.id) ? 'bg-sky-50/50' : 'hover:bg-gray-50/30'}`}
+                    >
+                      <td className="px-6 py-6">
+                        <div className="flex items-center justify-center">
+                           <input 
+                            type="checkbox" 
+                            checked={selectedLeads.includes(l.id)} 
+                            onChange={() => toggleLeadSelection(l.id)}
+                            className="w-5 h-5 rounded-lg border-2 border-gray-300 text-sky-600 focus:ring-sky-500 transition-all cursor-pointer"
+                           />
+                        </div>
+                      </td>
                       <td className="px-10 py-6">
                         <p className="font-black uppercase text-sm text-slate-800">{l.nome}</p>
                         <p className="text-[10px] text-sky-600 font-bold mt-0.5">{l.telefone}</p>
@@ -299,11 +415,20 @@ export const AdminView: React.FC<AdminViewProps> = ({ users, leads, calls, onImp
                           {l.status === 'PENDING' ? 'Em Fila' : 'Contatado'}
                         </span>
                       </td>
+                      <td className="px-10 py-6 text-right">
+                         <button 
+                          onClick={() => { setSelectedLeads([l.id]); setIsTransferring(true); }}
+                          className="p-3 bg-white border-2 border-gray-100 rounded-xl text-gray-400 hover:text-sky-600 hover:border-sky-100 transition-all active:scale-90"
+                          title="Transferir Lead"
+                         >
+                           <Share2 className="w-4 h-4" />
+                         </button>
+                      </td>
                     </tr>
                   ))}
-                  {leads.length === 0 && (
+                  {filteredLeads.length === 0 && (
                     <tr>
-                      <td colSpan={4} className="px-10 py-20 text-center">
+                      <td colSpan={6} className="px-10 py-20 text-center">
                         <div className="opacity-20 flex flex-col items-center gap-3">
                           <Database className="w-12 h-12" />
                           <p className="font-black uppercase italic">Nenhum lead disponível</p>

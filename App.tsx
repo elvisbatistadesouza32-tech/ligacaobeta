@@ -109,7 +109,6 @@ const App: React.FC = () => {
     setError('');
     
     try {
-      // Check if email already exists
       const { data: existing } = await supabase
         .from('users')
         .select('id')
@@ -140,6 +139,7 @@ const App: React.FC = () => {
         setSuccess('');
         setIsRegistering(false);
         setPassword('');
+        syncData();
       }, 2000);
       
     } catch (err) {
@@ -189,6 +189,27 @@ const App: React.FC = () => {
       localStorage.setItem(STORAGE_KEYS.LEADS, JSON.stringify(updated));
     } catch (err) {
       console.error('Erro ao importar leads para o Supabase:', err);
+    }
+  };
+
+  const handleTransferLeads = async (leadIds: string[], userId: string | null) => {
+    setIsSyncing(true);
+    try {
+      await supabase
+        .from('leads')
+        .update({ assignedTo: userId })
+        .in('id', leadIds);
+
+      const updatedLeads = leads.map(l => 
+        leadIds.includes(l.id) ? { ...l, assignedTo: userId } : l
+      );
+      setLeads(updatedLeads);
+      localStorage.setItem(STORAGE_KEYS.LEADS, JSON.stringify(updatedLeads));
+    } catch (err) {
+      console.error('Erro ao transferir leads:', err);
+      alert("Erro ao realizar transferência.");
+    } finally {
+      setIsSyncing(false);
     }
   };
 
@@ -354,7 +375,15 @@ const App: React.FC = () => {
         </button>
       </div>
       {currentUser.tipo === 'adm' ? (
-        <AdminView users={users} leads={leads} calls={calls} onImportLeads={handleImportLeads} onToggleUserStatus={handleToggleUser} onDeleteUser={handleDeleteUser} />
+        <AdminView 
+          users={users} 
+          leads={leads} 
+          calls={calls} 
+          onImportLeads={handleImportLeads} 
+          onToggleUserStatus={handleToggleUser} 
+          onDeleteUser={handleDeleteUser}
+          onTransferLeads={handleTransferLeads}
+        />
       ) : (
         <SellerView user={currentUser} leads={leads} calls={calls} onLogCall={handleLogCall} />
       )}
