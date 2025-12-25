@@ -1,148 +1,129 @@
 
 import React, { useState, useMemo } from 'react';
 import { Lead, CallStatus, CallRecord, User } from '../types';
-import { Phone, CheckCircle, Smartphone, ListChecks, Loader2, AlertTriangle } from 'lucide-react';
+import { Phone, CheckCircle, Ban, Loader2, PhoneForwarded, X, HelpCircle, PhoneOff } from 'lucide-react';
 
 interface SellerViewProps {
   user: User;
   leads: Lead[];
+  calls: CallRecord[];
   onLogCall: (call: CallRecord) => void;
 }
 
-const isSameId = (id1: any, id2: any) => {
-  const clean = (val: any) => {
-    if (!val) return "";
-    return String(val).replace(/-/g, "").toLowerCase().trim();
-  };
-  const c1 = clean(id1);
-  const c2 = clean(id2);
-  return c1 === c2 && c1 !== "";
-};
+export const SellerView: React.FC<SellerViewProps> = ({ user, leads, calls, onLogCall }) => {
+  const [active, setActive] = useState<Lead | null>(null);
+  const [carrier, setCarrier] = useState<boolean>(false);
+  const [loading, setLoading] = useState(false);
+  const [start, setStart] = useState<number>(0);
 
-export const SellerView: React.FC<SellerViewProps> = ({ user, leads, onLogCall }) => {
-  const [activeCallLead, setActiveCallLead] = useState<Lead | null>(null);
-  const [pendingLead, setPendingLead] = useState<Lead | null>(null);
-  const [showCarrierModal, setShowCarrierModal] = useState(false);
-  const [showDiagnostics, setShowDiagnostics] = useState(false);
-  const [startTime, setStartTime] = useState<number | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const myLeads = useMemo(() => leads.filter(l => l.assignedTo === user.id && l.status === 'PENDING'), [leads, user.id]);
+  const callsToday = useMemo(() => calls.filter(c => c.sellerId === user.id && c.timestamp.startsWith(new Date().toISOString().split('T')[0])).length, [calls, user.id]);
 
-  // Filtragem ultra-resiliente
-  const myLeads = useMemo(() => {
-    if (!user || !user.id) return [];
-    return leads.filter(l => {
-      const statusMatch = String(l.status || "").toUpperCase() === 'PENDING';
-      const ownerMatch = isSameId(l.assignedTo, user.id);
-      return statusMatch && ownerMatch;
-    });
-  }, [leads, user]);
-
-  const handleCarrierSelection = (code: string) => {
-    if (!pendingLead) return;
-    const formattedNumber = `${code}${pendingLead.telefone.replace(/\D/g, '')}`;
-    setActiveCallLead(pendingLead);
-    setPendingLead(null);
-    setShowCarrierModal(false);
-    setStartTime(Date.now());
-    window.location.href = `tel:${formattedNumber}`;
+  const selectCarrier = (code: string) => {
+    if (!active) return;
+    setCarrier(false);
+    setStart(Date.now());
+    // Abre o dialer nativo do dispositivo
+    window.location.href = `tel:${code}${active.telefone.replace(/\D/g, '')}`;
   };
 
-  const handleStatusSelect = async (status: CallStatus) => {
-    if (!activeCallLead || !startTime) return;
-    setIsSubmitting(true);
-    const duration = Math.floor((Date.now() - startTime) / 1000);
-    const newCall: CallRecord = {
+  const handleStatus = async (status: CallStatus) => {
+    if (!active) return;
+    setLoading(true);
+    const call: CallRecord = {
       id: crypto.randomUUID(),
-      leadId: activeCallLead.id,
+      leadId: active.id,
       sellerId: user.id,
       status,
-      durationSeconds: duration,
+      durationSeconds: Math.floor((Date.now() - start) / 1000),
       timestamp: new Date().toISOString()
     };
-    try {
-      await onLogCall(newCall);
-      setActiveCallLead(null);
-    } finally {
-      setIsSubmitting(false);
-    }
+    onLogCall(call);
+    setActive(null);
+    setLoading(false);
   };
 
   return (
-    <div className="space-y-6 max-w-2xl mx-auto animate-in fade-in duration-500 font-sans">
-      <div className="bg-white p-8 rounded-[2.5rem] border-2 border-indigo-100 shadow-sm flex justify-between items-center overflow-hidden relative">
-        <div className="absolute -right-4 -top-4 w-24 h-24 bg-indigo-50 rounded-full opacity-50 blur-2xl"></div>
-        <div>
-          <h2 className="text-gray-900 font-black text-xl uppercase italic tracking-tighter">Operador: {user.nome}</h2>
-          <p className="text-indigo-600 text-[10px] font-black uppercase mt-1 flex items-center gap-2 tracking-widest">
-            <ListChecks className="w-4 h-4" /> {myLeads.length} leads na sua fila
-          </p>
+    <div className="space-y-6 max-w-xl mx-auto animate-in fade-in slide-in-from-bottom-4 duration-500">
+      <div className="grid grid-cols-2 gap-4">
+        <div className="bg-white p-8 rounded-[2.5rem] border-2 border-gray-100 shadow-sm flex flex-col items-center sm:items-start">
+          <p className="text-[10px] uppercase font-black text-gray-400 tracking-widest mb-1">Leads Pendentes</p>
+          <p className="text-4xl font-black italic text-slate-800 tracking-tighter">{myLeads.length}</p>
         </div>
-        <div className="flex gap-2 relative z-10">
-          <button onClick={() => setShowDiagnostics(!showDiagnostics)} title="Diagnóstico" className={`p-4 rounded-2xl transition-all border-2 ${showDiagnostics ? 'bg-amber-100 text-amber-600 border-amber-200' : 'bg-gray-50 text-gray-400 border-transparent'}`}>
-            <AlertTriangle className="w-6 h-6" />
-          </button>
-          <div className="bg-indigo-600 p-4 rounded-2xl text-white shadow-lg shadow-indigo-100">
-            <Smartphone className="w-6 h-6" />
-          </div>
+        <div className="bg-sky-600 p-8 rounded-[2.5rem] text-white shadow-xl shadow-sky-100 flex flex-col items-center sm:items-start">
+          <p className="text-[10px] uppercase font-black opacity-60 tracking-widest mb-1">Chamadas Hoje</p>
+          <p className="text-4xl font-black italic tracking-tighter">{callsToday}</p>
         </div>
       </div>
 
-      {showDiagnostics && (
-        <div className="bg-amber-50 border-2 border-amber-200 p-8 rounded-[2.5rem] animate-in slide-in-from-top-4">
-           <h3 className="font-black uppercase italic text-amber-800 text-sm mb-4 tracking-widest">Painel de Diagnóstico</h3>
-           <div className="space-y-3 text-[11px] font-bold text-amber-700">
-              <p>ID VENDEDOR (LOGADO): <code className="bg-white px-2 py-0.5 rounded border border-amber-300">{user.id}</code></p>
-              <p>TOTAL LEADS CARREGADOS: {leads.length}</p>
-              <p>PENDENTES COM MEU ID: {leads.filter(l => isSameId(l.assignedTo, user.id) && l.status === 'PENDING').length}</p>
-              <div className="mt-4 p-4 bg-white rounded-2xl border border-amber-200 overflow-x-auto">
-                <p className="mb-2 text-gray-500 uppercase">Amostra de Leads (Primeiros 5):</p>
-                <table className="w-full">
-                  <thead><tr className="border-b text-gray-400"><td className="pb-2">Nome</td><td className="pb-2">Dono (assignedTo)</td><td className="pb-2 text-right">Status</td></tr></thead>
-                  <tbody>
-                    {leads.slice(0, 5).map(l => (
-                      <tr key={l.id} className="border-b last:border-0">
-                        <td className="py-2 text-gray-800">{l.nome}</td>
-                        <td className="py-2 font-mono text-[9px] text-gray-500">{l.assignedTo || 'FILA GERAL'}</td>
-                        <td className="py-2 text-right">{l.status}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-           </div>
-        </div>
-      )}
-
-      {showCarrierModal && (
-        <div className="fixed inset-0 z-[110] bg-indigo-950/90 backdrop-blur-md flex items-center justify-center p-6">
-          <div className="bg-white rounded-[3rem] w-full max-w-sm p-8 shadow-2xl animate-in zoom-in-95">
-            <h3 className="text-xl font-black text-center mb-6 uppercase italic tracking-tighter">Prefixo de Discagem</h3>
-            <div className="grid gap-3">
-              {['021', '015', '041', '031'].map(code => (
-                <button key={code} onClick={() => handleCarrierSelection(code)} className="py-5 bg-indigo-50 text-indigo-600 rounded-2xl font-black text-sm uppercase hover:bg-indigo-600 hover:text-white transition-all active:scale-95">Usar {code}</button>
+      {carrier && (
+        <div className="fixed inset-0 z-[100] bg-slate-950/80 backdrop-blur-xl flex items-center justify-center p-6 animate-in fade-in duration-300">
+          <div className="bg-white rounded-[3.5rem] w-full max-w-xs p-10 shadow-2xl animate-in zoom-in-95 duration-300">
+            <div className="bg-sky-50 w-16 h-16 rounded-3xl flex items-center justify-center text-sky-600 mx-auto mb-6">
+              <PhoneForwarded className="w-8 h-8" />
+            </div>
+            <h3 className="text-center font-black uppercase mb-8 italic text-slate-900 tracking-tight">Escolha a Operadora</h3>
+            <div className="grid grid-cols-2 gap-3">
+              {['021', '015', '041', '031'].map(c => (
+                <button 
+                  key={c} 
+                  onClick={() => selectCarrier(c)} 
+                  className="py-6 bg-gray-50 border-2 border-gray-100 text-sky-600 rounded-3xl font-black text-xl hover:bg-sky-600 hover:text-white hover:border-sky-600 active:scale-95 transition-all"
+                >
+                  {c}
+                </button>
               ))}
             </div>
-            <button onClick={() => setShowCarrierModal(false)} className="w-full mt-6 text-gray-400 font-black uppercase text-[10px] tracking-widest">Cancelar</button>
+            <button 
+              onClick={() => setCarrier(false)} 
+              className="mt-8 w-full text-[10px] font-black uppercase text-gray-400 flex items-center justify-center gap-2"
+            >
+              <X className="w-3 h-3" /> Fechar
+            </button>
           </div>
         </div>
       )}
 
-      {activeCallLead && (
-        <div className="fixed inset-0 z-[100] bg-indigo-950/80 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="bg-white rounded-[3rem] w-full max-w-md p-10 text-center shadow-2xl animate-in zoom-in-90">
-            <div className="w-20 h-20 bg-indigo-50 rounded-full flex items-center justify-center mx-auto mb-6">
-               <Phone className="w-10 h-10 text-indigo-600 animate-pulse" />
+      {active && !carrier && (
+        <div className="fixed inset-0 z-[100] bg-slate-950/90 backdrop-blur-xl flex items-center justify-center p-6 text-center animate-in fade-in duration-300">
+          <div className="bg-white rounded-[3.5rem] w-full max-w-sm p-10 sm:p-14 shadow-2xl animate-in zoom-in-95 duration-300">
+             <div className="bg-emerald-50 w-20 h-20 rounded-[2.5rem] flex items-center justify-center text-emerald-600 mx-auto mb-8 animate-pulse">
+              <Phone className="w-10 h-10" />
             </div>
-            <h3 className="text-2xl font-black mb-2 uppercase italic tracking-tighter">{activeCallLead.nome}</h3>
-            <p className="text-indigo-600 font-bold text-xl mb-8 tracking-widest">{activeCallLead.telefone}</p>
-            <div className="grid gap-4">
-              {isSubmitting ? (
-                <div className="py-10 flex flex-col items-center gap-4"><Loader2 className="animate-spin text-indigo-600 w-12 h-12" /></div>
+            <h3 className="text-3xl font-black italic uppercase tracking-tighter mb-2 text-slate-900 leading-tight">{active.nome}</h3>
+            <p className="text-sky-600 font-bold text-xl mb-10 tracking-wider">{active.telefone}</p>
+            <div className="space-y-4">
+              {loading ? (
+                <div className="flex flex-col items-center gap-4 py-6">
+                  <Loader2 className="animate-spin text-sky-600 w-10 h-10" />
+                  <p className="text-[10px] font-black text-gray-400 uppercase">Registrando Chamada...</p>
+                </div>
               ) : (
                 <>
-                  <button onClick={() => handleStatusSelect(CallStatus.ANSWERED)} className="py-6 bg-green-500 text-white rounded-2xl font-black uppercase shadow-lg shadow-green-100 active:scale-95 transition-all text-sm tracking-widest">Contato Efetivo</button>
-                  <button onClick={() => handleStatusSelect(CallStatus.NO_ANSWER)} className="py-6 bg-red-500 text-white rounded-2xl font-black uppercase shadow-lg shadow-red-100 active:scale-95 transition-all text-sm tracking-widest">Não Atendeu</button>
-                  <button onClick={() => setActiveCallLead(null)} className="py-4 text-gray-400 font-black uppercase text-[10px] tracking-widest hover:text-indigo-600">Fechar sem salvar</button>
+                  <button 
+                    onClick={() => handleStatus(CallStatus.ANSWERED)} 
+                    className="w-full py-6 bg-emerald-500 text-white rounded-[2rem] font-black uppercase shadow-xl shadow-emerald-100 flex items-center justify-center gap-3 hover:bg-emerald-600 transition-all active:scale-95"
+                  >
+                    <CheckCircle className="w-5 h-5" /> Atendeu
+                  </button>
+                  <button 
+                    onClick={() => handleStatus(CallStatus.NO_ANSWER)} 
+                    className="w-full py-6 bg-red-500 text-white rounded-[2rem] font-black uppercase shadow-xl shadow-red-100 flex items-center justify-center gap-3 hover:bg-red-600 transition-all active:scale-95"
+                  >
+                    <PhoneOff className="w-5 h-5" /> Não Atendeu
+                  </button>
+                  <button 
+                    onClick={() => handleStatus(CallStatus.INVALID_NUMBER)} 
+                    className="w-full py-6 bg-gray-400 text-white rounded-[2rem] font-black uppercase flex justify-center items-center gap-3 hover:bg-gray-500 transition-all active:scale-95"
+                  >
+                    <Ban className="w-5 h-5"/> Inválido
+                  </button>
+                  <button 
+                    onClick={() => setActive(null)} 
+                    className="pt-6 text-[11px] font-black uppercase text-gray-400 tracking-widest hover:text-gray-600 transition-colors"
+                  >
+                    Voltar para lista
+                  </button>
                 </>
               )}
             </div>
@@ -150,29 +131,46 @@ export const SellerView: React.FC<SellerViewProps> = ({ user, leads, onLogCall }
         </div>
       )}
 
-      <div className="grid gap-4 pb-20">
-        {myLeads.length > 0 ? myLeads.map(lead => (
-          <div key={lead.id} className="bg-white border-2 border-gray-100 rounded-[2.5rem] p-7 shadow-sm flex items-center justify-between hover:border-indigo-600 transition-all group animate-in slide-in-from-bottom-2">
+      <div className="space-y-4">
+        <h4 className="text-[10px] font-black uppercase text-gray-400 tracking-[0.3em] ml-6">Próximos Contatos</h4>
+        {myLeads.map(l => (
+          <div 
+            key={l.id} 
+            className="bg-white p-6 sm:p-8 rounded-[3rem] border-2 border-gray-100 flex justify-between items-center group hover:border-sky-600 transition-all shadow-sm hover:shadow-xl hover:shadow-sky-50"
+          >
             <div className="flex-1">
-              <p className="font-black text-gray-900 uppercase italic tracking-tighter text-xl">{lead.nome}</p>
-              <div className="flex items-center gap-3 mt-1.5">
-                <span className="bg-indigo-50 text-indigo-600 px-3 py-1 rounded-xl text-[9px] font-black uppercase border border-indigo-100">{lead.concurso || 'Campanha'}</span>
-                <p className="text-gray-400 font-bold text-sm tracking-widest">{lead.telefone}</p>
+              <p className="font-black uppercase italic text-xl tracking-tighter text-slate-900">{l.nome}</p>
+              <div className="flex items-center gap-2 mt-1">
+                <span className="px-2 py-0.5 bg-gray-100 rounded text-[8px] font-black text-gray-500 uppercase">{l.base}</span>
+                <span className="text-[10px] font-bold text-sky-400 uppercase">{l.telefone}</span>
               </div>
             </div>
-            <button onClick={() => { setPendingLead(lead); setShowCarrierModal(true); }} className="bg-indigo-600 text-white p-6 rounded-[1.5rem] shadow-xl hover:scale-110 active:scale-90 transition-all shadow-indigo-100">
-              <Phone className="w-7 h-7" />
+            <button 
+              onClick={() => { setActive(l); setCarrier(true); }} 
+              className="bg-sky-600 text-white p-6 sm:p-7 rounded-[2rem] shadow-xl shadow-sky-100 group-hover:scale-110 group-hover:bg-red-600 transition-all active:scale-90"
+            >
+              <Phone className="w-6 h-6" />
             </button>
           </div>
-        )) : (
-          <div className="text-center py-40 bg-white border-4 border-dashed border-gray-50 rounded-[4rem] px-10">
-            <div className="w-24 h-24 bg-green-50 rounded-full flex items-center justify-center mx-auto mb-8">
-              <CheckCircle className="w-12 h-12 text-green-500 opacity-40" />
+        ))}
+        {myLeads.length === 0 && (
+          <div className="text-center py-24 bg-gray-50/50 rounded-[4rem] border-4 border-dashed border-gray-200">
+            <div className="bg-emerald-50 w-20 h-20 rounded-full flex items-center justify-center text-emerald-500 mx-auto mb-6">
+              <CheckCircle className="w-10 h-10" />
             </div>
-            <p className="text-gray-900 font-black uppercase italic text-2xl tracking-tighter mb-2">Tudo em ordem!</p>
-            <p className="text-gray-400 font-bold text-xs uppercase tracking-widest leading-relaxed">Sua fila de atendimento está vazia no momento.</p>
+            <p className="font-black uppercase italic text-slate-400 text-xl tracking-tighter">Missão Cumprida!</p>
+            <p className="text-[10px] font-bold text-gray-400 uppercase mt-2">Você não tem leads pendentes na fila.</p>
           </div>
         )}
+      </div>
+      
+      <div className="bg-sky-50/50 p-6 rounded-[2.5rem] border border-sky-100 flex items-center gap-4 mt-12">
+        <div className="bg-sky-600 text-white p-3 rounded-2xl">
+          <HelpCircle className="w-5 h-5" />
+        </div>
+        <p className="text-[10px] font-bold text-sky-700 leading-relaxed uppercase">
+          Dica: Mantenha seu status online para receber leads da fila geral automaticamente.
+        </p>
       </div>
     </div>
   );

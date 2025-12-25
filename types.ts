@@ -1,14 +1,4 @@
 
-export enum UserRole {
-  ADMIN = 'ADMIN',
-  SELLER = 'SELLER'
-}
-
-export enum UserStatus {
-  ONLINE = 'ONLINE',
-  OFFLINE = 'OFFLINE'
-}
-
 export enum CallStatus {
   ANSWERED = 'ANSWERED',
   NO_ANSWER = 'NO_ANSWER',
@@ -19,20 +9,19 @@ export interface User {
   id: string;
   nome: string;
   email: string;
+  password?: string;
   tipo: 'adm' | 'vendedor';
   online: boolean;
-  avatar?: string;
 }
 
 export interface Lead {
   id: string;
   nome: string;
   telefone: string;
-  concurso?: string;
-  assignedTo?: string | null;
-  status?: 'PENDING' | 'CALLED' | 'WON' | 'LOST';
-  createdAt?: string;
-  updatedAt?: string;
+  base: string;
+  assignedTo: string | null;
+  status: 'PENDING' | 'CALLED';
+  createdAt: string;
 }
 
 export interface CallRecord {
@@ -42,5 +31,4 @@ export interface CallRecord {
   status: CallStatus;
   durationSeconds: number;
   timestamp: string;
-  recordingUrl?: string;
 }

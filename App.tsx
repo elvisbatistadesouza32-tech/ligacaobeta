@@ -4,280 +4,359 @@ import { User, Lead, CallRecord } from './types';
 import { Layout } from './components/Layout';
 import { SellerView } from './components/SellerView';
 import { AdminView } from './components/AdminView';
-import { Loader2, RefreshCw } from 'lucide-react';
+import { Logo } from './components/Logo';
+import { Loader2, RefreshCw, UserPlus, ArrowLeft } from 'lucide-react';
 import { supabase } from './supabase';
 
-const MASTER_ADMIN_EMAIL = "admin@callmaster.com";
+const STORAGE_KEYS = {
+  USERS: 'lp_users_db',
+  LEADS: 'lp_leads_db',
+  CALLS: 'lp_calls_db',
+  SESSION: 'lp_session_db'
+};
 
 const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [users, setUsers] = useState<User[]>([]);
   const [leads, setLeads] = useState<Lead[]>([]);
   const [calls, setCalls] = useState<CallRecord[]>([]);
-  const [isInitialLoading, setIsInitialLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isRegistering, setIsRegistering] = useState(false);
   
+  // Form states
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [nome, setNome] = useState('');
   const [error, setError] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [success, setSuccess] = useState('');
 
-  const normalizeId = (id: any): string | null => {
-    if (!id || id === "" || id === "null" || id === "undefined") return null;
-    return String(id).toLowerCase().trim();
-  };
-
-  const fetchData = useCallback(async () => {
+  const syncData = useCallback(async () => {
     setIsSyncing(true);
     try {
-      // Agora consultamos 'leads' diretamente para ter a visão completa (Auditoria)
-      const [userData, leadData, callData] = await Promise.all([
-        supabase.from('usuarios').select('*').order('nome'),
-        supabase.from('leads').select('*').order('created_at', { ascending: false }),
+      const [
+        { data: dbUsers },
+        { data: dbLeads },
+        { data: dbCalls }
+      ] = await Promise.all([
+        supabase.from('users').select('*'),
+        supabase.from('leads').select('*').order('createdAt', { ascending: false }),
         supabase.from('calls').select('*').order('timestamp', { ascending: false })
       ]);
 
-      if (userData.data) {
-        setUsers(userData.data.map((u: any) => ({
-          id: normalizeId(u.id) || "",
-          nome: u.nome || 'Operador',
-          email: u.email || '',
-          tipo: String(u.tipo || 'vendedor').toLowerCase().includes('adm') ? 'adm' : 'vendedor',
-          online: !!u.online,
-          avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(u.nome || 'User')}&background=random`
-        })));
+      if (dbUsers) {
+        setUsers(dbUsers);
+        localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(dbUsers));
+      }
+      if (dbLeads) {
+        setLeads(dbLeads);
+        localStorage.setItem(STORAGE_KEYS.LEADS, JSON.stringify(dbLeads));
+      }
+      if (dbCalls) {
+        setCalls(dbCalls);
+        localStorage.setItem(STORAGE_KEYS.CALLS, JSON.stringify(dbCalls));
       }
 
-      if (leadData.data) {
-        setLeads(leadData.data.map((l: any) => ({
-          id: String(l.id),
-          nome: l.nome,
-          telefone: l.telefone,
-          concurso: l.concurso,
-          assignedTo: normalizeId(l.assigned_to),
-          status: (l.status || 'PENDING').toUpperCase() as any,
-          createdAt: l.created_at
-        })));
+      const storedSession = localStorage.getItem(STORAGE_KEYS.SESSION);
+      if (storedSession && dbUsers) {
+        const sessionUser = dbUsers.find((u: User) => u.id === storedSession);
+        if (sessionUser) setCurrentUser(sessionUser);
       }
-
-      if (callData.data) {
-        setCalls(callData.data.map((c: any) => ({
-          id: String(c.id),
-          leadId: String(c.lead_id),
-          sellerId: normalizeId(c.seller_id) || "",
-          status: c.status,
-          durationSeconds: c.duration_seconds,
-          timestamp: c.timestamp
-        })));
-      }
-    } catch (err: any) {
-      console.error("Erro na sincronização:", err);
+    } catch (err) {
+      console.error('Erro ao sincronizar com Supabase:', err);
+      const cachedUsers = localStorage.getItem(STORAGE_KEYS.USERS);
+      if (cachedUsers) setUsers(JSON.parse(cachedUsers));
     } finally {
       setIsSyncing(false);
+      setIsLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    const channel = supabase
-      .channel('db-leads')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'leads' }, fetchData)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'usuarios' }, fetchData)
-      .subscribe();
-    return () => { supabase.removeChannel(channel); };
-  }, [fetchData]);
+    syncData();
+  }, [syncData]);
 
-  const restoreSession = useCallback(async (isFirstLoad = false) => {
-    if (isFirstLoad) setIsInitialLoading(true);
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsLoading(true);
+    setError('');
+    
     try {
-      const masterSession = localStorage.getItem('cm_master_session');
-      if (masterSession === 'active') {
-        setCurrentUser({ id: '00000000-0000-0000-0000-000000000000', nome: 'Admin Gestor', email: MASTER_ADMIN_EMAIL, tipo: 'adm', online: true });
-        await fetchData();
+      const { data: user, error: loginError } = await supabase
+        .from('users')
+        .select('*')
+        .eq('email', email.toLowerCase().trim())
+        .eq('password', password)
+        .single();
+
+      if (user) {
+        setCurrentUser(user);
+        localStorage.setItem(STORAGE_KEYS.SESSION, user.id);
+        setError('');
+      } else {
+        setError('E-MAIL OU SENHA INCORRETOS.');
+      }
+    } catch (err) {
+      setError('ERRO DE CONEXÃO COM O SERVIDOR.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleRegister = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsLoading(true);
+    setError('');
+    
+    try {
+      // Check if email already exists
+      const { data: existing } = await supabase
+        .from('users')
+        .select('id')
+        .eq('email', email.toLowerCase().trim())
+        .maybeSingle();
+
+      if (existing) {
+        setError('ESTE E-MAIL JÁ ESTÁ CADASTRADO.');
+        setIsLoading(false);
         return;
       }
 
-      const auth = supabase.auth as any;
-      const sessionResult = await auth.getSession();
-      const session = sessionResult?.data?.session;
+      const newUser = {
+        id: crypto.randomUUID(),
+        nome,
+        email: email.toLowerCase().trim(),
+        password,
+        tipo: 'vendedor',
+        online: true
+      };
 
-      if (session?.user) {
-        const { data: profile } = await supabase.from('usuarios').select('*').eq('email', session.user.email).maybeSingle();
-        if (profile) {
-          setCurrentUser({
-            id: normalizeId(profile.id) || "",
-            nome: profile.nome || 'Operador',
-            email: profile.email || '',
-            tipo: String(profile.tipo || 'vendedor').toLowerCase().includes('adm') ? 'adm' : 'vendedor',
-            online: true
-          });
-          await supabase.from('usuarios').update({ online: true }).eq('id', profile.id);
-        } else {
-          await auth.signOut();
-          setCurrentUser(null);
-        }
-        await fetchData();
-      }
+      const { error: regError } = await supabase.from('users').insert([newUser]);
+
+      if (regError) throw regError;
+
+      setSuccess('CADASTRO REALIZADO COM SUCESSO!');
+      setTimeout(() => {
+        setSuccess('');
+        setIsRegistering(false);
+        setPassword('');
+      }, 2000);
+      
     } catch (err) {
+      setError('ERRO AO REALIZAR CADASTRO.');
       console.error(err);
     } finally {
-      if (isFirstLoad) setIsInitialLoading(false);
+      setIsLoading(false);
     }
-  }, [fetchData]);
+  };
 
-  useEffect(() => { restoreSession(true); }, [restoreSession]);
+  const handleLogout = () => {
+    localStorage.removeItem(STORAGE_KEYS.SESSION);
+    setCurrentUser(null);
+  };
 
   const handleLogCall = async (call: CallRecord) => {
-    const { error: callError } = await supabase.from('calls').insert([{ 
-      lead_id: call.leadId, 
-      seller_id: call.sellerId, 
-      status: call.status, 
-      duration_seconds: call.durationSeconds 
-    }]);
-    if (!callError) {
-      await supabase.from('leads').update({ status: 'CALLED' }).eq('id', call.leadId);
-      await fetchData();
-    }
-  };
-
-  const handleImportLeads = async (newLeads: Lead[], distributionMode: string) => {
-    const leadsToInsert = newLeads.map(l => ({
-      nome: l.nome,
-      concurso: l.concurso || 'Geral',
-      telefone: l.telefone.replace(/\D/g, ''),
-      status: 'PENDING',
-      assigned_to: null
-    }));
-    
-    const { error } = await supabase.from('leads').insert(leadsToInsert);
-    if (error) throw error;
-    
-    // Se o modo for 'balanced', chamamos a distribuição logo após a importação
-    if (distributionMode === 'balanced') {
-      setTimeout(handleDistributeLeads, 1000);
-    } else {
-      await fetchData();
-    }
-  };
-
-  const handleDistributeLeads = async () => {
-    let targetSellers = users.filter(u => u.tipo === 'vendedor' && u.online);
-    if (targetSellers.length === 0) targetSellers = users.filter(u => u.tipo === 'vendedor');
-    if (targetSellers.length === 0) return alert("Nenhum vendedor disponível.");
-
-    const { data: unassigned } = await supabase.from('leads').select('id').is('assigned_to', null).eq('status', 'PENDING');
-    if (!unassigned || unassigned.length === 0) return alert("Fila Geral vazia.");
-
-    setIsSyncing(true);
     try {
-      // DISTRIBUIÇÃO BLINDADA: Usamos RPC para cada vendedor para garantir atomicidade no banco
-      const perSeller = Math.ceil(unassigned.length / targetSellers.length);
+      await supabase.from('calls').insert([call]);
+      await supabase.from('leads').update({ status: 'CALLED' }).eq('id', call.leadId);
+
+      const newCalls = [call, ...calls];
+      const newLeads = leads.map(l => l.id === call.leadId ? { ...l, status: 'CALLED' as const } : l);
+      setCalls(newCalls);
+      setLeads(newLeads);
       
-      for (const seller of targetSellers) {
-        // 'distribuir_leads_batch' é a nossa SQL Function que usa FOR UPDATE SKIP LOCKED
-        await supabase.rpc('distribuir_leads_batch', { 
-          quantidade: perSeller, 
-          vendedor_id: seller.id 
-        });
-      }
-      
-      alert("Distribuição concluída com sucesso (Banco Sincronizado).");
-      await fetchData();
+      localStorage.setItem(STORAGE_KEYS.CALLS, JSON.stringify(newCalls));
+      localStorage.setItem(STORAGE_KEYS.LEADS, JSON.stringify(newLeads));
     } catch (err) {
-      console.error(err);
-      alert("Erro na distribuição atômica.");
-    } finally {
-      setIsSyncing(false);
+      console.error('Erro ao registrar chamada no Supabase:', err);
     }
   };
 
-  const handleToggleUserStatus = async (userId: string) => {
-    const user = users.find(u => u.id === userId);
+  const handleImportLeads = async (newLeads: Lead[], target: 'none' | 'online' | string) => {
+    const leadsWithData = newLeads.map((l, idx) => ({
+      ...l,
+      id: crypto.randomUUID(),
+      createdAt: new Date().toISOString(),
+      assignedTo: target === 'online' 
+        ? users.filter(u => u.tipo === 'vendedor' && u.online)[idx % (users.filter(u => u.tipo === 'vendedor' && u.online).length || 1)]?.id || null
+        : (target === 'none' ? null : target)
+    }));
+
+    try {
+      await supabase.from('leads').insert(leadsWithData);
+      const updated = [...leadsWithData, ...leads];
+      setLeads(updated);
+      localStorage.setItem(STORAGE_KEYS.LEADS, JSON.stringify(updated));
+    } catch (err) {
+      console.error('Erro ao importar leads para o Supabase:', err);
+    }
+  };
+
+  const handleToggleUser = async (id: string) => {
+    const user = users.find(u => u.id === id);
     if (!user) return;
-    await supabase.from('usuarios').update({ online: !user.online }).eq('id', userId);
-    await fetchData();
-  };
 
-  const handlePromoteUser = async (userId: string) => {
-    await supabase.from('usuarios').update({ tipo: 'adm' }).eq('id', userId);
-    await fetchData();
-  };
-
-  const handleDeleteUser = async (userId: string) => {
-    if (!confirm("Excluir permanentemente?")) return;
-    await supabase.from('usuarios').delete().eq('id', userId);
-    await fetchData();
-  };
-
-  const handleTransferLeads = async (fromUserId: string, toUserId: string) => {
-    const { error } = await supabase.from('leads')
-      .update({ assigned_to: toUserId })
-      .eq('assigned_to', fromUserId)
-      .eq('status', 'PENDING');
-    if (!error) {
-      alert("Transferência realizada.");
-      await fetchData();
+    const newStatus = !user.online;
+    try {
+      await supabase.from('users').update({ online: newStatus }).eq('id', id);
+      const updated = users.map(u => u.id === id ? { ...u, online: newStatus } : u);
+      setUsers(updated);
+      localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(updated));
+    } catch (err) {
+      console.error('Erro ao atualizar status do usuário no Supabase:', err);
     }
   };
 
-  if (isInitialLoading) return (
-    <div className="min-h-screen bg-indigo-950 flex flex-col items-center justify-center text-white font-sans">
-      <Loader2 className="w-12 h-12 animate-spin text-indigo-400 mb-4" />
-      <p className="font-black uppercase italic tracking-widest text-[10px]">Acessando Camada de Dados...</p>
+  const handleDeleteUser = async (id: string) => {
+    if (!confirm("Remover este usuário definitivamente?")) return;
+    try {
+      await supabase.from('users').delete().eq('id', id);
+      const updated = users.filter(u => u.id !== id);
+      setUsers(updated);
+      localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(updated));
+    } catch (err) {
+      console.error('Erro ao excluir usuário no Supabase:', err);
+    }
+  };
+
+  if (isLoading && !isRegistering && !email) return (
+    <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center gap-4">
+      <Loader2 className="animate-spin text-sky-500 w-12 h-12" />
+      <span className="text-white/40 text-[10px] font-black uppercase tracking-[0.3em]">Sincronizando com Banco...</span>
     </div>
   );
 
   if (!currentUser) return (
-    <div className="min-h-screen bg-indigo-950 flex items-center justify-center p-6 text-white font-sans">
-      <form onSubmit={async (e) => {
-        e.preventDefault();
-        setError('');
-        setIsSubmitting(true);
-        try {
-          const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
-          if (signInError) throw signInError;
-          await restoreSession(false);
-        } catch (err: any) { setError(err.message); }
-        finally { setIsSubmitting(false); }
-      }} className="w-full max-w-md bg-white text-gray-900 p-10 rounded-[3rem] shadow-2xl">
-        <h1 className="text-2xl font-black text-center mb-8 uppercase italic tracking-tighter">CallMaster <span className="text-indigo-600">Pro</span></h1>
-        {error && <div className="bg-red-50 text-red-600 p-4 rounded-xl text-[10px] font-black uppercase mb-4 text-center border-2 border-red-100">{error}</div>}
-        <div className="space-y-4">
-          <input type="email" placeholder="E-mail" value={email} onChange={e => setEmail(e.target.value)} className="w-full p-5 bg-gray-50 border-2 border-gray-100 rounded-2xl font-bold outline-none focus:border-indigo-600" />
-          <input type="password" placeholder="Senha" value={password} onChange={e => setPassword(e.target.value)} className="w-full p-5 bg-gray-50 border-2 border-gray-100 rounded-2xl font-bold outline-none focus:border-indigo-600" />
-        </div>
-        <button disabled={isSubmitting} className="w-full bg-indigo-600 text-white py-6 rounded-2xl font-black uppercase tracking-widest active:scale-95 transition-all mt-6 shadow-xl shadow-indigo-100">
-          {isSubmitting ? <Loader2 className="animate-spin mx-auto" /> : 'Acessar'}
-        </button>
-      </form>
+    <div className="min-h-screen bg-slate-950 flex items-center justify-center p-6 selection:bg-red-200">
+      <div className="w-full max-w-sm bg-white p-10 sm:p-14 rounded-[3.5rem] shadow-2xl flex flex-col items-center border border-white/10 relative overflow-hidden animate-in zoom-in-95 duration-300">
+        <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-red-600 via-sky-600 to-red-600"></div>
+        <Logo size={90} />
+        <h1 className="text-3xl font-black text-center mt-6 mb-10 italic uppercase tracking-tighter flex gap-2">
+          <span className="text-red-600">LIGAÇÕES</span>
+          <span className="text-sky-600">PORTAL</span>
+        </h1>
+        
+        {error && (
+          <div className="w-full animate-in zoom-in-95 duration-200">
+            <p className="text-red-600 text-[11px] font-black uppercase mb-6 bg-red-50 w-full py-4 rounded-3xl text-center border-2 border-red-100">
+              {error}
+            </p>
+          </div>
+        )}
+
+        {success && (
+          <div className="w-full animate-in zoom-in-95 duration-200">
+            <p className="text-emerald-600 text-[11px] font-black uppercase mb-6 bg-emerald-50 w-full py-4 rounded-3xl text-center border-2 border-emerald-100">
+              {success}
+            </p>
+          </div>
+        )}
+
+        {isRegistering ? (
+          <form onSubmit={handleRegister} className="space-y-4 w-full animate-in slide-in-from-right-4 duration-300">
+             <div className="space-y-1">
+              <label className="text-[10px] font-black text-gray-400 uppercase ml-5">Nome Completo</label>
+              <input 
+                type="text" 
+                placeholder="Ex: João Silva" 
+                value={nome} 
+                onChange={e => setNome(e.target.value)} 
+                className="w-full p-5 bg-gray-50 border-2 border-gray-100 rounded-3xl outline-none focus:border-sky-600 focus:bg-white font-bold transition-all text-center placeholder:text-gray-300" 
+                required 
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-[10px] font-black text-gray-400 uppercase ml-5">E-mail Corporativo</label>
+              <input 
+                type="email" 
+                placeholder="seu@portal.com" 
+                value={email} 
+                onChange={e => setEmail(e.target.value)} 
+                className="w-full p-5 bg-gray-50 border-2 border-gray-100 rounded-3xl outline-none focus:border-sky-600 focus:bg-white font-bold transition-all text-center placeholder:text-gray-300" 
+                required 
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-[10px] font-black text-gray-400 uppercase ml-5">Criar Senha</label>
+              <input 
+                type="password" 
+                placeholder="••••••••" 
+                value={password} 
+                onChange={e => setPassword(e.target.value)} 
+                className="w-full p-5 bg-gray-50 border-2 border-gray-100 rounded-3xl outline-none focus:border-sky-600 focus:bg-white font-bold transition-all text-center placeholder:text-gray-300" 
+                required 
+              />
+            </div>
+            <button disabled={isLoading} className="w-full bg-sky-600 text-white py-6 rounded-3xl font-black uppercase italic shadow-xl shadow-sky-100 hover:bg-sky-700 hover:shadow-2xl transition-all active:scale-95 mt-4 flex items-center justify-center gap-2">
+              {isLoading ? <Loader2 className="animate-spin w-5 h-5" /> : <><UserPlus className="w-5 h-5" /> Finalizar Cadastro</>}
+            </button>
+            <button 
+              type="button"
+              onClick={() => { setIsRegistering(false); setError(''); }}
+              className="w-full text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center justify-center gap-2 pt-2 hover:text-gray-600 transition-colors"
+            >
+              <ArrowLeft className="w-3 h-3" /> Voltar para o Login
+            </button>
+          </form>
+        ) : (
+          <form onSubmit={handleLogin} className="space-y-4 w-full animate-in slide-in-from-left-4 duration-300">
+            <div className="space-y-1">
+              <label className="text-[10px] font-black text-gray-400 uppercase ml-5">E-mail Corporativo</label>
+              <input 
+                type="email" 
+                placeholder="seu@portal.com" 
+                value={email} 
+                onChange={e => setEmail(e.target.value)} 
+                className="w-full p-5 bg-gray-50 border-2 border-gray-100 rounded-3xl outline-none focus:border-sky-600 focus:bg-white font-bold transition-all text-center placeholder:text-gray-300" 
+                required 
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-[10px] font-black text-gray-400 uppercase ml-5">Senha de Acesso</label>
+              <input 
+                type="password" 
+                placeholder="••••••••" 
+                value={password} 
+                onChange={e => setPassword(e.target.value)} 
+                className="w-full p-5 bg-gray-50 border-2 border-gray-100 rounded-3xl outline-none focus:border-sky-600 focus:bg-white font-bold transition-all text-center placeholder:text-gray-300" 
+                required 
+              />
+            </div>
+            <button disabled={isLoading} className="w-full bg-red-600 text-white py-6 rounded-3xl font-black uppercase italic shadow-xl shadow-red-100 hover:bg-red-700 hover:shadow-2xl transition-all active:scale-95 mt-4 flex items-center justify-center gap-2">
+              {isLoading ? <Loader2 className="animate-spin w-5 h-5" /> : 'LOGIN'}
+            </button>
+            <button 
+              type="button"
+              onClick={() => { setIsRegistering(true); setError(''); }}
+              className="w-full py-5 border-2 border-gray-100 text-gray-500 rounded-3xl font-black uppercase text-[10px] tracking-widest hover:bg-gray-50 transition-all flex items-center justify-center gap-2"
+            >
+              <UserPlus className="w-4 h-4" /> Cadastrar Vendedor
+            </button>
+          </form>
+        )}
+        
+        <p className="mt-8 text-[9px] font-bold text-gray-400 uppercase tracking-widest text-center opacity-60">
+          Infraestrutura Supabase • V.9.0-AUTH
+        </p>
+      </div>
     </div>
   );
 
   return (
-    <Layout user={currentUser} onLogout={async () => { 
-      await supabase.auth.signOut(); 
-      localStorage.removeItem('cm_master_session'); 
-      setCurrentUser(null); 
-    }}>
-      <div className="fixed top-20 right-8 z-[60]">
-        <button onClick={fetchData} disabled={isSyncing} className={`p-4 bg-white shadow-xl rounded-full text-indigo-600 hover:bg-indigo-50 transition-all border-2 border-indigo-100 ${isSyncing ? 'animate-spin' : ''}`}>
-          <RefreshCw className="w-6 h-6" />
+    <Layout user={currentUser} onLogout={handleLogout}>
+      <div className="fixed bottom-8 right-8 z-[60]">
+        <button 
+          onClick={syncData} 
+          className={`group p-5 bg-white shadow-2xl rounded-full text-sky-600 border-2 border-sky-50 hover:border-sky-200 hover:scale-110 active:scale-90 transition-all ${isSyncing ? 'animate-spin' : ''}`}
+          title="Sincronizar Cloud"
+        >
+          <RefreshCw className={`w-6 h-6 transition-transform ${isSyncing ? '' : 'group-hover:rotate-180 duration-500'}`} />
         </button>
       </div>
-
       {currentUser.tipo === 'adm' ? (
-        <AdminView 
-          users={users} 
-          leads={leads} 
-          calls={calls}
-          onImportLeads={handleImportLeads}
-          onDistributeLeads={handleDistributeLeads}
-          onToggleUserStatus={handleToggleUserStatus}
-          onPromoteUser={handlePromoteUser}
-          onDeleteUser={handleDeleteUser}
-          onTransferLeads={handleTransferLeads}
-        />
+        <AdminView users={users} leads={leads} calls={calls} onImportLeads={handleImportLeads} onToggleUserStatus={handleToggleUser} onDeleteUser={handleDeleteUser} />
       ) : (
-        <SellerView user={currentUser} leads={leads} onLogCall={handleLogCall} />
+        <SellerView user={currentUser} leads={leads} calls={calls} onLogCall={handleLogCall} />
       )}
     </Layout>
   );
