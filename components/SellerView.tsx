@@ -10,6 +10,13 @@ interface SellerViewProps {
   onLogCall: (call: CallRecord) => void;
 }
 
+const CARRIERS = [
+  { name: 'Claro', code: '021' },
+  { name: 'Vivo', code: '015' },
+  { name: 'Tim', code: '041' },
+  { name: 'Oi', code: '031' }
+];
+
 export const SellerView: React.FC<SellerViewProps> = ({ user, leads, calls, onLogCall }) => {
   const [active, setActive] = useState<Lead | null>(null);
   const [carrier, setCarrier] = useState<boolean>(false);
@@ -23,7 +30,7 @@ export const SellerView: React.FC<SellerViewProps> = ({ user, leads, calls, onLo
     if (!active) return;
     setCarrier(false);
     setStart(Date.now());
-    // Abre o dialer nativo do dispositivo
+    // Abre o dialer nativo do dispositivo com o prefixo da operadora escolhida
     window.location.href = `tel:${code}${active.telefone.replace(/\D/g, '')}`;
   };
 
@@ -64,13 +71,14 @@ export const SellerView: React.FC<SellerViewProps> = ({ user, leads, calls, onLo
             </div>
             <h3 className="text-center font-black uppercase mb-8 italic text-slate-900 tracking-tight">Escolha a Operadora</h3>
             <div className="grid grid-cols-2 gap-3">
-              {['021', '015', '041', '031'].map(c => (
+              {CARRIERS.map(c => (
                 <button 
-                  key={c} 
-                  onClick={() => selectCarrier(c)} 
-                  className="py-6 bg-gray-50 border-2 border-gray-100 text-sky-600 rounded-3xl font-black text-xl hover:bg-sky-600 hover:text-white hover:border-sky-600 active:scale-95 transition-all"
+                  key={c.code} 
+                  onClick={() => selectCarrier(c.code)} 
+                  className="py-6 bg-gray-50 border-2 border-gray-100 text-sky-600 rounded-3xl font-black text-lg hover:bg-sky-600 hover:text-white hover:border-sky-600 active:scale-95 transition-all flex flex-col items-center justify-center gap-1"
                 >
-                  {c}
+                  <span className="uppercase">{c.name}</span>
+                  <span className="text-[10px] opacity-40">{c.code}</span>
                 </button>
               ))}
             </div>
