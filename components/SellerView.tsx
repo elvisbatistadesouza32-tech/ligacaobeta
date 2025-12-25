@@ -1,7 +1,9 @@
 
 import React, { useState, useMemo } from 'react';
 import { Lead, CallStatus, CallRecord, User } from '../types';
-import { Phone, CheckCircle, Ban, Loader2, PhoneForwarded, X, HelpCircle, PhoneOff } from 'lucide-react';
+import { Phone, CheckCircle, Ban, Loader2, PhoneForwarded, X, HelpCircle, PhoneOff, History, ListChecks, Clock, RotateCcw } from 'lucide-react';
+import { formatDistanceToNow } from 'date-fns';
+import { ptBR } from 'date-fns/locale';
 
 interface SellerViewProps {
   user: User;
@@ -18,19 +20,33 @@ const CARRIERS = [
 ];
 
 export const SellerView: React.FC<SellerViewProps> = ({ user, leads, calls, onLogCall }) => {
+  const [activeTab, setActiveTab] = useState<'queue' | 'history'>('queue');
   const [active, setActive] = useState<Lead | null>(null);
   const [carrier, setCarrier] = useState<boolean>(false);
   const [loading, setLoading] = useState(false);
   const [start, setStart] = useState<number>(0);
 
   const myLeads = useMemo(() => leads.filter(l => l.assignedTo === user.id && l.status === 'PENDING'), [leads, user.id]);
-  const callsToday = useMemo(() => calls.filter(c => c.sellerId === user.id && c.timestamp.startsWith(new Date().toISOString().split('T')[0])).length, [calls, user.id]);
+  
+  const myHistory = useMemo(() => {
+    return calls
+      .filter(c => c.sellerId === user.id)
+      .map(call => {
+        const lead = leads.find(l => l.id === call.leadId);
+        return { ...call, lead };
+      })
+      .filter(item => item.lead); // Garante que o lead ainda existe
+  }, [calls, leads, user.id]);
+
+  const callsToday = useMemo(() => {
+    const today = new Date().toISOString().split('T')[0];
+    return myHistory.filter(c => c.timestamp.startsWith(today)).length;
+  }, [myHistory]);
 
   const selectCarrier = (code: string) => {
     if (!active) return;
     setCarrier(false);
     setStart(Date.now());
-    // Abre o dialer nativo do dispositivo com o prefixo da operadora escolhida
     window.location.href = `tel:${code}${active.telefone.replace(/\D/g, '')}`;
   };
 
@@ -50,11 +66,25 @@ export const SellerView: React.FC<SellerViewProps> = ({ user, leads, calls, onLo
     setLoading(false);
   };
 
+  const getStatusBadge = (status: CallStatus) => {
+    switch (status) {
+      case CallStatus.ANSWERED:
+        return <span className="bg-emerald-50 text-emerald-600 border border-emerald-100 px-2 py-0.5 rounded text-[8px] font-black uppercase">Atendeu</span>;
+      case CallStatus.NO_ANSWER:
+        return <span className="bg-red-50 text-red-600 border border-red-100 px-2 py-0.5 rounded text-[8px] font-black uppercase">Não Atendeu</span>;
+      case CallStatus.INVALID_NUMBER:
+        return <span className="bg-gray-100 text-gray-500 border border-gray-200 px-2 py-0.5 rounded text-[8px] font-black uppercase">Inválido</span>;
+      default:
+        return null;
+    }
+  };
+
   return (
     <div className="space-y-6 max-w-xl mx-auto animate-in fade-in slide-in-from-bottom-4 duration-500">
+      {/* Stats Cards */}
       <div className="grid grid-cols-2 gap-4">
         <div className="bg-white p-8 rounded-[2.5rem] border-2 border-gray-100 shadow-sm flex flex-col items-center sm:items-start">
-          <p className="text-[10px] uppercase font-black text-gray-400 tracking-widest mb-1">Leads Pendentes</p>
+          <p className="text-[10px] uppercase font-black text-gray-400 tracking-widest mb-1">Fila Pendente</p>
           <p className="text-4xl font-black italic text-slate-800 tracking-tighter">{myLeads.length}</p>
         </div>
         <div className="bg-sky-600 p-8 rounded-[2.5rem] text-white shadow-xl shadow-sky-100 flex flex-col items-center sm:items-start">
@@ -63,6 +93,25 @@ export const SellerView: React.FC<SellerViewProps> = ({ user, leads, calls, onLo
         </div>
       </div>
 
+      {/* Tabs Navigation */}
+      <div className="flex bg-white p-1.5 rounded-3xl border-2 border-gray-100 shadow-sm">
+        <button 
+          onClick={() => setActiveTab('queue')}
+          className={`flex-1 flex items-center justify-center gap-2 py-4 rounded-2xl font-black text-[10px] uppercase transition-all ${activeTab === 'queue' ? 'bg-sky-600 text-white shadow-lg shadow-sky-100' : 'text-gray-400 hover:bg-gray-50'}`}
+        >
+          <ListChecks className="w-4 h-4" />
+          Minha Fila
+        </button>
+        <button 
+          onClick={() => setActiveTab('history')}
+          className={`flex-1 flex items-center justify-center gap-2 py-4 rounded-2xl font-black text-[10px] uppercase transition-all ${activeTab === 'history' ? 'bg-sky-600 text-white shadow-lg shadow-sky-100' : 'text-gray-400 hover:bg-gray-50'}`}
+        >
+          <History className="w-4 h-4" />
+          Meu Histórico
+        </button>
+      </div>
+
+      {/* Modals remains the same */}
       {carrier && (
         <div className="fixed inset-0 z-[100] bg-slate-950/80 backdrop-blur-xl flex items-center justify-center p-6 animate-in fade-in duration-300">
           <div className="bg-white rounded-[3.5rem] w-full max-w-xs p-10 shadow-2xl animate-in zoom-in-95 duration-300">
@@ -139,36 +188,83 @@ export const SellerView: React.FC<SellerViewProps> = ({ user, leads, calls, onLo
         </div>
       )}
 
+      {/* Main Content Area */}
       <div className="space-y-4">
-        <h4 className="text-[10px] font-black uppercase text-gray-400 tracking-[0.3em] ml-6">Próximos Contatos</h4>
-        {myLeads.map(l => (
-          <div 
-            key={l.id} 
-            className="bg-white p-6 sm:p-8 rounded-[3rem] border-2 border-gray-100 flex justify-between items-center group hover:border-sky-600 transition-all shadow-sm hover:shadow-xl hover:shadow-sky-50"
-          >
-            <div className="flex-1">
-              <p className="font-black uppercase italic text-xl tracking-tighter text-slate-900">{l.nome}</p>
-              <div className="flex items-center gap-2 mt-1">
-                <span className="px-2 py-0.5 bg-gray-100 rounded text-[8px] font-black text-gray-500 uppercase">{l.base}</span>
-                <span className="text-[10px] font-bold text-sky-400 uppercase">{l.telefone}</span>
+        {activeTab === 'queue' ? (
+          <>
+            <h4 className="text-[10px] font-black uppercase text-gray-400 tracking-[0.3em] ml-6">Próximos Contatos</h4>
+            {myLeads.map(l => (
+              <div 
+                key={l.id} 
+                className="bg-white p-6 sm:p-8 rounded-[3rem] border-2 border-gray-100 flex justify-between items-center group hover:border-sky-600 transition-all shadow-sm hover:shadow-xl hover:shadow-sky-50"
+              >
+                <div className="flex-1">
+                  <p className="font-black uppercase italic text-xl tracking-tighter text-slate-900">{l.nome}</p>
+                  <div className="flex items-center gap-2 mt-1">
+                    <span className="px-2 py-0.5 bg-gray-100 rounded text-[8px] font-black text-gray-500 uppercase">{l.base}</span>
+                    <span className="text-[10px] font-bold text-sky-400 uppercase">{l.telefone}</span>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => { setActive(l); setCarrier(true); }} 
+                  className="bg-sky-600 text-white p-6 sm:p-7 rounded-[2rem] shadow-xl shadow-sky-100 group-hover:scale-110 group-hover:bg-red-600 transition-all active:scale-90"
+                >
+                  <Phone className="w-6 h-6" />
+                </button>
               </div>
+            ))}
+            {myLeads.length === 0 && (
+              <div className="text-center py-24 bg-gray-50/50 rounded-[4rem] border-4 border-dashed border-gray-200 animate-in zoom-in-95 duration-300">
+                <div className="bg-emerald-50 w-20 h-20 rounded-full flex items-center justify-center text-emerald-500 mx-auto mb-6">
+                  <CheckCircle className="w-10 h-10" />
+                </div>
+                <p className="font-black uppercase italic text-slate-400 text-xl tracking-tighter">Missão Cumprida!</p>
+                <p className="text-[10px] font-bold text-gray-400 uppercase mt-2">Você não tem leads pendentes na fila.</p>
+              </div>
+            )}
+          </>
+        ) : (
+          <>
+            <h4 className="text-[10px] font-black uppercase text-gray-400 tracking-[0.3em] ml-6">Contatos Realizados</h4>
+            <div className="space-y-3">
+              {myHistory.map(item => (
+                <div 
+                  key={item.id} 
+                  className="bg-white p-5 rounded-[2rem] border border-gray-100 flex justify-between items-center group hover:border-sky-200 transition-all shadow-sm"
+                >
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2 mb-1">
+                      <p className="font-black uppercase italic text-sm text-slate-700">{item.lead?.nome}</p>
+                      {getStatusBadge(item.status)}
+                    </div>
+                    <div className="flex items-center gap-3 text-gray-400">
+                      <div className="flex items-center gap-1">
+                        <Clock className="w-3 h-3" />
+                        <span className="text-[9px] font-bold uppercase">
+                          {formatDistanceToNow(new Date(item.timestamp), { addSuffix: true, locale: ptBR })}
+                        </span>
+                      </div>
+                      <span className="text-[9px] font-black text-sky-400">{item.lead?.telefone}</span>
+                    </div>
+                  </div>
+                  <button 
+                    onClick={() => { setActive(item.lead!); setCarrier(true); }} 
+                    className="p-4 bg-gray-50 text-gray-400 rounded-2xl hover:bg-sky-600 hover:text-white hover:scale-110 transition-all active:scale-90 flex items-center gap-2"
+                    title="Retornar Ligação"
+                  >
+                    <RotateCcw className="w-4 h-4" />
+                    <span className="font-black uppercase text-[8px] hidden sm:inline">Re-ligar</span>
+                  </button>
+                </div>
+              ))}
+              {myHistory.length === 0 && (
+                <div className="text-center py-20 bg-gray-50/30 rounded-[3rem] border-2 border-dashed border-gray-100">
+                  <History className="w-10 h-10 text-gray-200 mx-auto mb-4" />
+                  <p className="font-black uppercase text-[10px] text-gray-400 tracking-widest">Nenhuma ligação registrada ainda.</p>
+                </div>
+              )}
             </div>
-            <button 
-              onClick={() => { setActive(l); setCarrier(true); }} 
-              className="bg-sky-600 text-white p-6 sm:p-7 rounded-[2rem] shadow-xl shadow-sky-100 group-hover:scale-110 group-hover:bg-red-600 transition-all active:scale-90"
-            >
-              <Phone className="w-6 h-6" />
-            </button>
-          </div>
-        ))}
-        {myLeads.length === 0 && (
-          <div className="text-center py-24 bg-gray-50/50 rounded-[4rem] border-4 border-dashed border-gray-200">
-            <div className="bg-emerald-50 w-20 h-20 rounded-full flex items-center justify-center text-emerald-500 mx-auto mb-6">
-              <CheckCircle className="w-10 h-10" />
-            </div>
-            <p className="font-black uppercase italic text-slate-400 text-xl tracking-tighter">Missão Cumprida!</p>
-            <p className="text-[10px] font-bold text-gray-400 uppercase mt-2">Você não tem leads pendentes na fila.</p>
-          </div>
+          </>
         )}
       </div>
       
@@ -177,7 +273,7 @@ export const SellerView: React.FC<SellerViewProps> = ({ user, leads, calls, onLo
           <HelpCircle className="w-5 h-5" />
         </div>
         <p className="text-[10px] font-bold text-sky-700 leading-relaxed uppercase">
-          Dica: Mantenha seu status online para receber leads da fila geral automaticamente.
+          Dica: No histórico, você pode clicar em "Re-ligar" para tentar novamente contatos que não atenderam.
         </p>
       </div>
     </div>
