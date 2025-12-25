@@ -22,6 +22,7 @@ const App: React.FC = () => {
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // 1. Sincronização Robusta: Trata strings vazias como null no mapeamento local
   const fetchData = useCallback(async () => {
     setIsSyncing(true);
     try {
@@ -48,6 +49,7 @@ const App: React.FC = () => {
           nome: l.nome,
           telefone: l.telefone,
           concurso: l.concurso,
+          // NORMALIZAÇÃO: Garante que "" vire null para não quebrar filtros do vendedor
           assignedTo: (l.assigned_to === "" || !l.assigned_to) ? null : l.assigned_to,
           status: l.status || 'PENDING',
           createdAt: l.created_at
@@ -103,6 +105,7 @@ const App: React.FC = () => {
             tipo: String(profile.tipo || 'vendedor').toLowerCase().includes('adm') ? 'adm' : 'vendedor',
             online: true
           });
+          // Força status online ao logar
           await supabase.from('usuarios').update({ online: true }).eq('id', profile.id);
         } else {
           await supabase.auth.signOut();
@@ -154,40 +157,51 @@ const App: React.FC = () => {
     if (error) throw error;
   };
 
+  // 2. Distribuição Inteligente: Agora não trava se ninguém estiver online
   const handleDistributeLeads = async () => {
-    // 1. Tenta vendedores ONLINE
+    // Busca vendedores ONLINE primeiro
     let targetSellers = users.filter(u => u.tipo === 'vendedor' && u.online);
     
-    // 2. Se ninguém online, pega TODOS os vendedores
+    // Se ninguém estiver online, usa TODOS os vendedores (Remoção da trava solicitada)
     if (targetSellers.length === 0) {
       targetSellers = users.filter(u => u.tipo === 'vendedor');
     }
 
     if (targetSellers.length === 0) {
-      return alert("Nenhum vendedor cadastrado no sistema.");
+      return alert("Não há vendedores cadastrados para receber leads.");
     }
     
-    // 3. Busca leads que são NULL ou "" (string vazia)
-    const { data: unassigned } = await supabase
+    // Busca leads que estão REALMENTE sem dono (null ou string vazia)
+    const { data: unassigned, error: fetchError } = await supabase
       .from('leads')
       .select('id')
       .or('assigned_to.is.null,assigned_to.eq.""')
       .eq('status', 'PENDING');
     
+    if (fetchError) {
+      console.error(fetchError);
+      return alert("Erro ao consultar fila geral.");
+    }
+
     if (!unassigned || unassigned.length === 0) {
-      return alert("Fila Geral Vazia (Nenhum lead sem vendedor encontrado).");
+      return alert("A Fila Geral já está vazia.");
     }
     
     setIsSyncing(true);
     try {
+      // Distribuição Round-Robin
       const updates = unassigned.map((lead, i) => {
         const seller = targetSellers[i % targetSellers.length];
-        return supabase.from('leads').update({ assigned_to: seller.id }).eq('id', lead.id);
+        return supabase.from('leads')
+          .update({ assigned_to: seller.id })
+          .eq('id', lead.id);
       });
+      
       await Promise.all(updates);
-      alert(`${unassigned.length} leads distribuídos com sucesso!`);
+      alert(`${unassigned.length} leads foram distribuídos entre ${targetSellers.length} vendedores.`);
+      await fetchData();
     } catch (err) {
-      alert("Erro na distribuição.");
+      alert("Erro crítico durante a distribuição.");
     } finally {
       setIsSyncing(false);
     }
@@ -204,14 +218,21 @@ const App: React.FC = () => {
   };
 
   const handleDeleteUser = async (userId: string) => {
-    if (!confirm("Excluir usuário?")) return;
+    if (!confirm("Tem certeza que deseja excluir permanentemente este usuário?")) return;
     await supabase.from('usuarios').delete().eq('id', userId);
   };
 
   const handleTransferLeads = async (fromUserId: string, toUserId: string) => {
     if (!toUserId) return;
-    const { error } = await supabase.from('leads').update({ assigned_to: toUserId }).eq('assigned_to', fromUserId).eq('status', 'PENDING');
-    if (!error) alert("Fila transferida!");
+    const { error } = await supabase.from('leads')
+      .update({ assigned_to: toUserId })
+      .eq('assigned_to', fromUserId)
+      .eq('status', 'PENDING');
+    
+    if (!error) {
+      alert("Leads transferidos com sucesso!");
+      await fetchData();
+    }
   };
 
   if (isInitialLoading) return (
