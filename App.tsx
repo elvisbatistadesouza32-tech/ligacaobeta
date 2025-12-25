@@ -156,19 +156,23 @@ const App: React.FC = () => {
   };
 
   const handleLogCall = async (call: CallRecord) => {
-    try {
-      await supabase.from('calls').insert([call]);
-      await supabase.from('leads').update({ status: 'CALLED' }).eq('id', call.leadId);
+    // Atualização imediata do estado local para feedback instantâneo (Optimistic Update)
+    setLeads(prev => prev.map(l => l.id === call.leadId ? { ...l, status: 'CALLED' as const } : l));
+    setCalls(prev => [call, ...prev]);
 
-      const newCalls = [call, ...calls];
-      const newLeads = leads.map(l => l.id === call.leadId ? { ...l, status: 'CALLED' as const } : l);
-      setCalls(newCalls);
-      setLeads(newLeads);
+    try {
+      // Sincronização com o banco
+      await Promise.all([
+        supabase.from('calls').insert([call]),
+        supabase.from('leads').update({ status: 'CALLED' }).eq('id', call.leadId)
+      ]);
       
-      localStorage.setItem(STORAGE_KEYS.CALLS, JSON.stringify(newCalls));
-      localStorage.setItem(STORAGE_KEYS.LEADS, JSON.stringify(newLeads));
+      // Persistência no cache após confirmação
+      localStorage.setItem(STORAGE_KEYS.CALLS, JSON.stringify([call, ...calls]));
+      localStorage.setItem(STORAGE_KEYS.LEADS, JSON.stringify(leads.map(l => l.id === call.leadId ? { ...l, status: 'CALLED' as const } : l)));
     } catch (err) {
       console.error('Erro ao registrar chamada no Supabase:', err);
+      // Em caso de erro crítico, poderíamos reverter o estado, mas mantemos para evitar oscilação na UI
     }
   };
 
@@ -184,9 +188,7 @@ const App: React.FC = () => {
 
     try {
       await supabase.from('leads').insert(leadsWithData);
-      const updated = [...leadsWithData, ...leads];
-      setLeads(updated);
-      localStorage.setItem(STORAGE_KEYS.LEADS, JSON.stringify(updated));
+      setLeads(prev => [...leadsWithData, ...prev]);
     } catch (err) {
       console.error('Erro ao importar leads para o Supabase:', err);
     }
@@ -200,11 +202,9 @@ const App: React.FC = () => {
         .update({ assignedTo: userId })
         .in('id', leadIds);
 
-      const updatedLeads = leads.map(l => 
+      setLeads(prev => prev.map(l => 
         leadIds.includes(l.id) ? { ...l, assignedTo: userId } : l
-      );
-      setLeads(updatedLeads);
-      localStorage.setItem(STORAGE_KEYS.LEADS, JSON.stringify(updatedLeads));
+      ));
     } catch (err) {
       console.error('Erro ao transferir leads:', err);
       alert("Erro ao realizar transferência.");
@@ -218,9 +218,7 @@ const App: React.FC = () => {
     setIsSyncing(true);
     try {
       await supabase.from('leads').delete().in('id', leadIds);
-      const updatedLeads = leads.filter(l => !leadIds.includes(l.id));
-      setLeads(updatedLeads);
-      localStorage.setItem(STORAGE_KEYS.LEADS, JSON.stringify(updatedLeads));
+      setLeads(prev => prev.filter(l => !leadIds.includes(l.id)));
     } catch (err) {
       console.error('Erro ao excluir leads:', err);
       alert("Erro ao excluir leads.");
@@ -236,9 +234,7 @@ const App: React.FC = () => {
     const newStatus = !user.online;
     try {
       await supabase.from('users').update({ online: newStatus }).eq('id', id);
-      const updated = users.map(u => u.id === id ? { ...u, online: newStatus } : u);
-      setUsers(updated);
-      localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(updated));
+      setUsers(prev => prev.map(u => u.id === id ? { ...u, online: newStatus } : u));
     } catch (err) {
       console.error('Erro ao atualizar status do usuário no Supabase:', err);
     }
@@ -248,9 +244,7 @@ const App: React.FC = () => {
     if (!confirm("Remover este usuário definitivamente?")) return;
     try {
       await supabase.from('users').delete().eq('id', id);
-      const updated = users.filter(u => u.id !== id);
-      setUsers(updated);
-      localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(updated));
+      setUsers(prev => prev.filter(u => u.id !== id));
     } catch (err) {
       console.error('Erro ao excluir usuário no Supabase:', err);
     }
