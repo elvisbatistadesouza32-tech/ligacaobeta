@@ -213,6 +213,22 @@ const App: React.FC = () => {
     }
   };
 
+  const handleDeleteLeads = async (leadIds: string[]) => {
+    if (!confirm(`Tem certeza que deseja excluir ${leadIds.length} lead(s)?`)) return;
+    setIsSyncing(true);
+    try {
+      await supabase.from('leads').delete().in('id', leadIds);
+      const updatedLeads = leads.filter(l => !leadIds.includes(l.id));
+      setLeads(updatedLeads);
+      localStorage.setItem(STORAGE_KEYS.LEADS, JSON.stringify(updatedLeads));
+    } catch (err) {
+      console.error('Erro ao excluir leads:', err);
+      alert("Erro ao excluir leads.");
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
   const handleToggleUser = async (id: string) => {
     const user = users.find(u => u.id === id);
     if (!user) return;
@@ -383,6 +399,7 @@ const App: React.FC = () => {
           onToggleUserStatus={handleToggleUser} 
           onDeleteUser={handleDeleteUser}
           onTransferLeads={handleTransferLeads}
+          onDeleteLeads={handleDeleteLeads}
         />
       ) : (
         <SellerView user={currentUser} leads={leads} calls={calls} onLogCall={handleLogCall} />

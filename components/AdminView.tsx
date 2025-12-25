@@ -13,9 +13,10 @@ interface AdminViewProps {
   onToggleUserStatus: (id: string) => void;
   onDeleteUser: (id: string) => void;
   onTransferLeads: (leadIds: string[], userId: string | null) => Promise<void>;
+  onDeleteLeads: (leadIds: string[]) => Promise<void>;
 }
 
-export const AdminView: React.FC<AdminViewProps> = ({ users, leads, calls, onImportLeads, onToggleUserStatus, onDeleteUser, onTransferLeads }) => {
+export const AdminView: React.FC<AdminViewProps> = ({ users, leads, calls, onImportLeads, onToggleUserStatus, onDeleteUser, onTransferLeads, onDeleteLeads }) => {
   const [tab, setTab] = useState<'dash' | 'leads' | 'users'>('dash');
   const [viewMode, setViewMode] = useState<'month' | 'day'>('month');
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
@@ -94,6 +95,14 @@ export const AdminView: React.FC<AdminViewProps> = ({ users, leads, calls, onImp
     await onTransferLeads(selectedLeads, destId);
     setSelectedLeads([]);
     setIsTransferring(false);
+    setLoading(false);
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedLeads.length === 0) return;
+    setLoading(true);
+    await onDeleteLeads(selectedLeads);
+    setSelectedLeads([]);
     setLoading(false);
   };
 
@@ -196,6 +205,12 @@ export const AdminView: React.FC<AdminViewProps> = ({ users, leads, calls, onImp
                 className="flex items-center gap-2 bg-white text-slate-900 px-6 py-2.5 rounded-full font-black uppercase text-[10px] hover:bg-sky-400 hover:text-white transition-all active:scale-95"
                >
                  <Share2 className="w-3.5 h-3.5" /> Transferir
+               </button>
+               <button 
+                onClick={handleBulkDelete}
+                className="flex items-center gap-2 bg-red-600/20 text-red-400 border border-red-500/30 px-6 py-2.5 rounded-full font-black uppercase text-[10px] hover:bg-red-600 hover:text-white transition-all active:scale-95"
+               >
+                 <Trash2 className="w-3.5 h-3.5" /> Excluir
                </button>
                <button 
                 onClick={() => setSelectedLeads([])}
@@ -416,13 +431,22 @@ export const AdminView: React.FC<AdminViewProps> = ({ users, leads, calls, onImp
                         </span>
                       </td>
                       <td className="px-10 py-6 text-right">
-                         <button 
-                          onClick={() => { setSelectedLeads([l.id]); setIsTransferring(true); }}
-                          className="p-3 bg-white border-2 border-gray-100 rounded-xl text-gray-400 hover:text-sky-600 hover:border-sky-100 transition-all active:scale-90"
-                          title="Transferir Lead"
-                         >
-                           <Share2 className="w-4 h-4" />
-                         </button>
+                        <div className="flex justify-end gap-2">
+                          <button 
+                            onClick={() => { setSelectedLeads([l.id]); setIsTransferring(true); }}
+                            className="p-3 bg-white border-2 border-gray-100 rounded-xl text-gray-400 hover:text-sky-600 hover:border-sky-100 transition-all active:scale-90"
+                            title="Transferir Lead"
+                          >
+                            <Share2 className="w-4 h-4" />
+                          </button>
+                          <button 
+                            onClick={() => onDeleteLeads([l.id])}
+                            className="p-3 bg-white border-2 border-gray-100 rounded-xl text-gray-400 hover:text-red-500 hover:border-red-100 transition-all active:scale-90"
+                            title="Excluir Lead"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
