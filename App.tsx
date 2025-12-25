@@ -22,9 +22,15 @@ const App: React.FC = () => {
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  const normalizeId = (id: any): string | null => {
+    if (!id || id === "" || id === "null" || id === "undefined") return null;
+    return String(id).toLowerCase().trim();
+  };
+
   const fetchData = useCallback(async () => {
     setIsSyncing(true);
     try {
+      // Agora consultamos 'leads' diretamente para ter a visão completa (Auditoria)
       const [userData, leadData, callData] = await Promise.all([
         supabase.from('usuarios').select('*').order('nome'),
         supabase.from('leads').select('*').order('created_at', { ascending: false }),
@@ -33,7 +39,7 @@ const App: React.FC = () => {
 
       if (userData.data) {
         setUsers(userData.data.map((u: any) => ({
-          id: u.id,
+          id: normalizeId(u.id) || "",
           nome: u.nome || 'Operador',
           email: u.email || '',
           tipo: String(u.tipo || 'vendedor').toLowerCase().includes('adm') ? 'adm' : 'vendedor',
@@ -44,22 +50,21 @@ const App: React.FC = () => {
 
       if (leadData.data) {
         setLeads(leadData.data.map((l: any) => ({
-          id: l.id,
+          id: String(l.id),
           nome: l.nome,
           telefone: l.telefone,
           concurso: l.concurso,
-          // Correção 1: Normalização agressiva de strings vazias para null
-          assignedTo: (l.assigned_to === "" || l.assigned_to === null || l.assigned_to === undefined) ? null : String(l.assigned_to),
-          status: l.status || 'PENDING',
+          assignedTo: normalizeId(l.assigned_to),
+          status: (l.status || 'PENDING').toUpperCase() as any,
           createdAt: l.created_at
         })));
       }
 
       if (callData.data) {
         setCalls(callData.data.map((c: any) => ({
-          id: c.id,
-          leadId: c.lead_id,
-          sellerId: c.seller_id,
+          id: String(c.id),
+          leadId: String(c.lead_id),
+          sellerId: normalizeId(c.seller_id) || "",
           status: c.status,
           durationSeconds: c.duration_seconds,
           timestamp: c.timestamp
@@ -74,7 +79,7 @@ const App: React.FC = () => {
 
   useEffect(() => {
     const channel = supabase
-      .channel('db-changes')
+      .channel('db-leads')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'leads' }, fetchData)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'usuarios' }, fetchData)
       .subscribe();
@@ -91,18 +96,15 @@ const App: React.FC = () => {
         return;
       }
 
-      // FIX: Handle cross-version Supabase session retrieval (v1 session() vs v2 getSession())
       const auth = supabase.auth as any;
-      const sessionResult = auth.getSession ? await auth.getSession() : { data: { session: auth.session() } };
-      const session = sessionResult?.data?.session || (sessionResult as any);
+      const sessionResult = await auth.getSession();
+      const session = sessionResult?.data?.session;
 
       if (session?.user) {
-        const userEmail = session.user.email?.toLowerCase().trim();
-        const { data: profile } = await supabase.from('usuarios').select('*').eq('email', userEmail).maybeSingle();
-
+        const { data: profile } = await supabase.from('usuarios').select('*').eq('email', session.user.email).maybeSingle();
         if (profile) {
           setCurrentUser({
-            id: profile.id,
+            id: normalizeId(profile.id) || "",
             nome: profile.nome || 'Operador',
             email: profile.email || '',
             tipo: String(profile.tipo || 'vendedor').toLowerCase().includes('adm') ? 'adm' : 'vendedor',
@@ -110,22 +112,19 @@ const App: React.FC = () => {
           });
           await supabase.from('usuarios').update({ online: true }).eq('id', profile.id);
         } else {
-          // FIX: Call signOut using type bypass to resolve environment-specific property errors
-          await (supabase.auth as any).signOut();
+          await auth.signOut();
           setCurrentUser(null);
         }
         await fetchData();
       }
     } catch (err) {
-      console.error("Erro na restauração:", err);
+      console.error(err);
     } finally {
       if (isFirstLoad) setIsInitialLoading(false);
     }
   }, [fetchData]);
 
-  useEffect(() => {
-    restoreSession(true);
-  }, [restoreSession]);
+  useEffect(() => { restoreSession(true); }, [restoreSession]);
 
   const handleLogCall = async (call: CallRecord) => {
     const { error: callError } = await supabase.from('calls').insert([{ 
@@ -136,72 +135,56 @@ const App: React.FC = () => {
     }]);
     if (!callError) {
       await supabase.from('leads').update({ status: 'CALLED' }).eq('id', call.leadId);
+      await fetchData();
     }
   };
 
   const handleImportLeads = async (newLeads: Lead[], distributionMode: string) => {
-    const allSellers = users.filter(u => u.tipo === 'vendedor');
-    const leadsToInsert = newLeads.map((l, i) => {
-      let assignedTo: any = null;
-      if (distributionMode === 'balanced' && allSellers.length > 0) {
-        assignedTo = allSellers[i % allSellers.length].id;
-      } else if (distributionMode !== 'none' && distributionMode.length > 5) {
-        assignedTo = distributionMode;
-      }
-      return {
-        nome: l.nome,
-        concurso: l.concurso || 'Geral',
-        telefone: l.telefone.replace(/\D/g, ''),
-        status: 'PENDING',
-        assigned_to: assignedTo || null
-      };
-    });
+    const leadsToInsert = newLeads.map(l => ({
+      nome: l.nome,
+      concurso: l.concurso || 'Geral',
+      telefone: l.telefone.replace(/\D/g, ''),
+      status: 'PENDING',
+      assigned_to: null
+    }));
+    
     const { error } = await supabase.from('leads').insert(leadsToInsert);
     if (error) throw error;
+    
+    // Se o modo for 'balanced', chamamos a distribuição logo após a importação
+    if (distributionMode === 'balanced') {
+      setTimeout(handleDistributeLeads, 1000);
+    } else {
+      await fetchData();
+    }
   };
 
-  // Correção 2: Distribuição Robusta com tratamento de lote e strings vazias
   const handleDistributeLeads = async () => {
     let targetSellers = users.filter(u => u.tipo === 'vendedor' && u.online);
-    if (targetSellers.length === 0) {
-      targetSellers = users.filter(u => u.tipo === 'vendedor');
-    }
+    if (targetSellers.length === 0) targetSellers = users.filter(u => u.tipo === 'vendedor');
+    if (targetSellers.length === 0) return alert("Nenhum vendedor disponível.");
 
-    if (targetSellers.length === 0) {
-      return alert("Não há vendedores cadastrados no sistema para receber leads.");
-    }
-    
-    // Busca leads que estão realmente sem dono (null ou string vazia)
-    const { data: unassigned, error: fetchError } = await supabase
-      .from('leads')
-      .select('id')
-      .or('assigned_to.is.null,assigned_to.eq.""')
-      .eq('status', 'PENDING');
-    
-    if (fetchError || !unassigned || unassigned.length === 0) {
-      return alert("Não foram encontrados leads pendentes na Fila Geral.");
-    }
-    
+    const { data: unassigned } = await supabase.from('leads').select('id').is('assigned_to', null).eq('status', 'PENDING');
+    if (!unassigned || unassigned.length === 0) return alert("Fila Geral vazia.");
+
     setIsSyncing(true);
     try {
-      // Processamento sequencial em pequenos lotes para evitar erros de conexão
-      const batchSize = 20;
-      for (let i = 0; i < unassigned.length; i += batchSize) {
-        const batch = unassigned.slice(i, i + batchSize);
-        await Promise.all(batch.map((lead, index) => {
-          const sellerIndex = (i + index) % targetSellers.length;
-          const seller = targetSellers[sellerIndex];
-          return supabase.from('leads')
-            .update({ assigned_to: seller.id })
-            .eq('id', lead.id);
-        }));
+      // DISTRIBUIÇÃO BLINDADA: Usamos RPC para cada vendedor para garantir atomicidade no banco
+      const perSeller = Math.ceil(unassigned.length / targetSellers.length);
+      
+      for (const seller of targetSellers) {
+        // 'distribuir_leads_batch' é a nossa SQL Function que usa FOR UPDATE SKIP LOCKED
+        await supabase.rpc('distribuir_leads_batch', { 
+          quantidade: perSeller, 
+          vendedor_id: seller.id 
+        });
       }
       
-      alert(`${unassigned.length} leads foram distribuídos com sucesso!`);
+      alert("Distribuição concluída com sucesso (Banco Sincronizado).");
       await fetchData();
     } catch (err) {
       console.error(err);
-      alert("Ocorreu um erro durante a distribuição. Alguns leads podem não ter sido atribuídos.");
+      alert("Erro na distribuição atômica.");
     } finally {
       setIsSyncing(false);
     }
@@ -211,26 +194,27 @@ const App: React.FC = () => {
     const user = users.find(u => u.id === userId);
     if (!user) return;
     await supabase.from('usuarios').update({ online: !user.online }).eq('id', userId);
+    await fetchData();
   };
 
   const handlePromoteUser = async (userId: string) => {
     await supabase.from('usuarios').update({ tipo: 'adm' }).eq('id', userId);
+    await fetchData();
   };
 
   const handleDeleteUser = async (userId: string) => {
-    if (!confirm("Excluir usuário permanentemente?")) return;
+    if (!confirm("Excluir permanentemente?")) return;
     await supabase.from('usuarios').delete().eq('id', userId);
+    await fetchData();
   };
 
   const handleTransferLeads = async (fromUserId: string, toUserId: string) => {
-    if (!toUserId) return;
     const { error } = await supabase.from('leads')
       .update({ assigned_to: toUserId })
       .eq('assigned_to', fromUserId)
       .eq('status', 'PENDING');
-    
     if (!error) {
-      alert("Fila transferida!");
+      alert("Transferência realizada.");
       await fetchData();
     }
   };
@@ -238,7 +222,7 @@ const App: React.FC = () => {
   if (isInitialLoading) return (
     <div className="min-h-screen bg-indigo-950 flex flex-col items-center justify-center text-white font-sans">
       <Loader2 className="w-12 h-12 animate-spin text-indigo-400 mb-4" />
-      <p className="font-black uppercase italic tracking-widest text-[10px]">Verificando Credenciais...</p>
+      <p className="font-black uppercase italic tracking-widest text-[10px]">Acessando Camada de Dados...</p>
     </div>
   );
 
@@ -249,12 +233,7 @@ const App: React.FC = () => {
         setError('');
         setIsSubmitting(true);
         try {
-          // FIX: Provide compatibility for v1 (signIn) and v2 (signInWithPassword) Supabase auth methods
-          const auth = supabase.auth as any;
-          const { error: signInError } = auth.signInWithPassword 
-            ? await auth.signInWithPassword({ email, password }) 
-            : await auth.signIn({ email, password });
-            
+          const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
           if (signInError) throw signInError;
           await restoreSession(false);
         } catch (err: any) { setError(err.message); }
@@ -267,7 +246,7 @@ const App: React.FC = () => {
           <input type="password" placeholder="Senha" value={password} onChange={e => setPassword(e.target.value)} className="w-full p-5 bg-gray-50 border-2 border-gray-100 rounded-2xl font-bold outline-none focus:border-indigo-600" />
         </div>
         <button disabled={isSubmitting} className="w-full bg-indigo-600 text-white py-6 rounded-2xl font-black uppercase tracking-widest active:scale-95 transition-all mt-6 shadow-xl shadow-indigo-100">
-          {isSubmitting ? <Loader2 className="animate-spin mx-auto" /> : 'Entrar Agora'}
+          {isSubmitting ? <Loader2 className="animate-spin mx-auto" /> : 'Acessar'}
         </button>
       </form>
     </div>
@@ -275,8 +254,7 @@ const App: React.FC = () => {
 
   return (
     <Layout user={currentUser} onLogout={async () => { 
-      // FIX: Call signOut using type bypass to resolve environment-specific property errors
-      await (supabase.auth as any).signOut(); 
+      await supabase.auth.signOut(); 
       localStorage.removeItem('cm_master_session'); 
       setCurrentUser(null); 
     }}>

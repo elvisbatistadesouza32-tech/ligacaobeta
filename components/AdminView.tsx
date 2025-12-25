@@ -70,10 +70,9 @@ export const AdminView: React.FC<AdminViewProps> = ({
 
   const sellerPerformance = useMemo(() => {
     return sellers.map(seller => {
-      // IDs já estão normalizados no App.tsx, comparação direta funciona
-      const sellerCalls = calls.filter(c => c.sellerId === seller.id);
+      const sellerCalls = calls.filter(c => String(c.sellerId) === String(seller.id));
       const sellerLeadsCount = leads.filter(l => 
-        l.assignedTo === seller.id && 
+        String(l.assignedTo) === String(seller.id) && 
         String(l.status).toUpperCase() === 'PENDING'
       ).length;
       return { ...seller, totalCalls: sellerCalls.length, pendingLeads: sellerLeadsCount };
@@ -96,7 +95,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
           if (fone.length >= 8) return { id: `temp-${idx}`, nome: String(row[0] || 'Lead').trim(), concurso: String(row[1] || 'Geral').trim(), telefone: fone, status: 'PENDING' };
           return null;
         }).filter(Boolean) as Lead[];
-        if (parsedLeads.length === 0) setNotification({ message: "Arquivo inválido.", type: 'error' });
+        if (parsedLeads.length === 0) setNotification({ message: "Arquivo vazio ou inválido.", type: 'error' });
         else setPendingLeads(parsedLeads);
       } catch (err) { setNotification({ message: "Erro ao ler Excel.", type: 'error' }); }
       finally { setIsImporting(false); }
@@ -109,9 +108,9 @@ export const AdminView: React.FC<AdminViewProps> = ({
     setIsImporting(true);
     try {
       await onImportLeads(pendingLeads, importDistributionMode);
-      setNotification({ message: `${pendingLeads.length} leads importados!`, type: 'success' });
+      setNotification({ message: `${pendingLeads.length} leads enviados para a Fila Geral!`, type: 'success' });
       setPendingLeads(null);
-      setActiveTab('leads');
+      setActiveTab('stats');
     } catch (err: any) { setNotification({ message: err.message, type: 'error' }); }
     finally { setIsImporting(false); }
   };
@@ -127,21 +126,17 @@ export const AdminView: React.FC<AdminViewProps> = ({
       {pendingLeads && (
         <div className="fixed inset-0 z-[220] bg-indigo-950/95 backdrop-blur-2xl flex items-center justify-center p-6 text-gray-900">
           <div className="bg-white rounded-[4rem] w-full max-w-2xl p-10 shadow-2xl">
-             <h3 className="text-2xl font-black text-gray-900 uppercase italic mb-6 tracking-tighter">Processar {pendingLeads.length} Leads</h3>
+             <h3 className="text-2xl font-black text-gray-900 uppercase italic mb-6 tracking-tighter">Importar {pendingLeads.length} Leads para Fila Geral</h3>
              <div className="space-y-6 mb-8">
-                <p className="text-[10px] font-black uppercase text-gray-400 tracking-widest">Escolha o Destino:</p>
+                <p className="text-[10px] font-black uppercase text-gray-400 tracking-widest">Opção de Destino:</p>
                 <div className="grid grid-cols-2 gap-4">
                   <button onClick={() => setImportDistributionMode('none')} className={`p-6 rounded-3xl border-2 font-black text-[10px] uppercase transition-all ${importDistributionMode === 'none' ? 'border-indigo-600 bg-indigo-50 text-indigo-600' : 'border-gray-100 text-gray-400'}`}>Fila Geral</button>
                   <button onClick={() => setImportDistributionMode('balanced')} className={`p-6 rounded-3xl border-2 font-black text-[10px] uppercase transition-all ${importDistributionMode === 'balanced' ? 'border-indigo-600 bg-indigo-50 text-indigo-600' : 'border-gray-100 text-gray-400'}`}>Distribuir Agora</button>
                 </div>
-                <select value={importDistributionMode.length > 20 ? importDistributionMode : ''} onChange={(e) => setImportDistributionMode(e.target.value)} className="w-full p-5 bg-gray-50 border-2 border-gray-100 rounded-3xl font-bold text-xs outline-none focus:border-indigo-600">
-                  <option value="">Ou selecione um vendedor...</option>
-                  {sellers.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
-                </select>
              </div>
              <div className="grid grid-cols-2 gap-4">
-                <button onClick={() => setPendingLeads(null)} className="py-6 rounded-3xl font-black uppercase text-xs border-2 border-gray-100 text-gray-400">Cancelar</button>
-                <button onClick={confirmImport} className="py-6 rounded-3xl bg-indigo-600 text-white font-black uppercase text-xs shadow-xl shadow-indigo-100">Confirmar</button>
+                <button onClick={() => setPendingLeads(null)} className="py-6 rounded-3xl font-black uppercase text-xs border-2 border-gray-100 text-gray-400">Descartar</button>
+                <button onClick={confirmImport} className="py-6 rounded-3xl bg-indigo-600 text-white font-black uppercase text-xs shadow-xl shadow-indigo-100">Iniciar Importação</button>
              </div>
           </div>
         </div>
@@ -150,14 +145,14 @@ export const AdminView: React.FC<AdminViewProps> = ({
       {transferModal && (
         <div className="fixed inset-0 z-[210] bg-indigo-950/90 backdrop-blur-xl flex items-center justify-center p-6 text-gray-900">
           <div className="bg-white rounded-[4rem] w-full max-w-md p-12 shadow-2xl">
-            <h3 className="text-2xl font-black uppercase italic mb-8 text-center tracking-tighter">Transferir Fila de {transferModal.fromName}</h3>
-            <select value={targetSellerId} onChange={(e) => setTargetSellerId(e.target.value)} className="w-full bg-gray-50 border-2 border-gray-100 p-6 rounded-3xl font-bold mb-6 text-sm">
-              <option value="">Novo Destino...</option>
+            <h3 className="text-2xl font-black uppercase italic mb-8 text-center tracking-tighter">Mover Fila de {transferModal.fromName}</h3>
+            <select value={targetSellerId} onChange={(e) => setTargetSellerId(e.target.value)} className="w-full bg-gray-50 border-2 border-gray-100 p-6 rounded-3xl font-bold mb-6 text-sm outline-none focus:border-indigo-600">
+              <option value="">Selecione novo operador...</option>
               {sellers.filter(s => s.id !== transferModal.fromId).map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
             </select>
             <div className="flex gap-4">
-              <button onClick={() => setTransferModal(null)} className="flex-1 py-5 rounded-2xl border-2 font-black uppercase text-[10px] text-gray-400">Voltar</button>
-              <button onClick={() => { onTransferLeads(transferModal.fromId, targetSellerId); setTransferModal(null); }} className="flex-1 py-5 rounded-2xl bg-indigo-600 text-white font-black uppercase text-[10px] shadow-lg shadow-indigo-100">Transferir</button>
+              <button onClick={() => setTransferModal(null)} className="flex-1 py-5 rounded-2xl border-2 font-black uppercase text-[10px] text-gray-400">Cancelar</button>
+              <button onClick={() => { onTransferLeads(transferModal.fromId, targetSellerId); setTransferModal(null); }} className="flex-1 py-5 rounded-2xl bg-indigo-600 text-white font-black uppercase text-[10px] shadow-lg shadow-indigo-100">Confirmar</button>
             </div>
           </div>
         </div>
@@ -173,7 +168,8 @@ export const AdminView: React.FC<AdminViewProps> = ({
       {activeTab === 'stats' && (
         <div className="space-y-6">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-             <div className="bg-indigo-600 p-8 rounded-[3rem] text-white shadow-xl">
+             <div className="bg-indigo-600 p-8 rounded-[3rem] text-white shadow-xl relative overflow-hidden">
+                <div className="absolute -right-4 -bottom-4 w-20 h-20 bg-white/10 rounded-full blur-2xl"></div>
                 <p className="text-indigo-200 text-[10px] font-black uppercase mb-1">Total Pendentes</p>
                 <p className="text-4xl font-black">{stats.totalPending}</p>
              </div>
@@ -193,7 +189,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
 
           <div className="bg-white p-10 rounded-[4rem] border-2 border-gray-100 shadow-sm overflow-hidden">
              <div className="flex items-center gap-3 mb-8 px-2">
-               <Headphones className="text-indigo-600" />
+               <div className="bg-indigo-50 p-3 rounded-2xl"><Headphones className="text-indigo-600 w-6 h-6" /></div>
                <h3 className="font-black text-xl uppercase italic tracking-tighter">Status dos Operadores</h3>
              </div>
              <div className="overflow-x-auto scrollbar-hide">
@@ -203,22 +199,25 @@ export const AdminView: React.FC<AdminViewProps> = ({
                   </thead>
                   <tbody>
                     {sellerPerformance.map(s => (
-                      <tr key={s.id} className="border-t border-gray-50 hover:bg-gray-50 transition-all">
+                      <tr key={s.id} className="border-t border-gray-50 hover:bg-gray-50 transition-all group">
                         <td className="py-6 flex items-center gap-3">
                            <span className={`w-2 h-2 rounded-full ${s.online ? 'bg-green-500 animate-pulse' : 'bg-gray-300'}`}></span>
                            <span className="font-black uppercase text-xs tracking-tighter">{s.nome}</span>
                         </td>
-                        <td className="py-6 text-center font-bold">{s.totalCalls}</td>
+                        <td className="py-6 text-center font-bold text-gray-900">{s.totalCalls}</td>
                         <td className="py-6 text-center">
-                           <span className={`px-4 py-1 rounded-full font-black text-[9px] ${s.pendingLeads > 0 ? 'bg-orange-100 text-orange-600 border border-orange-200' : 'bg-green-50 text-green-600 border border-green-200'}`}>
+                           <span className={`px-4 py-1.5 rounded-full font-black text-[9px] ${s.pendingLeads > 0 ? 'bg-orange-100 text-orange-600 border border-orange-200' : 'bg-green-50 text-green-600 border border-green-200'}`}>
                               {s.pendingLeads} LEADS
                            </span>
                         </td>
                         <td className="py-6 text-right">
-                           <button onClick={() => setTransferModal({fromId: s.id, fromName: s.nome})} className="text-indigo-600 font-black text-[9px] uppercase hover:underline">Mover Fila</button>
+                           <button onClick={() => setTransferModal({fromId: s.id, fromName: s.nome})} className="text-indigo-600 font-black text-[9px] uppercase hover:underline opacity-0 group-hover:opacity-100 transition-opacity">Mover Fila</button>
                         </td>
                       </tr>
                     ))}
+                    {sellerPerformance.length === 0 && (
+                      <tr><td colSpan={4} className="py-10 text-center text-gray-400 uppercase font-black text-[10px]">Nenhum operador encontrado</td></tr>
+                    )}
                   </tbody>
                 </table>
              </div>
@@ -231,35 +230,35 @@ export const AdminView: React.FC<AdminViewProps> = ({
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="bg-white p-10 rounded-[3rem] border-2 border-dashed border-gray-200 flex flex-col items-center text-center gap-6 group cursor-pointer hover:border-indigo-600 transition-all" onClick={() => fileInputRef.current?.click()}>
               <div className="w-20 h-20 bg-indigo-50 rounded-[2rem] flex items-center justify-center text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white transition-all"><Upload className="w-10 h-10" /></div>
-              <h3 className="font-black text-xl uppercase italic tracking-tighter">Importar Excel</h3>
+              <h3 className="font-black text-xl uppercase italic tracking-tighter">Importar Excel para Fila Geral</h3>
               <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept=".xlsx" className="hidden" />
             </div>
             <div className="bg-indigo-600 p-10 rounded-[3rem] text-white flex flex-col items-center text-center gap-6 group cursor-pointer hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-100" onClick={onDistributeLeads}>
               <div className="w-20 h-20 bg-white/10 rounded-[2rem] flex items-center justify-center group-hover:scale-110 transition-all"><ArrowRightLeft className="w-10 h-10" /></div>
-              <h3 className="font-black text-xl uppercase italic tracking-tighter">Distribuir Fila Geral</h3>
+              <h3 className="font-black text-xl uppercase italic tracking-tighter">Distribuir Leads Livres</h3>
             </div>
           </div>
 
           <div className="bg-white rounded-[3.5rem] border-2 border-gray-100 overflow-hidden shadow-sm">
             <div className="p-8 lg:p-10 border-b flex flex-col lg:flex-row justify-between items-center gap-6 bg-gray-50/50">
-              <h3 className="font-black text-2xl uppercase italic tracking-tighter">Audit de Leads</h3>
+              <h3 className="font-black text-2xl uppercase italic tracking-tighter">Fila Geral (Auditoria)</h3>
               <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto">
                 <select value={leadFilter} onChange={(e: any) => setLeadFilter(e.target.value)} className="flex-1 lg:flex-none p-4 bg-white border-2 border-gray-100 rounded-2xl font-black text-[10px] uppercase outline-none focus:border-indigo-600">
-                  <option value="all">Todos</option>
+                  <option value="all">Ver Tudo</option>
                   <option value="pending">Aguardando</option>
-                  <option value="assigned">Com Vendedor</option>
-                  <option value="unassigned">Fila Geral</option>
+                  <option value="assigned">Com Operador</option>
+                  <option value="unassigned">Na Fila Geral</option>
                 </select>
                 <div className="relative flex-1 lg:w-80">
                   <Search className="absolute left-6 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                  <input type="text" placeholder="Filtrar..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pl-14 pr-6 py-4 bg-white border-2 border-gray-100 rounded-2xl font-bold text-xs outline-none focus:border-indigo-600" />
+                  <input type="text" placeholder="Filtrar lead..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pl-14 pr-6 py-4 bg-white border-2 border-gray-100 rounded-2xl font-bold text-xs outline-none focus:border-indigo-600" />
                 </div>
               </div>
             </div>
             <div className="overflow-x-auto max-h-[600px] scrollbar-hide">
               <table className="w-full text-left min-w-[600px]">
                 <thead className="bg-white text-[10px] font-black uppercase text-gray-400 sticky top-0 z-10 border-b">
-                  <tr><th className="px-10 py-6">Lead</th><th className="px-10 py-6">Vendedor</th><th className="px-10 py-6 text-center">Status</th><th className="px-10 py-6 text-right">Data</th></tr>
+                  <tr><th className="px-10 py-6">Lead</th><th className="px-10 py-6">Destino</th><th className="px-10 py-6 text-center">Situação</th><th className="px-10 py-6 text-right">Data</th></tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50 bg-white">
                   {filteredLeads.map(l => (
@@ -271,20 +270,23 @@ export const AdminView: React.FC<AdminViewProps> = ({
                       <td className="px-10 py-6">
                         {l.assignedTo ? (
                           <span className="font-black uppercase text-[10px] text-gray-700 tracking-tighter">
-                             {users.find(u => u.id === l.assignedTo)?.nome || 'Operador'}
+                             {users.find(u => String(u.id) === String(l.assignedTo))?.nome || 'Operador'}
                           </span>
                         ) : (
-                          <span className="bg-gray-100 text-gray-400 px-3 py-1 rounded-full font-black text-[9px] uppercase italic">Pendente</span>
+                          <span className="bg-gray-100 text-gray-400 px-3 py-1 rounded-full font-black text-[9px] uppercase italic tracking-widest border border-gray-200">Fila Geral</span>
                         )}
                       </td>
                       <td className="px-10 py-6 text-center">
-                        <span className={`px-4 py-1.5 rounded-full font-black text-[9px] uppercase ${String(l.status).toUpperCase() === 'PENDING' ? 'bg-orange-50 text-orange-600 border border-orange-100' : 'bg-green-50 text-green-600 border border-green-100'}`}>
-                           {String(l.status).toUpperCase() === 'PENDING' ? 'Aguardando' : 'Finalizado'}
+                        <span className={`px-4 py-1.5 rounded-full font-black text-[9px] uppercase ${l.status === 'PENDING' ? 'bg-orange-50 text-orange-600 border border-orange-100' : 'bg-green-50 text-green-600 border border-green-100'}`}>
+                           {l.status === 'PENDING' ? 'Aguardando' : 'Finalizado'}
                         </span>
                       </td>
                       <td className="px-10 py-6 text-right font-mono text-[10px] text-gray-400">{new Date(l.createdAt || '').toLocaleDateString('pt-BR')}</td>
                     </tr>
                   ))}
+                  {filteredLeads.length === 0 && (
+                    <tr><td colSpan={4} className="py-20 text-center text-gray-300 font-black uppercase text-xs italic tracking-widest">Nenhum lead encontrado para este filtro.</td></tr>
+                  )}
                 </tbody>
               </table>
             </div>
@@ -326,7 +328,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
                       {u.tipo !== 'adm' && (
                         <button onClick={() => onPromoteUser(u.id)} className="p-4 bg-amber-50 text-amber-600 hover:bg-amber-600 hover:text-white rounded-2xl transition-all"><ShieldCheck className="w-5 h-5" /></button>
                       )}
-                      {u.id !== 'masteradmin' && (
+                      {u.id !== '00000000-0000-0000-0000-000000000000' && (
                         <button onClick={() => onDeleteUser(u.id)} className="p-4 bg-red-50 text-red-600 hover:bg-red-600 hover:text-white rounded-2xl transition-all"><Trash2 className="w-5 h-5" /></button>
                       )}
                     </td>

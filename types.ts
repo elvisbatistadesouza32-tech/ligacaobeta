@@ -29,9 +29,10 @@ export interface Lead {
   nome: string;
   telefone: string;
   concurso?: string;
-  assignedTo?: string; // User ID
-  status?: 'PENDING' | 'CALLED';
+  assignedTo?: string | null;
+  status?: 'PENDING' | 'CALLED' | 'WON' | 'LOST';
   createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface CallRecord {
