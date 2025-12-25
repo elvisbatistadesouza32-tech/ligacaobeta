@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Lead, CallStatus, CallRecord, User } from '../types';
 import { Phone, CheckCircle, Smartphone, ListChecks, Loader2, AlertTriangle } from 'lucide-react';
 
@@ -9,10 +9,11 @@ interface SellerViewProps {
   onLogCall: (call: CallRecord) => void;
 }
 
-// Função de Comparação Segura: ignora hifens e caixa alta
 const isSameId = (id1: any, id2: any) => {
   const clean = (val: any) => String(val || "").replace(/-/g, "").toLowerCase().trim();
-  return clean(id1) === clean(id2) && clean(id1) !== "";
+  const c1 = clean(id1);
+  const c2 = clean(id2);
+  return c1 === c2 && c1 !== "";
 };
 
 export const SellerView: React.FC<SellerViewProps> = ({ user, leads, onLogCall }) => {
@@ -23,7 +24,6 @@ export const SellerView: React.FC<SellerViewProps> = ({ user, leads, onLogCall }
   const [startTime, setStartTime] = useState<number | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Filtro de leads para o vendedor usando comparação segura
   const myLeads = useMemo(() => {
     if (!user || !user.id) return [];
     return leads.filter(l => {
@@ -50,7 +50,7 @@ export const SellerView: React.FC<SellerViewProps> = ({ user, leads, onLogCall }
     const newCall: CallRecord = {
       id: crypto.randomUUID(),
       leadId: activeCallLead.id,
-      sellerId: user.id, // Envia o ID original (RAW) para o banco
+      sellerId: user.id,
       status,
       durationSeconds: duration,
       timestamp: new Date().toISOString()
@@ -74,7 +74,7 @@ export const SellerView: React.FC<SellerViewProps> = ({ user, leads, onLogCall }
           </p>
         </div>
         <div className="flex gap-2 relative z-10">
-          <button onClick={() => setShowDiagnostics(!showDiagnostics)} title="Diagnóstico" className="p-4 bg-gray-50 text-gray-400 rounded-2xl hover:bg-amber-50 hover:text-amber-600 transition-all border-2 border-transparent hover:border-amber-200">
+          <button onClick={() => setShowDiagnostics(!showDiagnostics)} title="Diagnóstico" className={`p-4 rounded-2xl transition-all border-2 ${showDiagnostics ? 'bg-amber-100 text-amber-600 border-amber-200' : 'bg-gray-50 text-gray-400 border-transparent'}`}>
             <AlertTriangle className="w-6 h-6" />
           </button>
           <div className="bg-indigo-600 p-4 rounded-2xl text-white shadow-lg shadow-indigo-100">
@@ -85,22 +85,24 @@ export const SellerView: React.FC<SellerViewProps> = ({ user, leads, onLogCall }
 
       {showDiagnostics && (
         <div className="bg-amber-50 border-2 border-amber-200 p-8 rounded-[2.5rem] animate-in slide-in-from-top-4">
-           <h3 className="font-black uppercase italic text-amber-800 text-sm mb-4">Central de Depuração</h3>
+           <h3 className="font-black uppercase italic text-amber-800 text-sm mb-4">Depuração de Sincronia</h3>
            <div className="space-y-3 text-[11px] font-bold text-amber-700">
-              <p>SEU ID NO APP: <code className="bg-white px-2 py-0.5 rounded border border-amber-300">{user.id}</code></p>
-              <p>LEADS TOTAIS CARREGADOS: {leads.length}</p>
-              <p>LEADS FILTRADOS (Pelo matching): {myLeads.length}</p>
+              <p>SEU ID (LOCAL): <code className="bg-white px-2 py-0.5 rounded border border-amber-300">{user.id}</code></p>
+              <p>EMAIL LOGADO: {user.email}</p>
               <div className="mt-4 p-4 bg-white rounded-2xl border border-amber-200 overflow-x-auto">
-                <p className="mb-2 text-gray-500 uppercase">Amostra de Atribuição (Database vs Local):</p>
+                <p className="mb-2 text-gray-500 uppercase">Amostra de Atribuições (Pendentes no Banco):</p>
                 <table className="w-full">
-                  <thead><tr className="border-b"><td>Assigned_To (DB)</td><td>Match?</td></tr></thead>
+                  <thead><tr className="border-b text-gray-400"><td className="pb-2">ID Atribuído no Banco</td><td className="pb-2">Match?</td></tr></thead>
                   <tbody>
-                    {leads.slice(0, 5).map(l => (
+                    {leads.filter(l => l.assignedTo && l.status === 'PENDING').slice(0, 10).map(l => (
                       <tr key={l.id} className="border-b last:border-0">
-                        <td className="py-1 font-mono text-[9px]">{l.assignedTo || "NULL"}</td>
-                        <td>{isSameId(l.assignedTo, user.id) ? "✅ SIM" : "❌ NÃO"}</td>
+                        <td className="py-2 font-mono text-[9px]">{l.assignedTo}</td>
+                        <td className="py-2">{isSameId(l.assignedTo, user.id) ? "✅ SIM" : "❌ NÃO"}</td>
                       </tr>
                     ))}
+                    {leads.filter(l => l.assignedTo && l.status === 'PENDING').length === 0 && (
+                      <tr><td colSpan={2} className="py-4 text-center text-gray-400 uppercase">Nenhum lead atribuído encontrado no banco.</td></tr>
+                    )}
                   </tbody>
                 </table>
               </div>
@@ -111,13 +113,13 @@ export const SellerView: React.FC<SellerViewProps> = ({ user, leads, onLogCall }
       {showCarrierModal && (
         <div className="fixed inset-0 z-[110] bg-indigo-950/90 backdrop-blur-md flex items-center justify-center p-6">
           <div className="bg-white rounded-[3rem] w-full max-w-sm p-8 shadow-2xl animate-in zoom-in-95">
-            <h3 className="text-xl font-black text-center mb-6 uppercase italic">Operadora</h3>
+            <h3 className="text-xl font-black text-center mb-6 uppercase italic">Escolha a Operadora</h3>
             <div className="grid gap-3">
               {['021', '015', '041', '031'].map(code => (
                 <button key={code} onClick={() => handleCarrierSelection(code)} className="py-5 bg-indigo-50 text-indigo-600 rounded-2xl font-black text-sm uppercase hover:bg-indigo-600 hover:text-white transition-all active:scale-95">Prefixo {code}</button>
               ))}
             </div>
-            <button onClick={() => setShowCarrierModal(false)} className="w-full mt-6 text-gray-400 font-black uppercase text-[10px] tracking-widest">Voltar</button>
+            <button onClick={() => setShowCarrierModal(false)} className="w-full mt-6 text-gray-400 font-black uppercase text-[10px] tracking-widest">Cancelar</button>
           </div>
         </div>
       )}
@@ -137,7 +139,7 @@ export const SellerView: React.FC<SellerViewProps> = ({ user, leads, onLogCall }
                 <>
                   <button onClick={() => handleStatusSelect(CallStatus.ANSWERED)} className="py-6 bg-green-500 text-white rounded-2xl font-black uppercase shadow-lg shadow-green-100 active:scale-95 transition-all">Contato Efetivo</button>
                   <button onClick={() => handleStatusSelect(CallStatus.NO_ANSWER)} className="py-6 bg-red-500 text-white rounded-2xl font-black uppercase shadow-lg shadow-red-100 active:scale-95 transition-all">Não Atendeu</button>
-                  <button onClick={() => setActiveCallLead(null)} className="py-4 text-gray-400 font-black uppercase text-[10px] tracking-widest">Fechar Registro</button>
+                  <button onClick={() => setActiveCallLead(null)} className="py-4 text-gray-400 font-black uppercase text-[10px] tracking-widest">Fechar Sem Registrar</button>
                 </>
               )}
             </div>
@@ -164,8 +166,8 @@ export const SellerView: React.FC<SellerViewProps> = ({ user, leads, onLogCall }
             <div className="w-20 h-20 bg-green-50 rounded-full flex items-center justify-center mx-auto mb-6">
               <CheckCircle className="w-10 h-10 text-green-500 opacity-40" />
             </div>
-            <p className="text-gray-900 font-black uppercase italic text-xl tracking-tighter">Nenhum Lead!</p>
-            <p className="text-gray-400 font-bold text-xs uppercase tracking-widest mt-2 leading-relaxed">Sua fila de atendimento está vazia no momento.</p>
+            <p className="text-gray-900 font-black uppercase italic text-xl tracking-tighter">Fila Vazia!</p>
+            <p className="text-gray-400 font-bold text-xs uppercase tracking-widest mt-2 leading-relaxed">Você não possui leads pendentes no momento.</p>
           </div>
         )}
       </div>

@@ -7,23 +7,11 @@ const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYm
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 /**
- * 🛠️ SQL DE CORREÇÃO E REALTIME (Execute no SQL Editor do Supabase):
+ * 🛠️ SQL DE MANUTENÇÃO (Execute no SQL Editor do Supabase se o erro persistir):
  * 
- * -- 1. Converter IDs para UUID e Primary Keys
- * ALTER TABLE public.usuarios ALTER COLUMN id TYPE UUID USING id::UUID;
- * ALTER TABLE public.usuarios ADD PRIMARY KEY (id);
- * 
- * -- 2. Corrigir coluna de atribuição em leads
- * ALTER TABLE public.leads ALTER COLUMN assigned_to TYPE UUID USING assigned_to::UUID;
- * 
- * -- 3. Limpar strings vazias que quebram o filtro
+ * -- Garante que strings vazias sejam tratadas como NULL para não "esconder" leads
  * UPDATE public.leads SET assigned_to = NULL WHERE assigned_to::text = '';
  * 
- * -- 4. Habilitar Realtime para as tabelas principais
- * ALTER TABLE public.leads REPLICA IDENTITY FULL;
- * ALTER TABLE public.usuarios REPLICA IDENTITY FULL;
- * 
- * -- 5. Adicionar à publicação de Realtime
- * DROP PUBLICATION IF EXISTS supabase_realtime;
- * CREATE PUBLICATION supabase_realtime FOR TABLE public.leads, public.usuarios, public.calls;
+ * -- Garante que a coluna aceite UUIDs corretamente
+ * ALTER TABLE public.leads ALTER COLUMN assigned_to TYPE UUID USING (CASE WHEN assigned_to = '' THEN NULL ELSE assigned_to::UUID END);
  */

@@ -22,7 +22,6 @@ const App: React.FC = () => {
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // 1. Sincronização Robusta: Trata strings vazias como null no mapeamento local
   const fetchData = useCallback(async () => {
     setIsSyncing(true);
     try {
@@ -49,8 +48,8 @@ const App: React.FC = () => {
           nome: l.nome,
           telefone: l.telefone,
           concurso: l.concurso,
-          // NORMALIZAÇÃO: Garante que "" vire null para não quebrar filtros do vendedor
-          assignedTo: (l.assigned_to === "" || !l.assigned_to) ? null : l.assigned_to,
+          // Correção 1: Normalização agressiva de strings vazias para null
+          assignedTo: (l.assigned_to === "" || l.assigned_to === null || l.assigned_to === undefined) ? null : String(l.assigned_to),
           status: l.status || 'PENDING',
           createdAt: l.created_at
         })));
@@ -92,7 +91,11 @@ const App: React.FC = () => {
         return;
       }
 
-      const { data: { session } } = await supabase.auth.getSession();
+      // FIX: Handle cross-version Supabase session retrieval (v1 session() vs v2 getSession())
+      const auth = supabase.auth as any;
+      const sessionResult = auth.getSession ? await auth.getSession() : { data: { session: auth.session() } };
+      const session = sessionResult?.data?.session || (sessionResult as any);
+
       if (session?.user) {
         const userEmail = session.user.email?.toLowerCase().trim();
         const { data: profile } = await supabase.from('usuarios').select('*').eq('email', userEmail).maybeSingle();
@@ -105,10 +108,10 @@ const App: React.FC = () => {
             tipo: String(profile.tipo || 'vendedor').toLowerCase().includes('adm') ? 'adm' : 'vendedor',
             online: true
           });
-          // Força status online ao logar
           await supabase.from('usuarios').update({ online: true }).eq('id', profile.id);
         } else {
-          await supabase.auth.signOut();
+          // FIX: Call signOut using type bypass to resolve environment-specific property errors
+          await (supabase.auth as any).signOut();
           setCurrentUser(null);
         }
         await fetchData();
@@ -157,51 +160,48 @@ const App: React.FC = () => {
     if (error) throw error;
   };
 
-  // 2. Distribuição Inteligente: Agora não trava se ninguém estiver online
+  // Correção 2: Distribuição Robusta com tratamento de lote e strings vazias
   const handleDistributeLeads = async () => {
-    // Busca vendedores ONLINE primeiro
     let targetSellers = users.filter(u => u.tipo === 'vendedor' && u.online);
-    
-    // Se ninguém estiver online, usa TODOS os vendedores (Remoção da trava solicitada)
     if (targetSellers.length === 0) {
       targetSellers = users.filter(u => u.tipo === 'vendedor');
     }
 
     if (targetSellers.length === 0) {
-      return alert("Não há vendedores cadastrados para receber leads.");
+      return alert("Não há vendedores cadastrados no sistema para receber leads.");
     }
     
-    // Busca leads que estão REALMENTE sem dono (null ou string vazia)
+    // Busca leads que estão realmente sem dono (null ou string vazia)
     const { data: unassigned, error: fetchError } = await supabase
       .from('leads')
       .select('id')
       .or('assigned_to.is.null,assigned_to.eq.""')
       .eq('status', 'PENDING');
     
-    if (fetchError) {
-      console.error(fetchError);
-      return alert("Erro ao consultar fila geral.");
-    }
-
-    if (!unassigned || unassigned.length === 0) {
-      return alert("A Fila Geral já está vazia.");
+    if (fetchError || !unassigned || unassigned.length === 0) {
+      return alert("Não foram encontrados leads pendentes na Fila Geral.");
     }
     
     setIsSyncing(true);
     try {
-      // Distribuição Round-Robin
-      const updates = unassigned.map((lead, i) => {
-        const seller = targetSellers[i % targetSellers.length];
-        return supabase.from('leads')
-          .update({ assigned_to: seller.id })
-          .eq('id', lead.id);
-      });
+      // Processamento sequencial em pequenos lotes para evitar erros de conexão
+      const batchSize = 20;
+      for (let i = 0; i < unassigned.length; i += batchSize) {
+        const batch = unassigned.slice(i, i + batchSize);
+        await Promise.all(batch.map((lead, index) => {
+          const sellerIndex = (i + index) % targetSellers.length;
+          const seller = targetSellers[sellerIndex];
+          return supabase.from('leads')
+            .update({ assigned_to: seller.id })
+            .eq('id', lead.id);
+        }));
+      }
       
-      await Promise.all(updates);
-      alert(`${unassigned.length} leads foram distribuídos entre ${targetSellers.length} vendedores.`);
+      alert(`${unassigned.length} leads foram distribuídos com sucesso!`);
       await fetchData();
     } catch (err) {
-      alert("Erro crítico durante a distribuição.");
+      console.error(err);
+      alert("Ocorreu um erro durante a distribuição. Alguns leads podem não ter sido atribuídos.");
     } finally {
       setIsSyncing(false);
     }
@@ -218,7 +218,7 @@ const App: React.FC = () => {
   };
 
   const handleDeleteUser = async (userId: string) => {
-    if (!confirm("Tem certeza que deseja excluir permanentemente este usuário?")) return;
+    if (!confirm("Excluir usuário permanentemente?")) return;
     await supabase.from('usuarios').delete().eq('id', userId);
   };
 
@@ -230,7 +230,7 @@ const App: React.FC = () => {
       .eq('status', 'PENDING');
     
     if (!error) {
-      alert("Leads transferidos com sucesso!");
+      alert("Fila transferida!");
       await fetchData();
     }
   };
@@ -249,7 +249,12 @@ const App: React.FC = () => {
         setError('');
         setIsSubmitting(true);
         try {
-          const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
+          // FIX: Provide compatibility for v1 (signIn) and v2 (signInWithPassword) Supabase auth methods
+          const auth = supabase.auth as any;
+          const { error: signInError } = auth.signInWithPassword 
+            ? await auth.signInWithPassword({ email, password }) 
+            : await auth.signIn({ email, password });
+            
           if (signInError) throw signInError;
           await restoreSession(false);
         } catch (err: any) { setError(err.message); }
@@ -269,7 +274,12 @@ const App: React.FC = () => {
   );
 
   return (
-    <Layout user={currentUser} onLogout={async () => { await supabase.auth.signOut(); localStorage.removeItem('cm_master_session'); setCurrentUser(null); }}>
+    <Layout user={currentUser} onLogout={async () => { 
+      // FIX: Call signOut using type bypass to resolve environment-specific property errors
+      await (supabase.auth as any).signOut(); 
+      localStorage.removeItem('cm_master_session'); 
+      setCurrentUser(null); 
+    }}>
       <div className="fixed top-20 right-8 z-[60]">
         <button onClick={fetchData} disabled={isSyncing} className={`p-4 bg-white shadow-xl rounded-full text-indigo-600 hover:bg-indigo-50 transition-all border-2 border-indigo-100 ${isSyncing ? 'animate-spin' : ''}`}>
           <RefreshCw className="w-6 h-6" />
