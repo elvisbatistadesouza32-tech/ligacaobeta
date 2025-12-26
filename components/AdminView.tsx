@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo, useRef } from 'react';
 import { User, Lead, CallRecord, CallStatus } from '../types';
-import { Users, Database, Power, Search, Trash2, Loader2, FileSpreadsheet, Check, BarChart3, Clock, AlertCircle, Share2, X, ChevronRight } from 'lucide-react';
+import { Users, Database, Power, Search, Trash2, Loader2, FileSpreadsheet, Check, BarChart3, Clock, AlertCircle, Share2, X, ChevronRight, Inbox } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import * as XLSX from 'xlsx';
 
@@ -46,6 +46,24 @@ export const AdminView: React.FC<AdminViewProps> = ({ users, leads, calls, onImp
       ].filter(d => d.value > 0)
     };
   }, [calls, date, viewMode]);
+
+  // Ranking de Operadores ordenado por volume de ligações + Pendências
+  const rankedSellers = useMemo(() => {
+    return [...sellers]
+      .map(s => {
+        const callCount = calls.filter(c => 
+          c.sellerId === s.id && 
+          (viewMode === 'day' ? c.timestamp.startsWith(date) : c.timestamp.startsWith(date.slice(0, 7)))
+        ).length;
+        
+        const pendingCount = leads.filter(l => 
+          l.assignedTo === s.id && l.status === 'PENDING'
+        ).length;
+
+        return { ...s, callCount, pendingCount };
+      })
+      .sort((a, b) => b.callCount - a.callCount);
+  }, [sellers, calls, leads, date, viewMode]);
 
   const filteredLeads = useMemo(() => {
     return leads.filter(l => 
@@ -190,7 +208,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ users, leads, calls, onImp
         </div>
       )}
 
-      {/* Floating Action Bar (Bulk Selection) */}
+      {/* Floating Action Bar */}
       {selectedLeads.length > 0 && (
         <div className="fixed bottom-10 left-1/2 -translate-x-1/2 z-[90] animate-in slide-in-from-bottom-10 duration-500">
           <div className="bg-slate-900 text-white px-8 py-5 rounded-full shadow-2xl flex items-center gap-8 border border-white/10">
@@ -259,7 +277,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ users, leads, calls, onImp
               <p className="text-4xl font-black italic tracking-tighter">{stats.total}</p>
             </div>
             <div className="bg-amber-500 p-8 rounded-[2.5rem] text-white shadow-xl shadow-amber-100">
-              <p className="text-[10px] uppercase font-black opacity-60 mb-1">Fila Atual</p>
+              <p className="text-[10px] uppercase font-black opacity-60 mb-1">Fila Total</p>
               <p className="text-4xl font-black italic tracking-tighter">{leads.filter(l => l.status === 'PENDING').length}</p>
             </div>
             <div className="bg-white p-8 rounded-[2.5rem] border-2 border-gray-100 group hover:border-emerald-500 transition-colors">
@@ -279,7 +297,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ users, leads, calls, onImp
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="lg:col-span-2 bg-white p-10 rounded-[3rem] border-2 border-gray-100 h-[400px] flex flex-col">
               <div className="flex justify-between items-center mb-6">
-                <h4 className="font-black uppercase italic text-slate-800 tracking-tighter">Proporção de Qualidade</h4>
+                <h4 className="font-black uppercase italic text-slate-800 tracking-tighter">Qualidade de Chamadas</h4>
                 <div className="flex gap-4">
                   {stats.chart.map(c => (
                     <div key={c.name} className="flex items-center gap-1.5">
@@ -304,30 +322,43 @@ export const AdminView: React.FC<AdminViewProps> = ({ users, leads, calls, onImp
                 ) : (
                   <div className="h-full flex flex-col items-center justify-center text-gray-300 gap-3">
                     <AlertCircle className="w-12 h-12 opacity-20" />
-                    <p className="font-black uppercase italic text-xs">Sem dados para este período</p>
+                    <p className="font-black uppercase italic text-xs">Sem dados no período</p>
                   </div>
                 )}
               </div>
             </div>
             
             <div className="bg-white p-10 rounded-[3rem] border-2 border-gray-100">
-               <h4 className="font-black uppercase italic text-slate-800 tracking-tighter mb-8">Top Operadores</h4>
+               <h4 className="font-black uppercase italic text-slate-800 tracking-tighter mb-8">Status da Equipe</h4>
                <div className="space-y-4">
-                {sellers.slice(0, 5).map((s, idx) => {
-                  const sCalls = calls.filter(c => c.sellerId === s.id && (viewMode === 'day' ? c.timestamp.startsWith(date) : c.timestamp.startsWith(date.slice(0, 7)))).length;
+                {rankedSellers.slice(0, 5).map((s, idx) => {
                   return (
-                    <div key={s.id} className="flex items-center gap-4 group">
-                      <div className="w-10 h-10 rounded-2xl bg-gray-50 flex items-center justify-center font-black text-xs text-sky-600 group-hover:bg-sky-600 group-hover:text-white transition-all">#{idx+1}</div>
-                      <div className="flex-1">
-                        <p className="font-black uppercase text-xs text-slate-700">{s.nome}</p>
-                        <div className="w-full h-1.5 bg-gray-100 rounded-full mt-1.5 overflow-hidden">
-                          <div 
-                            className="h-full bg-sky-600 rounded-full transition-all duration-1000" 
-                            style={{ width: `${Math.min(100, (sCalls / (stats.total || 1)) * 100)}%` }}
-                          ></div>
+                    <div key={s.id} className="flex flex-col gap-2 p-4 bg-gray-50/50 rounded-3xl border border-gray-100 hover:border-sky-200 transition-all">
+                      <div className="flex items-center justify-between">
+                         <div className="flex items-center gap-3">
+                            <span className="w-6 h-6 rounded-full bg-sky-600 text-[10px] text-white flex items-center justify-center font-black">#{idx+1}</span>
+                            <p className="font-black uppercase text-xs text-slate-700">{s.nome}</p>
+                         </div>
+                         <div className={`w-2 h-2 rounded-full ${s.online ? 'bg-emerald-500 animate-pulse' : 'bg-gray-300'}`} />
+                      </div>
+                      
+                      <div className="grid grid-cols-2 gap-4 mt-2">
+                        <div className="flex flex-col">
+                           <span className="text-[9px] font-black text-gray-400 uppercase">Chamadas</span>
+                           <span className="text-lg font-black italic text-sky-600">{s.callCount}</span>
+                        </div>
+                        <div className="flex flex-col text-right">
+                           <span className="text-[9px] font-black text-gray-400 uppercase">Pendentes</span>
+                           <span className={`text-lg font-black italic ${s.pendingCount > 10 ? 'text-red-500' : 'text-amber-500'}`}>{s.pendingCount}</span>
                         </div>
                       </div>
-                      <span className="font-black italic text-sky-600">{sCalls}</span>
+
+                      <div className="w-full h-1 bg-gray-200 rounded-full mt-1 overflow-hidden">
+                        <div 
+                          className="h-full bg-sky-600 transition-all duration-1000" 
+                          style={{ width: `${Math.min(100, (s.callCount / (stats.total || 1)) * 100)}%` }}
+                        />
+                      </div>
                     </div>
                   )
                 })}
@@ -450,16 +481,6 @@ export const AdminView: React.FC<AdminViewProps> = ({ users, leads, calls, onImp
                       </td>
                     </tr>
                   ))}
-                  {filteredLeads.length === 0 && (
-                    <tr>
-                      <td colSpan={6} className="px-10 py-20 text-center">
-                        <div className="opacity-20 flex flex-col items-center gap-3">
-                          <Database className="w-12 h-12" />
-                          <p className="font-black uppercase italic">Nenhum lead disponível</p>
-                        </div>
-                      </td>
-                    </tr>
-                  )}
                 </tbody>
               </table>
             </div>
@@ -498,16 +519,11 @@ export const AdminView: React.FC<AdminViewProps> = ({ users, leads, calls, onImp
                       <button 
                         onClick={() => onToggleUserStatus(u.id)} 
                         className={`p-4 rounded-2xl border-2 transition-all ${u.online ? 'bg-emerald-50 border-emerald-100 text-emerald-600' : 'bg-gray-50 border-gray-100 text-gray-300'}`}
-                        title={u.online ? "Desconectar" : "Conectar"}
                       >
                         <Power className="w-4 h-4" />
                       </button>
                       {u.tipo !== 'adm' && (
-                        <button 
-                          onClick={() => onDeleteUser(u.id)} 
-                          className="p-4 rounded-2xl bg-red-50 border-2 border-red-50 text-red-500 hover:bg-red-500 hover:text-white transition-all"
-                          title="Excluir Usuário"
-                        >
+                        <button onClick={() => onDeleteUser(u.id)} className="p-4 rounded-2xl bg-red-50 border-2 border-red-50 text-red-500 hover:bg-red-500 hover:text-white transition-all">
                           <Trash2 className="w-4 h-4" />
                         </button>
                       )}

@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { Lead, CallStatus, CallRecord, User } from '../types';
-import { Phone, CheckCircle, Ban, Loader2, PhoneForwarded, X, HelpCircle, PhoneOff, History, ListChecks, Clock, RotateCcw } from 'lucide-react';
+import { Phone, CheckCircle, Ban, Loader2, PhoneForwarded, X, HelpCircle, PhoneOff, History, ListChecks, Clock, RotateCcw, Target, Zap } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
@@ -26,8 +26,15 @@ export const SellerView: React.FC<SellerViewProps> = ({ user, leads, calls, onLo
   const [loading, setLoading] = useState(false);
   const [start, setStart] = useState<number>(0);
 
-  const myLeads = useMemo(() => leads.filter(l => l.assignedTo === user.id && l.status === 'PENDING'), [leads, user.id]);
+  // Leads atribuídos ao vendedor
+  const myAssignedLeads = useMemo(() => leads.filter(l => l.assignedTo === user.id), [leads, user.id]);
+  const myLeads = useMemo(() => myAssignedLeads.filter(l => l.status === 'PENDING'), [myAssignedLeads]);
+  const myCalledCount = useMemo(() => myAssignedLeads.filter(l => l.status === 'CALLED').length, [myAssignedLeads]);
   
+  // Cálculo de progresso
+  const totalLeads = myAssignedLeads.length;
+  const progressPercent = totalLeads > 0 ? Math.round((myCalledCount / totalLeads) * 100) : 0;
+
   const myHistory = useMemo(() => {
     return calls
       .filter(c => c.sellerId === user.id)
@@ -35,7 +42,7 @@ export const SellerView: React.FC<SellerViewProps> = ({ user, leads, calls, onLo
         const lead = leads.find(l => l.id === call.leadId);
         return { ...call, lead };
       })
-      .filter(item => item.lead); // Garante que o lead ainda existe
+      .filter(item => item.lead);
   }, [calls, leads, user.id]);
 
   const callsToday = useMemo(() => {
@@ -81,15 +88,52 @@ export const SellerView: React.FC<SellerViewProps> = ({ user, leads, calls, onLo
 
   return (
     <div className="space-y-6 max-w-xl mx-auto animate-in fade-in slide-in-from-bottom-4 duration-500">
-      {/* Stats Cards */}
-      <div className="grid grid-cols-2 gap-4">
-        <div className="bg-white p-8 rounded-[2.5rem] border-2 border-gray-100 shadow-sm flex flex-col items-center sm:items-start">
-          <p className="text-[10px] uppercase font-black text-gray-400 tracking-widest mb-1">Fila Pendente</p>
-          <p className="text-4xl font-black italic text-slate-800 tracking-tighter">{myLeads.length}</p>
+      
+      {/* Visual Workload Status */}
+      <div className="bg-white p-8 rounded-[3rem] border-2 border-gray-100 shadow-sm overflow-hidden relative group">
+        <div className="absolute top-0 right-0 p-8 opacity-10 group-hover:scale-110 transition-transform duration-500">
+          <Target size={120} className="text-sky-600" />
         </div>
-        <div className="bg-sky-600 p-8 rounded-[2.5rem] text-white shadow-xl shadow-sky-100 flex flex-col items-center sm:items-start">
-          <p className="text-[10px] uppercase font-black opacity-60 tracking-widest mb-1">Chamadas Hoje</p>
-          <p className="text-4xl font-black italic tracking-tighter">{callsToday}</p>
+        
+        <div className="relative z-10">
+          <div className="flex justify-between items-end mb-6">
+            <div>
+              <p className="text-[10px] uppercase font-black text-gray-400 tracking-widest mb-1 flex items-center gap-2">
+                <Zap size={12} className="text-amber-500" /> Meta do Turno
+              </p>
+              <h2 className="text-4xl font-black italic text-slate-800 tracking-tighter">
+                {myLeads.length === 0 ? 'Fila Zerada!' : `Faltam ${myLeads.length}`}
+              </h2>
+            </div>
+            <div className="text-right">
+              <span className="text-2xl font-black italic text-sky-600">{progressPercent}%</span>
+              <p className="text-[10px] uppercase font-black text-gray-400">Completo</p>
+            </div>
+          </div>
+          
+          <div className="h-4 bg-gray-50 rounded-full overflow-hidden border border-gray-100">
+            <div 
+              className="h-full bg-gradient-to-r from-sky-400 to-sky-600 rounded-full transition-all duration-1000 ease-out shadow-[0_0_15px_rgba(2,132,199,0.3)]"
+              style={{ width: `${progressPercent}%` }}
+            />
+          </div>
+          
+          <div className="flex justify-between mt-3 text-[9px] font-black uppercase tracking-widest text-gray-400">
+            <span>{myCalledCount} Realizadas</span>
+            <span>{totalLeads} Total atribuído</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4">
+        <div className="bg-sky-600 p-8 rounded-[2.5rem] text-white shadow-xl shadow-sky-100 flex items-center justify-between">
+          <div>
+            <p className="text-[10px] uppercase font-black opacity-60 tracking-widest mb-1">Chamadas Hoje</p>
+            <p className="text-4xl font-black italic tracking-tighter">{callsToday}</p>
+          </div>
+          <div className="bg-white/10 p-4 rounded-3xl backdrop-blur-sm">
+            <Phone className="w-8 h-8" />
+          </div>
         </div>
       </div>
 
@@ -111,7 +155,7 @@ export const SellerView: React.FC<SellerViewProps> = ({ user, leads, calls, onLo
         </button>
       </div>
 
-      {/* Modals remains the same */}
+      {/* Modals */}
       {carrier && (
         <div className="fixed inset-0 z-[100] bg-slate-950/80 backdrop-blur-xl flex items-center justify-center p-6 animate-in fade-in duration-300">
           <div className="bg-white rounded-[3.5rem] w-full max-w-xs p-10 shadow-2xl animate-in zoom-in-95 duration-300">
@@ -218,8 +262,8 @@ export const SellerView: React.FC<SellerViewProps> = ({ user, leads, calls, onLo
                 <div className="bg-emerald-50 w-20 h-20 rounded-full flex items-center justify-center text-emerald-500 mx-auto mb-6">
                   <CheckCircle className="w-10 h-10" />
                 </div>
-                <p className="font-black uppercase italic text-slate-400 text-xl tracking-tighter">Missão Cumprida!</p>
-                <p className="text-[10px] font-bold text-gray-400 uppercase mt-2">Você não tem leads pendentes na fila.</p>
+                <p className="font-black uppercase italic text-slate-400 text-xl tracking-tighter">Fila Zerada!</p>
+                <p className="text-[10px] font-bold text-gray-400 uppercase mt-2">Você concluiu todos os seus leads pendentes.</p>
               </div>
             )}
           </>
@@ -273,7 +317,7 @@ export const SellerView: React.FC<SellerViewProps> = ({ user, leads, calls, onLo
           <HelpCircle className="w-5 h-5" />
         </div>
         <p className="text-[10px] font-bold text-sky-700 leading-relaxed uppercase">
-          Dica: No histórico, você pode clicar em "Re-ligar" para tentar novamente contatos que não atenderam.
+          A barra de progresso no topo indica o quanto falta para você completar seus leads atribuídos hoje.
         </p>
       </div>
     </div>
