@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo, useRef } from 'react';
 import { User, Lead, CallRecord, CallStatus } from '../types';
-import { Users, Database, Power, Search, Trash2, Loader2, FileSpreadsheet, Check, BarChart3, Clock, AlertCircle, Share2, X, ChevronRight, Inbox, Award, Layers, LayoutGrid, CalendarDays } from 'lucide-react';
+import { Users, Database, Power, Search, Trash2, Loader2, FileSpreadsheet, Check, BarChart3, Clock, AlertCircle, Share2, X, ChevronRight, Inbox, Award, Layers, LayoutGrid, CalendarDays, RotateCcw, Filter } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import * as XLSX from 'xlsx';
 
@@ -18,9 +18,10 @@ interface AdminViewProps {
 
 export const AdminView: React.FC<AdminViewProps> = ({ users, leads, calls, onImportLeads, onToggleUserStatus, onDeleteUser, onTransferLeads, onDeleteLeads }) => {
   const [tab, setTab] = useState<'dash' | 'leads' | 'users'>('dash');
-  const [viewMode, setViewMode] = useState<'month' | 'day'>('day'); // Mudado para 'day' por padrão para ser mais intuitivo
+  const [viewMode, setViewMode] = useState<'month' | 'day'>('day'); 
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [search, setSearch] = useState('');
+  const [operatorFilter, setOperatorFilter] = useState<string>(''); // '' = todos, 'none' = fila geral
   const [pendingLeads, setPendingLeads] = useState<Lead[] | null>(null);
   const [target, setTarget] = useState<'none' | 'online' | string>('none');
   const [loading, setLoading] = useState(false);
@@ -31,13 +32,12 @@ export const AdminView: React.FC<AdminViewProps> = ({ users, leads, calls, onImp
 
   const sellers = useMemo(() => users.filter(u => u.tipo === 'vendedor'), [users]);
   
-  // Filtro centralizado para garantir consistência em todo o Dashboard
   const filteredCalls = useMemo(() => {
     return calls.filter(c => {
       if (viewMode === 'day') {
         return c.timestamp.startsWith(date);
       } else {
-        return c.timestamp.startsWith(date.slice(0, 7)); // Compara apenas YYYY-MM
+        return c.timestamp.startsWith(date.slice(0, 7));
       }
     });
   }, [calls, date, viewMode]);
@@ -77,12 +77,18 @@ export const AdminView: React.FC<AdminViewProps> = ({ users, leads, calls, onImp
   }, [sellers, filteredCalls, leads]);
 
   const filteredLeads = useMemo(() => {
-    return leads.filter(l => 
-      l.nome.toLowerCase().includes(search.toLowerCase()) || 
-      l.telefone.includes(search) ||
-      l.base.toLowerCase().includes(search.toLowerCase())
-    );
-  }, [leads, search]);
+    return leads.filter(l => {
+      const matchesSearch = l.nome.toLowerCase().includes(search.toLowerCase()) || 
+        l.telefone.includes(search) ||
+        l.base.toLowerCase().includes(search.toLowerCase());
+      
+      const matchesOperator = operatorFilter === '' 
+        ? true 
+        : (operatorFilter === 'none' ? l.assignedTo === null : l.assignedTo === operatorFilter);
+
+      return matchesSearch && matchesOperator;
+    });
+  }, [leads, search, operatorFilter]);
 
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
@@ -123,10 +129,20 @@ export const AdminView: React.FC<AdminViewProps> = ({ users, leads, calls, onImp
     setSelectedLeads(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
   };
 
+  const handleClearUserLeads = async (userId: string, userName: string) => {
+    const userPendingLeads = leads.filter(l => l.assignedTo === userId && l.status === 'PENDING').map(l => l.id);
+    if (userPendingLeads.length === 0) return;
+    
+    if (confirm(`Deseja zerar a fila de ${userName}? Os ${userPendingLeads.length} leads pendentes voltarão para a Fila Geral.`)) {
+      setLoading(true);
+      await onTransferLeads(userPendingLeads, null);
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-top-4 duration-700 relative">
       
-      {/* Modals e overlays omitidos aqui mas preservados logicamente conforme App.tsx */}
       {pendingLeads && (
         <div className="fixed inset-0 z-[100] bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-6">
           <div className="bg-white rounded-[3rem] w-full max-w-lg p-10 shadow-2xl animate-in zoom-in-95 duration-300">
@@ -166,75 +182,25 @@ export const AdminView: React.FC<AdminViewProps> = ({ users, leads, calls, onImp
 
       {tab === 'dash' && (
         <div className="space-y-8 max-w-6xl mx-auto pb-20">
-          
-          {/* CONTROL BAR - Filtro de Data Global do Dashboard */}
           <div className="bg-white p-6 rounded-[2.5rem] border-2 border-gray-100 shadow-sm flex flex-col md:flex-row justify-between items-center gap-6">
             <div className="flex bg-gray-50 p-1.5 rounded-2xl border border-gray-200">
-              <button 
-                onClick={() => setViewMode('day')} 
-                className={`px-6 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all flex items-center gap-2 ${viewMode === 'day' ? 'bg-white text-sky-600 shadow-md border-gray-100' : 'text-gray-400 hover:text-gray-600'}`}
-              >
-                <CalendarDays className="w-3 h-3" />
-                Diário
-              </button>
-              <button 
-                onClick={() => setViewMode('month')} 
-                className={`px-6 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all flex items-center gap-2 ${viewMode === 'month' ? 'bg-white text-sky-600 shadow-md border-gray-100' : 'text-gray-400 hover:text-gray-600'}`}
-              >
-                <Layers className="w-3 h-3" />
-                Mensal
-              </button>
+              <button onClick={() => setViewMode('day')} className={`px-6 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all flex items-center gap-2 ${viewMode === 'day' ? 'bg-white text-sky-600 shadow-md border-gray-100' : 'text-gray-400 hover:text-gray-600'}`}><CalendarDays className="w-3 h-3" />Diário</button>
+              <button onClick={() => setViewMode('month')} className={`px-6 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all flex items-center gap-2 ${viewMode === 'month' ? 'bg-white text-sky-600 shadow-md border-gray-100' : 'text-gray-400 hover:text-gray-600'}`}><Layers className="w-3 h-3" />Mensal</button>
             </div>
-
             <div className="flex flex-col items-center md:items-end">
               <div className="flex items-center gap-3 bg-sky-50 px-6 py-3 rounded-2xl border-2 border-sky-100 text-sky-700 shadow-inner group">
                 <Clock className="w-4 h-4 text-sky-500 group-hover:rotate-12 transition-transform" />
-                <div className="flex flex-col">
-                  <span className="text-[8px] font-black uppercase opacity-50 mb-[-2px]">Data de Referência</span>
-                  <input 
-                    type="date" 
-                    value={date} 
-                    onChange={e => setDate(e.target.value)} 
-                    className="bg-transparent font-black text-sm outline-none uppercase cursor-pointer" 
-                  />
-                </div>
+                <div className="flex flex-col"><span className="text-[8px] font-black uppercase opacity-50 mb-[-2px]">Data de Referência</span><input type="date" value={date} onChange={e => setDate(e.target.value)} className="bg-transparent font-black text-sm outline-none uppercase cursor-pointer" /></div>
               </div>
-              <p className="text-[9px] font-bold text-gray-400 mt-2 uppercase tracking-widest">
-                Analisando: <span className="text-sky-600">{viewMode === 'day' ? 'O dia selecionado' : 'O mês completo de ' + date.slice(0, 7)}</span>
-              </p>
             </div>
           </div>
 
           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
-            <div className="bg-sky-600 p-8 rounded-[2.5rem] text-white shadow-xl">
-              <p className="text-[10px] uppercase font-black opacity-60 mb-1">Chamadas no Período</p>
-              <p className="text-4xl font-black italic tracking-tighter">{stats.total}</p>
-            </div>
-            <div className="bg-amber-500 p-8 rounded-[2.5rem] text-white shadow-xl">
-              <p className="text-[10px] uppercase font-black opacity-60 mb-1">Fila Total Atual</p>
-              <p className="text-4xl font-black italic tracking-tighter">{leads.filter(l => l.status === 'PENDING').length}</p>
-            </div>
-            <div className="bg-white p-8 rounded-[2.5rem] border-2 border-gray-100">
-              <p className="text-[10px] uppercase font-black text-gray-400 mb-1">Atendidas</p>
-              <div className="flex items-baseline gap-2">
-                <p className="text-4xl font-black italic tracking-tighter text-emerald-600">{stats.ans}</p>
-                <span className="text-xs font-black text-emerald-500/60">({stats.ansPct}%)</span>
-              </div>
-            </div>
-            <div className="bg-white p-8 rounded-[2.5rem] border-2 border-gray-100">
-              <p className="text-[10px] uppercase font-black text-gray-400 mb-1">Falhas</p>
-              <div className="flex items-baseline gap-2">
-                <p className="text-4xl font-black italic tracking-tighter text-red-600">{stats.noAns}</p>
-                <span className="text-xs font-black text-red-500/60">({stats.noAnsPct}%)</span>
-              </div>
-            </div>
-            <div className="bg-white p-8 rounded-[2.5rem] border-2 border-gray-100">
-              <p className="text-[10px] uppercase font-black text-gray-400 mb-1">Inválidos</p>
-              <div className="flex items-baseline gap-2">
-                <p className="text-4xl font-black italic tracking-tighter text-sky-500">{stats.inv}</p>
-                <span className="text-xs font-black text-sky-500/60">({stats.invPct}%)</span>
-              </div>
-            </div>
+            <div className="bg-sky-600 p-8 rounded-[2.5rem] text-white shadow-xl"><p className="text-[10px] uppercase font-black opacity-60 mb-1">Chamadas no Período</p><p className="text-4xl font-black italic tracking-tighter">{stats.total}</p></div>
+            <div className="bg-amber-500 p-8 rounded-[2.5rem] text-white shadow-xl"><p className="text-[10px] uppercase font-black opacity-60 mb-1">Fila Total Atual</p><p className="text-4xl font-black italic tracking-tighter">{leads.filter(l => l.status === 'PENDING').length}</p></div>
+            <div className="bg-white p-8 rounded-[2.5rem] border-2 border-gray-100"><p className="text-[10px] uppercase font-black text-gray-400 mb-1">Atendidas</p><div className="flex items-baseline gap-2"><p className="text-4xl font-black italic tracking-tighter text-emerald-600">{stats.ans}</p><span className="text-xs font-black text-emerald-500/60">({stats.ansPct}%)</span></div></div>
+            <div className="bg-white p-8 rounded-[2.5rem] border-2 border-gray-100"><p className="text-[10px] uppercase font-black text-gray-400 mb-1">Falhas</p><div className="flex items-baseline gap-2"><p className="text-4xl font-black italic tracking-tighter text-red-600">{stats.noAns}</p><span className="text-xs font-black text-red-500/60">({stats.noAnsPct}%)</span></div></div>
+            <div className="bg-white p-8 rounded-[2.5rem] border-2 border-gray-100"><p className="text-[10px] uppercase font-black text-gray-400 mb-1">Inválidos</p><div className="flex items-baseline gap-2"><p className="text-4xl font-black italic tracking-tighter text-sky-500">{stats.inv}</p><span className="text-xs font-black text-sky-500/60">({stats.invPct}%)</span></div></div>
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -244,62 +210,30 @@ export const AdminView: React.FC<AdminViewProps> = ({ users, leads, calls, onImp
                 {stats.total > 0 ? (
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
-                      <Pie data={stats.chart} innerRadius={90} outerRadius={130} paddingAngle={8} dataKey="value" stroke="none">
-                        {stats.chart.map((e, i) => <Cell key={i} fill={e.color} />)}
-                      </Pie>
+                      <Pie data={stats.chart} innerRadius={90} outerRadius={130} paddingAngle={8} dataKey="value" stroke="none">{stats.chart.map((e, i) => <Cell key={i} fill={e.color} />)}</Pie>
                       <Tooltip contentStyle={{ borderRadius: '20px', border: 'none', boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.1)', fontWeight: 'bold', fontSize: '10px' }} />
                     </PieChart>
                   </ResponsiveContainer>
                 ) : (
-                  <div className="h-full flex flex-col items-center justify-center text-gray-300 gap-3">
-                    <AlertCircle className="w-12 h-12 opacity-20" /><p className="font-black uppercase italic text-xs">Nenhum registro encontrado para este {viewMode === 'day' ? 'dia' : 'mês'}</p>
-                  </div>
+                  <div className="h-full flex flex-col items-center justify-center text-gray-300 gap-3"><AlertCircle className="w-12 h-12 opacity-20" /><p className="font-black uppercase italic text-xs">Nenhum registro encontrado</p></div>
                 )}
               </div>
             </div>
-            
             <div className="bg-white p-10 rounded-[3rem] border-2 border-gray-100 shadow-sm">
-               <div className="flex items-center gap-3 mb-8">
-                  <Award className="text-amber-500 w-6 h-6" />
-                  <h4 className="font-black uppercase italic text-slate-800 tracking-tighter">Top 3 do Período</h4>
-               </div>
+               <div className="flex items-center gap-3 mb-8"><Award className="text-amber-500 w-6 h-6" /><h4 className="font-black uppercase italic text-slate-800 tracking-tighter">Top 3 do Período</h4></div>
                <div className="space-y-4">
                 {rankedSellers.slice(0, 3).map((s, idx) => (
                   <div key={s.id} className={`flex flex-col gap-2 p-5 rounded-[2rem] border-2 transition-all ${idx === 0 ? 'bg-sky-50 border-sky-100' : 'bg-gray-50 border-gray-100'}`}>
-                    <div className="flex items-center justify-between">
-                       <div className="flex items-center gap-4">
-                          <span className={`w-8 h-8 rounded-full flex items-center justify-center font-black text-xs ${idx === 0 ? 'bg-amber-400 text-white' : idx === 1 ? 'bg-slate-300 text-slate-600' : 'bg-orange-400 text-white'}`}>#{idx+1}</span>
-                          <p className="font-black uppercase text-xs text-slate-700 leading-tight">{s.nome}</p>
-                       </div>
-                    </div>
-                    <div className="flex items-end justify-between mt-2">
-                       <div><span className="text-[9px] font-black text-gray-400 uppercase tracking-widest">Ligações</span><p className="text-2xl font-black italic text-sky-600 leading-none">{s.callCount}</p></div>
-                       <div className="text-right"><span className="text-[9px] font-black text-gray-400 uppercase tracking-widest">Carga Atual</span><p className={`text-xl font-black italic leading-none ${s.pendingCount > 15 ? 'text-red-500' : 'text-amber-500'}`}>{s.pendingCount}</p></div>
-                    </div>
+                    <div className="flex items-center justify-between"><div className="flex items-center gap-4"><span className={`w-8 h-8 rounded-full flex items-center justify-center font-black text-xs ${idx === 0 ? 'bg-amber-400 text-white' : idx === 1 ? 'bg-slate-300 text-slate-600' : 'bg-orange-400 text-white'}`}>#{idx+1}</span><p className="font-black uppercase text-xs text-slate-700 leading-tight">{s.nome}</p></div></div>
+                    <div className="flex items-end justify-between mt-2"><div><span className="text-[9px] font-black text-gray-400 uppercase tracking-widest">Ligações</span><p className="text-2xl font-black italic text-sky-600 leading-none">{s.callCount}</p></div><div className="text-right"><span className="text-[9px] font-black text-gray-400 uppercase tracking-widest">Carga Atual</span><p className={`text-xl font-black italic leading-none ${s.pendingCount > 15 ? 'text-red-500' : 'text-amber-500'}`}>{s.pendingCount}</p></div></div>
                   </div>
                 ))}
                </div>
             </div>
-          </div>
-
-          <div className="bg-white p-10 rounded-[3.5rem] border-2 border-gray-100 shadow-sm">
-             <div className="flex items-center gap-3 mb-10"><Layers className="text-sky-600 w-6 h-6" /><h4 className="font-black uppercase italic text-slate-800 tracking-tighter">Monitor de Pendências (Toda Equipe)</h4></div>
-             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                {rankedSellers.map(s => (
-                  <div key={s.id} className="p-6 bg-gray-50/50 rounded-3xl border border-gray-200 hover:border-sky-300 transition-all flex justify-between items-center group">
-                    <div className="flex items-center gap-4">
-                      <div className={`w-3 h-3 rounded-full ${s.online ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.3)]' : 'bg-gray-300'}`} />
-                      <div><p className="font-black uppercase text-[11px] text-slate-800">{s.nome}</p><p className="text-[9px] font-bold text-gray-400 uppercase mt-0.5">{s.online ? 'Ativo' : 'Offline'}</p></div>
-                    </div>
-                    <div className="text-right"><p className={`text-xl font-black italic ${s.pendingCount === 0 ? 'text-emerald-500' : s.pendingCount > 20 ? 'text-red-500' : 'text-slate-700'}`}>{s.pendingCount}</p><p className="text-[8px] font-black text-gray-400 uppercase tracking-tighter">Leads</p></div>
-                  </div>
-                ))}
-             </div>
           </div>
         </div>
       )}
 
-      {/* Tabs implementation focused on leads/users management */}
       {tab === 'leads' && (
         <div className="space-y-6 max-w-6xl mx-auto">
           <div className="bg-white p-8 rounded-[3rem] border-4 border-dashed border-sky-100 flex items-center gap-8">
@@ -309,10 +243,24 @@ export const AdminView: React.FC<AdminViewProps> = ({ users, leads, calls, onImp
             <input type="file" ref={fileInput} onChange={handleFile} accept=".xlsx, .xls" className="hidden" />
           </div>
           <div className="bg-white rounded-[3rem] border-2 border-gray-100 overflow-hidden shadow-sm">
-            <div className="p-8 border-b border-gray-100">
-              <div className="relative">
+            <div className="p-8 border-b border-gray-100 flex flex-col lg:flex-row gap-4">
+              <div className="relative flex-1">
                 <Search className="absolute left-6 top-1/2 -translate-y-1/2 text-gray-300 w-5 h-5" />
-                <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Pesquisar..." className="w-full pl-16 pr-6 py-4 bg-gray-50 rounded-2xl border-2 border-transparent focus:border-sky-600 font-bold outline-none transition-all" />
+                <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Pesquisar por nome, base ou telefone..." className="w-full pl-16 pr-6 py-4 bg-gray-50 rounded-2xl border-2 border-transparent focus:border-sky-600 font-bold outline-none transition-all" />
+              </div>
+              <div className="flex items-center gap-3 bg-gray-50 px-6 py-2 rounded-2xl border-2 border-transparent hover:border-sky-100 focus-within:border-sky-600 transition-all">
+                <Filter className="w-4 h-4 text-sky-500" />
+                <select 
+                  value={operatorFilter} 
+                  onChange={e => setOperatorFilter(e.target.value)}
+                  className="bg-transparent font-black text-[10px] uppercase text-slate-700 outline-none h-10 w-full sm:w-48 cursor-pointer"
+                >
+                  <option value="">Todos os Operadores</option>
+                  <option value="none">Fila Geral (Sem Operador)</option>
+                  {sellers.map(s => (
+                    <option key={s.id} value={s.id}>{s.nome}</option>
+                  ))}
+                </select>
               </div>
             </div>
             <div className="overflow-x-auto">
@@ -324,6 +272,11 @@ export const AdminView: React.FC<AdminViewProps> = ({ users, leads, calls, onImp
                   {filteredLeads.map(l => (
                     <tr key={l.id} className={`transition-all ${selectedLeads.includes(l.id) ? 'bg-sky-50' : ''}`}><td className="px-6 py-6 text-center"><input type="checkbox" checked={selectedLeads.includes(l.id)} onChange={() => toggleLeadSelection(l.id)} className="w-5 h-5" /></td><td className="px-10 py-6"><p className="font-black uppercase text-sm">{l.nome}</p><p className="text-[10px] text-sky-600 font-bold">{l.telefone}</p></td><td className="px-10 py-6 text-xs font-bold uppercase">{users.find(u => u.id === l.assignedTo)?.nome || 'Fila Geral'}</td><td className="px-10 py-6 text-center"><span className="px-3 py-1 bg-amber-50 text-amber-600 rounded-full text-[8px] font-black uppercase border border-amber-100">{l.status}</span></td><td className="px-10 py-6 text-right"><button onClick={() => onDeleteLeads([l.id])} className="text-red-500 hover:scale-110 transition-transform"><Trash2 size={16} /></button></td></tr>
                   ))}
+                  {filteredLeads.length === 0 && (
+                    <tr>
+                      <td colSpan={5} className="py-20 text-center text-gray-300 font-black uppercase text-xs italic">Nenhum lead encontrado com estes filtros</td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
@@ -344,14 +297,28 @@ export const AdminView: React.FC<AdminViewProps> = ({ users, leads, calls, onImp
                   const pendingCount = leads.filter(l => l.assignedTo === u.id && l.status === 'PENDING').length;
                   return (
                     <tr key={u.id} className="hover:bg-gray-50 transition-colors group">
-                      <td className="px-10 py-6"><div className="flex items-center gap-4"><div className={`w-3 h-3 rounded-full ${u.online ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.3)] animate-pulse' : 'bg-gray-300'}`} /><div><p className="font-black uppercase text-sm text-slate-800 group-hover:text-sky-600 transition-colors">{u.nome}</p><p className="text-[10px] text-gray-400 font-bold">{u.email}</p></div></div></td><td className="px-10 py-6 uppercase font-black text-[10px] text-sky-600 tracking-widest">{u.tipo}</td><td className="px-10 py-6 text-center"><div className="flex flex-col items-center"><span className={`px-4 py-1.5 rounded-2xl font-black italic text-sm ${pendingCount === 0 ? 'bg-emerald-50 text-emerald-600' : pendingCount > 15 ? 'bg-red-50 text-red-600' : 'bg-sky-50 text-sky-600'}`}>{pendingCount}</span></div></td><td className="px-10 py-6 text-right flex justify-end gap-3"><button onClick={() => onToggleUserStatus(u.id)} className={`p-3 rounded-xl border-2 transition-all ${u.online ? 'bg-emerald-50 border-emerald-100 text-emerald-600' : 'bg-gray-100 border-gray-100 text-gray-400'}`}><Power size={16} /></button>{u.tipo !== 'adm' && (<button onClick={() => onDeleteUser(u.id)} className="p-3 bg-red-50 text-red-500 rounded-xl border-2 border-red-50 hover:bg-red-500 hover:text-white transition-all"><Trash2 size={16} /></button>)}</td>
+                      <td className="px-10 py-6"><div className="flex items-center gap-4"><div className={`w-3 h-3 rounded-full ${u.online ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.3)] animate-pulse' : 'bg-gray-300'}`} /><div><p className="font-black uppercase text-sm text-slate-800 group-hover:text-sky-600 transition-colors">{u.nome}</p><p className="text-[10px] text-gray-400 font-bold">{u.email}</p></div></div></td><td className="px-10 py-6 uppercase font-black text-[10px] text-sky-600 tracking-widest">{u.tipo}</td>
+                      <td className="px-10 py-6 text-center">
+                        <div className="flex items-center justify-center gap-3">
+                          <span className={`px-4 py-1.5 rounded-2xl font-black italic text-sm ${pendingCount === 0 ? 'bg-emerald-50 text-emerald-600' : pendingCount > 15 ? 'bg-red-50 text-red-600' : 'bg-sky-50 text-sky-600'}`}>{pendingCount}</span>
+                          {pendingCount > 0 && (
+                            <button 
+                              onClick={() => handleClearUserLeads(u.id, u.nome)}
+                              className="p-2 text-gray-400 hover:text-amber-500 hover:bg-amber-50 rounded-xl transition-all"
+                              title="Zerar Pendentes (Mover para Fila Geral)"
+                            >
+                              <RotateCcw className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-10 py-6 text-right flex justify-end gap-3"><button onClick={() => onToggleUserStatus(u.id)} className={`p-3 rounded-xl border-2 transition-all ${u.online ? 'bg-emerald-50 border-emerald-100 text-emerald-600' : 'bg-gray-100 border-gray-100 text-gray-400'}`}><Power size={16} /></button>{u.tipo !== 'adm' && (<button onClick={() => onDeleteUser(u.id)} className="p-3 bg-red-50 text-red-500 rounded-xl border-2 border-red-50 hover:bg-red-500 hover:text-white transition-all"><Trash2 size={16} /></button>)}</td>
                     </tr>
                   );
                 })}
               </tbody>
             </table>
           </div>
-          <div className="mt-8 bg-sky-50/50 p-6 rounded-[2.5rem] border border-sky-100 flex items-center gap-4"><LayoutGrid className="text-sky-600" /><p className="text-[10px] font-bold text-sky-700 uppercase leading-relaxed">DICA: Vendedores com carga excessiva são marcados em vermelho. Redistribua leads para manter a agilidade.</p></div>
         </div>
       )}
     </div>
