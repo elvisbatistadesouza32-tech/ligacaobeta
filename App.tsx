@@ -34,14 +34,15 @@ const App: React.FC = () => {
   const syncData = useCallback(async () => {
     setIsSyncing(true);
     try {
+      // Adicionado .limit(10000) para evitar o teto de 1000 registros do PostgREST
       const [
         { data: dbUsers },
         { data: dbLeads },
         { data: dbCalls }
       ] = await Promise.all([
         supabase.from('users').select('*'),
-        supabase.from('leads').select('*').order('createdAt', { ascending: false }),
-        supabase.from('calls').select('*').order('timestamp', { ascending: false })
+        supabase.from('leads').select('*').order('createdAt', { ascending: false }).limit(10000),
+        supabase.from('calls').select('*').order('timestamp', { ascending: false }).limit(10000)
       ]);
 
       if (dbUsers) {
@@ -156,23 +157,20 @@ const App: React.FC = () => {
   };
 
   const handleLogCall = async (call: CallRecord) => {
-    // Atualização imediata do estado local para feedback instantâneo (Optimistic Update)
+    // Atualização imediata do estado local (Optimistic Update)
     setLeads(prev => prev.map(l => l.id === call.leadId ? { ...l, status: 'CALLED' as const } : l));
     setCalls(prev => [call, ...prev]);
 
     try {
-      // Sincronização com o banco
       await Promise.all([
         supabase.from('calls').insert([call]),
         supabase.from('leads').update({ status: 'CALLED' }).eq('id', call.leadId)
       ]);
       
-      // Persistência no cache após confirmação
       localStorage.setItem(STORAGE_KEYS.CALLS, JSON.stringify([call, ...calls]));
       localStorage.setItem(STORAGE_KEYS.LEADS, JSON.stringify(leads.map(l => l.id === call.leadId ? { ...l, status: 'CALLED' as const } : l)));
     } catch (err) {
       console.error('Erro ao registrar chamada no Supabase:', err);
-      // Em caso de erro crítico, poderíamos reverter o estado, mas mantemos para evitar oscilação na UI
     }
   };
 
