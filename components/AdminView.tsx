@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo, useRef } from 'react';
 import { User, Lead, CallRecord, Sale } from '../types';
-import { Users, Database, Power, Search, Trash2, Loader2, FileSpreadsheet, BarChart3, Clock, Activity, DollarSign, TrendingUp, Ban, Edit3, Save, X, RotateCcw, Filter } from 'lucide-react';
+import { Users, Database, Power, Search, Trash2, Loader2, FileSpreadsheet, BarChart3, Clock, Activity, DollarSign, TrendingUp, Ban, Edit3, Save, X, RotateCcw, Filter, UserPlus } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip, CartesianGrid } from 'recharts';
 import * as XLSX from 'xlsx';
 
@@ -34,7 +34,8 @@ export const AdminView: React.FC<AdminViewProps> = ({
   });
 
   const [search, setSearch] = useState('');
-  const [filterOperator, setFilterOperator] = useState<string>('all'); // 'all', 'none', or userId
+  const [filterOperator, setFilterOperator] = useState<string>('all');
+  const [importTarget, setImportTarget] = useState<string>('none'); // Destino do upload
   const [selectedLeads, setSelectedLeads] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [editingSaleId, setEditingSaleId] = useState<string | null>(null);
@@ -107,8 +108,13 @@ export const AdminView: React.FC<AdminViewProps> = ({
         };
       }).filter(l => l && l.nome && l.telefone.length >= 8);
 
-      await onImportLeads(newLeads as any, 'none');
-      alert(`${newLeads.length} leads importados com sucesso!`);
+      await onImportLeads(newLeads as any, importTarget);
+      
+      let targetName = 'Fila Geral';
+      if (importTarget === 'online') targetName = 'Vendedores Online';
+      else if (importTarget !== 'none') targetName = users.find(u => u.id === importTarget)?.nome || 'Vendedor';
+
+      alert(`${newLeads.length} leads importados para: ${targetName}`);
     } catch (err) {
       alert("Erro ao ler arquivo.");
     } finally {
@@ -236,22 +242,34 @@ export const AdminView: React.FC<AdminViewProps> = ({
       {tab === 'leads' && (
         <div className="space-y-6 animate-in fade-in duration-500">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div className="bg-white p-6 rounded-[2.5rem] border-2 border-gray-100">
-              <p className="text-[9px] font-black uppercase text-gray-400 mb-3">Importar XLSX</p>
-              <button onClick={() => fileInput.current?.click()} className="w-full py-4 bg-sky-600 text-white rounded-2xl font-black uppercase text-[10px] flex items-center justify-center gap-2">
-                {loading ? <Loader2 className="animate-spin" /> : <FileSpreadsheet size={16} />} Selecionar
+            <div className="bg-white p-6 rounded-[2.5rem] border-2 border-gray-100 flex flex-col gap-3">
+              <p className="text-[9px] font-black uppercase text-gray-400 tracking-widest">Importar Leads</p>
+              <div className="relative">
+                <UserPlus className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-300" size={14} />
+                <select 
+                  value={importTarget} 
+                  onChange={e => setImportTarget(e.target.value)}
+                  className="w-full pl-9 pr-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl font-bold uppercase text-[9px] outline-none focus:border-sky-500 transition-all appearance-none"
+                >
+                  <option value="none">ENVIAR PARA FILA GERAL</option>
+                  <option value="online">DISTRIBUIR ENTRE ONLINE</option>
+                  {sellers.map(s => <option key={s.id} value={s.id}>ENVIAR PARA: {s.nome}</option>)}
+                </select>
+              </div>
+              <button onClick={() => fileInput.current?.click()} className="w-full py-4 bg-sky-600 text-white rounded-2xl font-black uppercase text-[10px] flex items-center justify-center gap-2 shadow-lg shadow-sky-100 active:scale-95 transition-all">
+                {loading ? <Loader2 className="animate-spin" /> : <FileSpreadsheet size={16} />} Selecionar XLSX
               </button>
               <input ref={fileInput} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={handleFileUpload} />
             </div>
             <div className="bg-white p-6 rounded-[2.5rem] border-2 border-gray-100">
-              <p className="text-[9px] font-black uppercase text-gray-400 mb-3">Busca Rápida</p>
+              <p className="text-[9px] font-black uppercase text-gray-400 mb-3 tracking-widest">Busca Rápida</p>
               <div className="relative">
                 <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-300" size={16} />
                 <input value={search} onChange={e => setSearch(e.target.value)} className="w-full pl-10 pr-4 py-4 bg-gray-50 rounded-2xl font-bold uppercase text-[10px] outline-none border-2 border-transparent focus:border-sky-500 transition-all" placeholder="Nome, base..." />
               </div>
             </div>
             <div className="bg-white p-6 rounded-[2.5rem] border-2 border-gray-100">
-              <p className="text-[9px] font-black uppercase text-gray-400 mb-3">Filtrar Operador</p>
+              <p className="text-[9px] font-black uppercase text-gray-400 mb-3 tracking-widest">Filtrar Operador</p>
               <div className="relative">
                 <Filter className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-300" size={16} />
                 <select value={filterOperator} onChange={e => setFilterOperator(e.target.value)} className="w-full pl-10 pr-4 py-4 bg-gray-50 rounded-2xl font-bold uppercase text-[10px] outline-none border-2 border-transparent focus:border-sky-500 appearance-none">
@@ -261,22 +279,22 @@ export const AdminView: React.FC<AdminViewProps> = ({
                 </select>
               </div>
             </div>
-            <div className="bg-amber-500 p-6 rounded-[2.5rem] text-white flex flex-col justify-center text-center">
+            <div className="bg-amber-500 p-6 rounded-[2.5rem] text-white flex flex-col justify-center text-center shadow-lg shadow-amber-100">
               <p className="text-[9px] font-black uppercase opacity-60 mb-1">Filtrados / Total</p>
               <p className="text-2xl font-black italic">{currentLeads.filter(l => l.status === 'PENDING').length} <span className="text-sm opacity-40">/ {leads.filter(l => l.status === 'PENDING').length}</span></p>
             </div>
           </div>
 
           {selectedLeads.length > 0 && (
-            <div className="bg-slate-900 p-6 rounded-[2rem] flex items-center justify-between text-white">
+            <div className="bg-slate-900 p-6 rounded-[2rem] flex items-center justify-between text-white animate-in slide-in-from-top-4">
               <p className="font-black uppercase text-[10px] italic">{selectedLeads.length} selecionados</p>
               <div className="flex gap-3">
-                <select onChange={e => { onTransferLeads(selectedLeads, e.target.value === 'none' ? null : e.target.value); setSelectedLeads([]); }} className="bg-white/10 px-4 py-2 rounded-xl font-black uppercase text-[9px] outline-none">
+                <select onChange={e => { onTransferLeads(selectedLeads, e.target.value === 'none' ? null : e.target.value); setSelectedLeads([]); }} className="bg-white/10 px-4 py-2 rounded-xl font-black uppercase text-[9px] outline-none border border-white/10 focus:border-white/40">
                   <option value="">Transferir para...</option>
                   <option value="none">Fila Geral</option>
                   {sellers.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
                 </select>
-                <button onClick={() => { onDeleteLeads(selectedLeads); setSelectedLeads([]); }} className="bg-red-500 p-2 rounded-xl"><Trash2 size={16} /></button>
+                <button onClick={() => { onDeleteLeads(selectedLeads); setSelectedLeads([]); }} className="bg-red-500 p-2 rounded-xl hover:bg-red-600 transition-colors"><Trash2 size={16} /></button>
                 <button onClick={() => setSelectedLeads([])} className="text-white/40"><Ban size={16} /></button>
               </div>
             </div>
@@ -320,7 +338,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
 
       {tab === 'users' && (
         <div className="max-w-4xl mx-auto space-y-6 animate-in fade-in duration-500">
-          <div className="bg-white rounded-[3rem] border-2 border-gray-100 overflow-hidden">
+          <div className="bg-white rounded-[3rem] border-2 border-gray-100 overflow-hidden shadow-sm">
             <table className="w-full text-left">
               <thead className="bg-gray-50 text-[10px] font-black uppercase text-gray-400">
                 <tr><th className="px-10 py-6">Vendedor</th><th className="px-10 py-6 text-center">Fila Atual</th><th className="px-10 py-6 text-right">Ações</th></tr>
