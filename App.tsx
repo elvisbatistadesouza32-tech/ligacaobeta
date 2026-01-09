@@ -31,28 +31,67 @@ const App: React.FC = () => {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
+  // Função auxiliar para buscar TODOS os registros ignorando o limite de 1000 do Supabase
+  const fetchAllFromTable = async (tableName: string) => {
+    let allData: any[] = [];
+    let errorOccurred = false;
+    let from = 0;
+    const step = 1000;
+    let hasMore = true;
+
+    while (hasMore) {
+      const { data, error } = await supabase
+        .from(tableName)
+        .select('*')
+        .range(from, from + step - 1)
+        .order(tableName === 'calls' ? 'timestamp' : 'createdAt', { ascending: false });
+
+      if (error) {
+        console.error(`Erro ao buscar ${tableName}:`, error);
+        errorOccurred = true;
+        break;
+      }
+
+      if (data && data.length > 0) {
+        allData = [...allData, ...data];
+        if (data.length < step) {
+          hasMore = false;
+        } else {
+          from += step;
+        }
+      } else {
+        hasMore = false;
+      }
+      
+      // Safety break para evitar loops infinitos caso algo dê errado
+      if (from > 50000) break; 
+    }
+
+    return errorOccurred ? null : allData;
+  };
+
   const syncData = useCallback(async () => {
     setIsSyncing(true);
     try {
-      // Adicionado .limit(10000) para evitar o teto de 1000 registros do PostgREST
-      const [
-        { data: dbUsers },
-        { data: dbLeads },
-        { data: dbCalls }
-      ] = await Promise.all([
-        supabase.from('users').select('*'),
-        supabase.from('leads').select('*').order('createdAt', { ascending: false }).limit(10000),
-        supabase.from('calls').select('*').order('timestamp', { ascending: false }).limit(10000)
+      // Busca usuários (geralmente poucos, não precisa de paginação agressiva)
+      const { data: dbUsers } = await supabase.from('users').select('*');
+      
+      // Busca Leads e Chamadas com paginação para quebrar o limite de 1000
+      const [dbLeads, dbCalls] = await Promise.all([
+        fetchAllFromTable('leads'),
+        fetchAllFromTable('calls')
       ]);
 
       if (dbUsers) {
         setUsers(dbUsers);
         localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(dbUsers));
       }
+      
       if (dbLeads) {
         setLeads(dbLeads);
         localStorage.setItem(STORAGE_KEYS.LEADS, JSON.stringify(dbLeads));
       }
+
       if (dbCalls) {
         setCalls(dbCalls);
         localStorage.setItem(STORAGE_KEYS.CALLS, JSON.stringify(dbCalls));
@@ -64,9 +103,14 @@ const App: React.FC = () => {
         if (sessionUser) setCurrentUser(sessionUser);
       }
     } catch (err) {
-      console.error('Erro ao sincronizar com Supabase:', err);
+      console.error('Erro geral na sincronização:', err);
+      // Fallback para cache local em caso de erro de rede
       const cachedUsers = localStorage.getItem(STORAGE_KEYS.USERS);
+      const cachedLeads = localStorage.getItem(STORAGE_KEYS.LEADS);
+      const cachedCalls = localStorage.getItem(STORAGE_KEYS.CALLS);
       if (cachedUsers) setUsers(JSON.parse(cachedUsers));
+      if (cachedLeads) setLeads(JSON.parse(cachedLeads));
+      if (cachedCalls) setCalls(JSON.parse(cachedCalls));
     } finally {
       setIsSyncing(false);
       setIsLoading(false);
@@ -157,7 +201,6 @@ const App: React.FC = () => {
   };
 
   const handleLogCall = async (call: CallRecord) => {
-    // Atualização imediata do estado local (Optimistic Update)
     setLeads(prev => prev.map(l => l.id === call.leadId ? { ...l, status: 'CALLED' as const } : l));
     setCalls(prev => [call, ...prev]);
 
@@ -166,9 +209,6 @@ const App: React.FC = () => {
         supabase.from('calls').insert([call]),
         supabase.from('leads').update({ status: 'CALLED' }).eq('id', call.leadId)
       ]);
-      
-      localStorage.setItem(STORAGE_KEYS.CALLS, JSON.stringify([call, ...calls]));
-      localStorage.setItem(STORAGE_KEYS.LEADS, JSON.stringify(leads.map(l => l.id === call.leadId ? { ...l, status: 'CALLED' as const } : l)));
     } catch (err) {
       console.error('Erro ao registrar chamada no Supabase:', err);
     }
@@ -251,7 +291,7 @@ const App: React.FC = () => {
   if (isLoading && !isRegistering && !email) return (
     <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center gap-4">
       <Loader2 className="animate-spin text-sky-500 w-12 h-12" />
-      <span className="text-white/40 text-[10px] font-black uppercase tracking-[0.3em]">Sincronizando com Banco...</span>
+      <span className="text-white/40 text-[10px] font-black uppercase tracking-[0.3em]">Sincronizando Banco de Dados...</span>
     </div>
   );
 
@@ -285,45 +325,20 @@ const App: React.FC = () => {
           <form onSubmit={handleRegister} className="space-y-4 w-full animate-in slide-in-from-right-4 duration-300">
              <div className="space-y-1">
               <label className="text-[10px] font-black text-gray-400 uppercase ml-5">Nome Completo</label>
-              <input 
-                type="text" 
-                placeholder="Ex: João Silva" 
-                value={nome} 
-                onChange={e => setNome(e.target.value)} 
-                className="w-full p-5 bg-gray-50 border-2 border-gray-100 rounded-3xl outline-none focus:border-sky-600 focus:bg-white font-bold transition-all text-center placeholder:text-gray-300" 
-                required 
-              />
+              <input type="text" placeholder="Ex: João Silva" value={nome} onChange={e => setNome(e.target.value)} className="w-full p-5 bg-gray-50 border-2 border-gray-100 rounded-3xl outline-none focus:border-sky-600 focus:bg-white font-bold transition-all text-center placeholder:text-gray-300" required />
             </div>
             <div className="space-y-1">
               <label className="text-[10px] font-black text-gray-400 uppercase ml-5">E-mail Corporativo</label>
-              <input 
-                type="email" 
-                placeholder="seu@portal.com" 
-                value={email} 
-                onChange={e => setEmail(e.target.value)} 
-                className="w-full p-5 bg-gray-50 border-2 border-gray-100 rounded-3xl outline-none focus:border-sky-600 focus:bg-white font-bold transition-all text-center placeholder:text-gray-300" 
-                required 
-              />
+              <input type="email" placeholder="seu@portal.com" value={email} onChange={e => setEmail(e.target.value)} className="w-full p-5 bg-gray-50 border-2 border-gray-100 rounded-3xl outline-none focus:border-sky-600 focus:bg-white font-bold transition-all text-center placeholder:text-gray-300" required />
             </div>
             <div className="space-y-1">
               <label className="text-[10px] font-black text-gray-400 uppercase ml-5">Criar Senha</label>
-              <input 
-                type="password" 
-                placeholder="••••••••" 
-                value={password} 
-                onChange={e => setPassword(e.target.value)} 
-                className="w-full p-5 bg-gray-50 border-2 border-gray-100 rounded-3xl outline-none focus:border-sky-600 focus:bg-white font-bold transition-all text-center placeholder:text-gray-300" 
-                required 
-              />
+              <input type="password" placeholder="••••••••" value={password} onChange={e => setPassword(e.target.value)} className="w-full p-5 bg-gray-50 border-2 border-gray-100 rounded-3xl outline-none focus:border-sky-600 focus:bg-white font-bold transition-all text-center placeholder:text-gray-300" required />
             </div>
             <button disabled={isLoading} className="w-full bg-sky-600 text-white py-6 rounded-3xl font-black uppercase italic shadow-xl shadow-sky-100 hover:bg-sky-700 hover:shadow-2xl transition-all active:scale-95 mt-4 flex items-center justify-center gap-2">
               {isLoading ? <Loader2 className="animate-spin w-5 h-5" /> : <><UserPlus className="w-5 h-5" /> Finalizar Cadastro</>}
             </button>
-            <button 
-              type="button"
-              onClick={() => { setIsRegistering(false); setError(''); }}
-              className="w-full text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center justify-center gap-2 pt-2 hover:text-gray-600 transition-colors"
-            >
+            <button type="button" onClick={() => { setIsRegistering(false); setError(''); }} className="w-full text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center justify-center gap-2 pt-2 hover:text-gray-600 transition-colors">
               <ArrowLeft className="w-3 h-3" /> Voltar para o Login
             </button>
           </form>
@@ -331,41 +346,23 @@ const App: React.FC = () => {
           <form onSubmit={handleLogin} className="space-y-4 w-full animate-in slide-in-from-left-4 duration-300">
             <div className="space-y-1">
               <label className="text-[10px] font-black text-gray-400 uppercase ml-5">E-mail Corporativo</label>
-              <input 
-                type="email" 
-                placeholder="seu@portal.com" 
-                value={email} 
-                onChange={e => setEmail(e.target.value)} 
-                className="w-full p-5 bg-gray-50 border-2 border-gray-100 rounded-3xl outline-none focus:border-sky-600 focus:bg-white font-bold transition-all text-center placeholder:text-gray-300" 
-                required 
-              />
+              <input type="email" placeholder="seu@portal.com" value={email} onChange={e => setEmail(e.target.value)} className="w-full p-5 bg-gray-50 border-2 border-gray-100 rounded-3xl outline-none focus:border-sky-600 focus:bg-white font-bold transition-all text-center placeholder:text-gray-300" required />
             </div>
             <div className="space-y-1">
               <label className="text-[10px] font-black text-gray-400 uppercase ml-5">Senha de Acesso</label>
-              <input 
-                type="password" 
-                placeholder="••••••••" 
-                value={password} 
-                onChange={e => setPassword(e.target.value)} 
-                className="w-full p-5 bg-gray-50 border-2 border-gray-100 rounded-3xl outline-none focus:border-sky-600 focus:bg-white font-bold transition-all text-center placeholder:text-gray-300" 
-                required 
-              />
+              <input type="password" placeholder="••••••••" value={password} onChange={e => setPassword(e.target.value)} className="w-full p-5 bg-gray-50 border-2 border-gray-100 rounded-3xl outline-none focus:border-sky-600 focus:bg-white font-bold transition-all text-center placeholder:text-gray-300" required />
             </div>
             <button disabled={isLoading} className="w-full bg-red-600 text-white py-6 rounded-3xl font-black uppercase italic shadow-xl shadow-red-100 hover:bg-red-700 hover:shadow-2xl transition-all active:scale-95 mt-4 flex items-center justify-center gap-2">
               {isLoading ? <Loader2 className="animate-spin w-5 h-5" /> : 'LOGIN'}
             </button>
-            <button 
-              type="button"
-              onClick={() => { setIsRegistering(true); setError(''); }}
-              className="w-full py-5 border-2 border-gray-100 text-gray-500 rounded-3xl font-black uppercase text-[10px] tracking-widest hover:bg-gray-50 transition-all flex items-center justify-center gap-2"
-            >
+            <button type="button" onClick={() => { setIsRegistering(true); setError(''); }} className="w-full py-5 border-2 border-gray-100 text-gray-500 rounded-3xl font-black uppercase text-[10px] tracking-widest hover:bg-gray-50 transition-all flex items-center justify-center gap-2">
               <UserPlus className="w-4 h-4" /> Cadastrar Vendedor
             </button>
           </form>
         )}
         
         <p className="mt-8 text-[9px] font-bold text-gray-400 uppercase tracking-widest text-center opacity-60">
-          Infraestrutura Supabase • V.9.0-AUTH
+          Infraestrutura Supabase • V.9.5-PAGINATED
         </p>
       </div>
     </div>
@@ -376,6 +373,7 @@ const App: React.FC = () => {
       <div className="fixed bottom-8 right-8 z-[60]">
         <button 
           onClick={syncData} 
+          disabled={isSyncing}
           className={`group p-5 bg-white shadow-2xl rounded-full text-sky-600 border-2 border-sky-50 hover:border-sky-200 hover:scale-110 active:scale-90 transition-all ${isSyncing ? 'animate-spin' : ''}`}
           title="Sincronizar Cloud"
         >
