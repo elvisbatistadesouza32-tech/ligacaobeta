@@ -5,7 +5,7 @@ import { Layout } from './components/Layout';
 import { SellerView } from './components/SellerView';
 import { AdminView } from './components/AdminView';
 import { Logo } from './components/Logo';
-import { Loader2, RefreshCw, UserPlus, ArrowLeft } from 'lucide-react';
+import { Loader2, RefreshCw } from 'lucide-react';
 import { supabase } from './supabase';
 
 const STORAGE_KEYS = {
@@ -33,29 +33,12 @@ const App: React.FC = () => {
   const [success, setSuccess] = useState('');
 
   const fetchAllFromTable = async (tableName: string) => {
-    let allData: any[] = [];
-    let from = 0;
-    const step = 1000;
-    let hasMore = true;
-
-    while (hasMore) {
-      const { data, error } = await supabase
-        .from(tableName)
-        .select('*')
-        .range(from, from + step - 1)
-        .order(tableName === 'calls' || tableName === 'sales' ? 'created_at' : 'createdAt', { ascending: false });
-
-      if (error) break;
-      if (data && data.length > 0) {
-        allData = [...allData, ...data];
-        if (data.length < step) hasMore = false;
-        else from += step;
-      } else {
-        hasMore = false;
-      }
-      if (from > 50000) break; 
-    }
-    return allData;
+    const { data, error } = await supabase
+      .from(tableName)
+      .select('*')
+      .order(tableName === 'calls' || tableName === 'sales' ? 'created_at' : 'createdAt', { ascending: false })
+      .limit(5000); // Limite razoável para performance inicial
+    return data || [];
   };
 
   const syncData = useCallback(async () => {
@@ -68,22 +51,10 @@ const App: React.FC = () => {
         fetchAllFromTable('sales')
       ]);
 
-      if (dbUsers) {
-        setUsers(dbUsers);
-        localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(dbUsers));
-      }
-      if (dbLeads) {
-        setLeads(dbLeads);
-        localStorage.setItem(STORAGE_KEYS.LEADS, JSON.stringify(dbLeads));
-      }
-      if (dbCalls) {
-        setCalls(dbCalls);
-        localStorage.setItem(STORAGE_KEYS.CALLS, JSON.stringify(dbCalls));
-      }
-      if (dbSales) {
-        setSales(dbSales);
-        localStorage.setItem(STORAGE_KEYS.SALES, JSON.stringify(dbSales));
-      }
+      if (dbUsers) setUsers(dbUsers);
+      if (dbLeads) setLeads(dbLeads);
+      if (dbCalls) setCalls(dbCalls);
+      if (dbSales) setSales(dbSales);
 
       const storedSession = localStorage.getItem(STORAGE_KEYS.SESSION);
       if (storedSession && dbUsers) {
@@ -98,120 +69,93 @@ const App: React.FC = () => {
     }
   }, []);
 
-  useEffect(() => { syncData(); }, [syncData]);
+  // REALTIME SUBSCRIPTION
+  useEffect(() => {
+    syncData();
+
+    const channel = supabase
+      .channel('schema-db-changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'calls' }, (payload) => {
+        if (payload.eventType === 'INSERT') setCalls(prev => [payload.new as CallRecord, ...prev]);
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'sales' }, (payload) => {
+        if (payload.eventType === 'INSERT') setSales(prev => [payload.new as Sale, ...prev]);
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'leads' }, (payload) => {
+        if (payload.eventType === 'INSERT') setLeads(prev => [payload.new as Lead, ...prev]);
+        if (payload.eventType === 'UPDATE') setLeads(prev => prev.map(l => l.id === payload.new.id ? (payload.new as Lead) : l));
+        if (payload.eventType === 'DELETE') setLeads(prev => prev.filter(l => l.id !== payload.old.id));
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, [syncData]);
 
   const handleRegisterSale = async (saleData: Omit<Sale, 'id' | 'created_at'>) => {
-    const newSale = {
-      ...saleData,
-      id: crypto.randomUUID(),
-      created_at: new Date().toISOString()
-    };
-    
-    try {
-      await supabase.from('sales').insert([newSale]);
-      setSales(prev => [newSale, ...prev]);
-    } catch (err) {
-      console.error('Erro ao registrar venda:', err);
-      throw err;
-    }
+    const newSale = { ...saleData, id: crypto.randomUUID(), created_at: new Date().toISOString() };
+    await supabase.from('sales').insert([newSale]);
+    // O realtime cuidará do estado
+  };
+
+  const handleLogCall = async (call: CallRecord) => {
+    await Promise.all([
+      supabase.from('calls').insert([call]),
+      supabase.from('leads').update({ status: 'CALLED' }).eq('id', call.leadId)
+    ]);
   };
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
     setError('');
-    try {
-      const { data: user } = await supabase
-        .from('users')
-        .select('*')
-        .eq('email', email.toLowerCase().trim())
-        .eq('password', password)
-        .single();
-
-      if (user) {
-        setCurrentUser(user);
-        localStorage.setItem(STORAGE_KEYS.SESSION, user.id);
-      } else {
-        setError('E-MAIL OU SENHA INCORRETOS.');
-      }
-    } catch (err) {
-      setError('ERRO DE CONEXÃO.');
-    } finally { setIsLoading(false); }
+    const { data: user } = await supabase.from('users').select('*').eq('email', email.toLowerCase().trim()).eq('password', password).single();
+    if (user) {
+      setCurrentUser(user);
+      localStorage.setItem(STORAGE_KEYS.SESSION, user.id);
+    } else {
+      setError('E-MAIL OU SENHA INCORRETOS.');
+    }
+    setIsLoading(false);
   };
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
-    try {
-      const newUser = {
-        id: crypto.randomUUID(),
-        nome,
-        email: email.toLowerCase().trim(),
-        password,
-        tipo: 'vendedor',
-        online: true
-      };
-      await supabase.from('users').insert([newUser]);
-      setSuccess('CADASTRO REALIZADO!');
-      setTimeout(() => { setIsRegistering(false); syncData(); }, 2000);
-    } catch (err) { setError('ERRO AO CADASTRAR.'); }
-    finally { setIsLoading(false); }
-  };
-
-  const handleLogout = () => {
-    localStorage.removeItem(STORAGE_KEYS.SESSION);
-    setCurrentUser(null);
-  };
-
-  const handleLogCall = async (call: CallRecord) => {
-    setLeads(prev => prev.map(l => l.id === call.leadId ? { ...l, status: 'CALLED' as const } : l));
-    setCalls(prev => [call, ...prev]);
-    try {
-      await Promise.all([
-        supabase.from('calls').insert([call]),
-        supabase.from('leads').update({ status: 'CALLED' }).eq('id', call.leadId)
-      ]);
-    } catch (err) { console.error('Erro call:', err); }
+    const newUser = { id: crypto.randomUUID(), nome, email: email.toLowerCase().trim(), password, tipo: 'vendedor', online: true };
+    await supabase.from('users').insert([newUser]);
+    setSuccess('CADASTRO REALIZADO!');
+    setTimeout(() => { setIsRegistering(false); syncData(); }, 1500);
+    setIsLoading(false);
   };
 
   const handleImportLeads = async (newLeads: Lead[], target: 'none' | 'online' | string) => {
+    const sellersOnline = users.filter(u => u.tipo === 'vendedor' && u.online);
     const leadsWithData = newLeads.map((l, idx) => ({
       ...l,
       id: crypto.randomUUID(),
       createdAt: new Date().toISOString(),
+      status: 'PENDING',
       assignedTo: target === 'online' 
-        ? users.filter(u => u.tipo === 'vendedor' && u.online)[idx % (users.filter(u => u.tipo === 'vendedor' && u.online).length || 1)]?.id || null
+        ? (sellersOnline[idx % (sellersOnline.length || 1)]?.id || null)
         : (target === 'none' ? null : target)
     }));
-    try {
-      await supabase.from('leads').insert(leadsWithData);
-      setLeads(prev => [...leadsWithData, ...prev]);
-    } catch (err) { console.error('Erro import:', err); }
+    await supabase.from('leads').insert(leadsWithData);
   };
 
   const handleTransferLeads = async (leadIds: string[], userId: string | null) => {
-    setIsSyncing(true);
-    try {
-      await supabase.from('leads').update({ assignedTo: userId }).in('id', leadIds);
-      setLeads(prev => prev.map(l => leadIds.includes(l.id) ? { ...l, assignedTo: userId } : l));
-    } finally { setIsSyncing(false); }
+    await supabase.from('leads').update({ assignedTo: userId }).in('id', leadIds);
   };
 
   const handleDeleteLeads = async (leadIds: string[]) => {
     if (!confirm(`Excluir ${leadIds.length} lead(s)?`)) return;
-    setIsSyncing(true);
-    try {
-      await supabase.from('leads').delete().in('id', leadIds);
-      setLeads(prev => prev.filter(l => !leadIds.includes(l.id)));
-    } finally { setIsSyncing(false); }
+    await supabase.from('leads').delete().in('id', leadIds);
   };
 
   const handleToggleUser = async (id: string) => {
     const user = users.find(u => u.id === id);
     if (!user) return;
-    const newStatus = !user.online;
-    await supabase.from('users').update({ online: newStatus }).eq('id', id);
-    setUsers(prev => prev.map(u => u.id === id ? { ...u, online: newStatus } : u));
+    await supabase.from('users').update({ online: !user.online }).eq('id', id);
+    setUsers(prev => prev.map(u => u.id === id ? { ...u, online: !u.online } : u));
   };
 
   const handleDeleteUser = async (id: string) => {
@@ -223,14 +167,13 @@ const App: React.FC = () => {
   if (isLoading && !isRegistering && !email) return (
     <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center gap-4">
       <Loader2 className="animate-spin text-sky-500 w-12 h-12" />
-      <span className="text-white/40 text-[10px] font-black uppercase tracking-[0.3em]">Carregando Sistema...</span>
+      <span className="text-white/40 text-[10px] font-black uppercase tracking-[0.3em]">Conectando Portal...</span>
     </div>
   );
 
   if (!currentUser) return (
     <div className="min-h-screen bg-slate-950 flex items-center justify-center p-6">
-      <div className="w-full max-w-sm bg-white p-10 sm:p-14 rounded-[3.5rem] shadow-2xl flex flex-col items-center border border-white/10 relative overflow-hidden animate-in zoom-in-95 duration-300">
-        <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-red-600 via-sky-600 to-red-600"></div>
+      <div className="w-full max-w-sm bg-white p-14 rounded-[3.5rem] shadow-2xl flex flex-col items-center animate-in zoom-in-95 duration-300">
         <Logo size={90} />
         <h1 className="text-3xl font-black text-center mt-6 mb-10 italic uppercase tracking-tighter flex gap-2">
           <span className="text-red-600">LIGAÇÕES</span>
@@ -241,18 +184,18 @@ const App: React.FC = () => {
 
         {isRegistering ? (
           <form onSubmit={handleRegister} className="space-y-4 w-full">
-            <input type="text" placeholder="Nome Completo" value={nome} onChange={e => setNome(e.target.value)} className="w-full p-5 bg-gray-50 border-2 border-gray-100 rounded-3xl font-bold text-center" required />
-            <input type="email" placeholder="seu@portal.com" value={email} onChange={e => setEmail(e.target.value)} className="w-full p-5 bg-gray-50 border-2 border-gray-100 rounded-3xl font-bold text-center" required />
-            <input type="password" placeholder="Senha" value={password} onChange={e => setPassword(e.target.value)} className="w-full p-5 bg-gray-50 border-2 border-gray-100 rounded-3xl font-bold text-center" required />
-            <button disabled={isLoading} className="w-full bg-sky-600 text-white py-6 rounded-3xl font-black uppercase italic shadow-xl shadow-sky-100 hover:bg-sky-700 transition-all">Finalizar Cadastro</button>
-            <button type="button" onClick={() => setIsRegistering(false)} className="w-full text-[10px] font-black text-gray-400 uppercase tracking-widest pt-2">Voltar para o Login</button>
+            <input type="text" placeholder="NOME" value={nome} onChange={e => setNome(e.target.value)} className="w-full p-5 bg-gray-50 border-2 border-gray-100 rounded-3xl font-bold text-center uppercase" required />
+            <input type="email" placeholder="EMAIL" value={email} onChange={e => setEmail(e.target.value)} className="w-full p-5 bg-gray-50 border-2 border-gray-100 rounded-3xl font-bold text-center" required />
+            <input type="password" placeholder="SENHA" value={password} onChange={e => setPassword(e.target.value)} className="w-full p-5 bg-gray-50 border-2 border-gray-100 rounded-3xl font-bold text-center" required />
+            <button disabled={isLoading} className="w-full bg-sky-600 text-white py-6 rounded-3xl font-black uppercase italic">Cadastrar</button>
+            <button type="button" onClick={() => setIsRegistering(false)} className="w-full text-[10px] font-black text-gray-400 uppercase tracking-widest pt-2">Voltar</button>
           </form>
         ) : (
           <form onSubmit={handleLogin} className="space-y-4 w-full">
-            <input type="email" placeholder="seu@portal.com" value={email} onChange={e => setEmail(e.target.value)} className="w-full p-5 bg-gray-50 border-2 border-gray-100 rounded-3xl font-bold text-center" required />
-            <input type="password" placeholder="Sua Senha" value={password} onChange={e => setPassword(e.target.value)} className="w-full p-5 bg-gray-50 border-2 border-gray-100 rounded-3xl font-bold text-center" required />
-            <button disabled={isLoading} className="w-full bg-red-600 text-white py-6 rounded-3xl font-black uppercase italic shadow-xl shadow-red-100 hover:bg-red-700 transition-all">LOGIN</button>
-            <button type="button" onClick={() => setIsRegistering(true)} className="w-full py-5 border-2 border-gray-100 text-gray-500 rounded-3xl font-black uppercase text-[10px] tracking-widest hover:bg-gray-50 transition-all">Cadastrar Vendedor</button>
+            <input type="email" placeholder="E-MAIL" value={email} onChange={e => setEmail(e.target.value)} className="w-full p-5 bg-gray-50 border-2 border-gray-100 rounded-3xl font-bold text-center" required />
+            <input type="password" placeholder="SENHA" value={password} onChange={e => setPassword(e.target.value)} className="w-full p-5 bg-gray-50 border-2 border-gray-100 rounded-3xl font-bold text-center" required />
+            <button disabled={isLoading} className="w-full bg-red-600 text-white py-6 rounded-3xl font-black uppercase italic shadow-xl shadow-red-100">ENTRAR</button>
+            <button type="button" onClick={() => setIsRegistering(true)} className="w-full py-5 border-2 border-gray-100 text-gray-500 rounded-3xl font-black uppercase text-[10px] tracking-widest">Novo Vendedor</button>
           </form>
         )}
       </div>
@@ -260,36 +203,17 @@ const App: React.FC = () => {
   );
 
   return (
-    <Layout user={currentUser} onLogout={handleLogout}>
-      <div className="fixed bottom-8 right-8 z-[60] flex flex-col gap-4">
-        <button 
-          onClick={syncData} 
-          disabled={isSyncing}
-          className={`p-5 bg-white shadow-2xl rounded-full text-sky-600 border-2 border-sky-50 hover:border-sky-200 transition-all ${isSyncing ? 'animate-spin' : ''}`}
-        >
-          <RefreshCw className="w-6 h-6" />
-        </button>
-      </div>
+    <Layout user={currentUser} onLogout={() => { localStorage.removeItem(STORAGE_KEYS.SESSION); setCurrentUser(null); }}>
       {currentUser.tipo === 'adm' ? (
         <AdminView 
-          users={users} 
-          leads={leads} 
-          calls={calls} 
-          sales={sales}
-          onImportLeads={handleImportLeads} 
-          onToggleUserStatus={handleToggleUser} 
-          onDeleteUser={handleDeleteUser}
-          onTransferLeads={handleTransferLeads}
-          onDeleteLeads={handleDeleteLeads}
+          users={users} leads={leads} calls={calls} sales={sales}
+          onImportLeads={handleImportLeads} onToggleUserStatus={handleToggleUser} onDeleteUser={handleDeleteUser}
+          onTransferLeads={handleTransferLeads} onDeleteLeads={handleDeleteLeads}
         />
       ) : (
         <SellerView 
-          user={currentUser} 
-          leads={leads} 
-          calls={calls} 
-          sales={sales}
-          onLogCall={handleLogCall} 
-          onRegisterSale={handleRegisterSale}
+          user={currentUser} leads={leads} calls={calls} sales={sales}
+          onLogCall={handleLogCall} onRegisterSale={handleRegisterSale}
         />
       )}
     </Layout>
