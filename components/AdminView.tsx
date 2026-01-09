@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo, useRef } from 'react';
 import { User, Lead, CallRecord, CallStatus } from '../types';
-import { Users, Database, Power, Search, Trash2, Loader2, FileSpreadsheet, Check, BarChart3, Clock, AlertCircle, Share2, X, ChevronRight, Inbox, Award, Layers, LayoutGrid, CalendarDays, RotateCcw, Filter } from 'lucide-react';
+import { Users, Database, Power, Search, Trash2, Loader2, FileSpreadsheet, Check, BarChart3, Clock, AlertCircle, Share2, X, ChevronRight, Inbox, Award, Layers, LayoutGrid, CalendarDays, RotateCcw, Filter, CheckSquare, Square } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import * as XLSX from 'xlsx';
 
@@ -89,6 +89,30 @@ export const AdminView: React.FC<AdminViewProps> = ({ users, leads, calls, onImp
       return matchesSearch && matchesOperator;
     });
   }, [leads, search, operatorFilter]);
+
+  // Função para verificar se todos os leads filtrados estão selecionados
+  const isAllFilteredSelected = useMemo(() => {
+    if (filteredLeads.length === 0) return false;
+    return filteredLeads.every(l => selectedLeads.includes(l.id));
+  }, [filteredLeads, selectedLeads]);
+
+  const handleSelectAll = () => {
+    if (isAllFilteredSelected) {
+      // Se todos os filtrados estão selecionados, desmarcamos todos os filtrados da lista global de selecionados
+      const filteredIds = filteredLeads.map(l => l.id);
+      setSelectedLeads(prev => prev.filter(id => !filteredIds.includes(id)));
+    } else {
+      // Se nem todos estão selecionados, adicionamos todos os filtrados
+      const filteredIds = filteredLeads.map(l => l.id);
+      setSelectedLeads(prev => {
+        const newSelection = [...prev];
+        filteredIds.forEach(id => {
+          if (!newSelection.includes(id)) newSelection.push(id);
+        });
+        return newSelection;
+      });
+    }
+  };
 
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
@@ -266,11 +290,33 @@ export const AdminView: React.FC<AdminViewProps> = ({ users, leads, calls, onImp
             <div className="overflow-x-auto">
               <table className="w-full text-left">
                 <thead className="bg-gray-50 font-black uppercase text-[10px] text-gray-400">
-                  <tr><th className="px-6 py-6 w-12 text-center"><Check /></th><th className="px-10 py-6">Lead</th><th className="px-10 py-6">Operador</th><th className="px-10 py-6 text-center">Status</th><th className="px-10 py-6 text-right">Ação</th></tr>
+                  <tr>
+                    <th className="px-6 py-6 w-12 text-center cursor-pointer" onClick={handleSelectAll}>
+                      <div className="flex justify-center">
+                        {isAllFilteredSelected ? (
+                          <CheckSquare className="w-5 h-5 text-sky-600" />
+                        ) : (
+                          <Square className="w-5 h-5 text-gray-300" />
+                        )}
+                      </div>
+                    </th>
+                    <th className="px-10 py-6">Lead</th>
+                    <th className="px-10 py-6">Operador</th>
+                    <th className="px-10 py-6 text-center">Status</th>
+                    <th className="px-10 py-6 text-right">Ação</th>
+                  </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
                   {filteredLeads.map(l => (
-                    <tr key={l.id} className={`transition-all ${selectedLeads.includes(l.id) ? 'bg-sky-50' : ''}`}><td className="px-6 py-6 text-center"><input type="checkbox" checked={selectedLeads.includes(l.id)} onChange={() => toggleLeadSelection(l.id)} className="w-5 h-5" /></td><td className="px-10 py-6"><p className="font-black uppercase text-sm">{l.nome}</p><p className="text-[10px] text-sky-600 font-bold">{l.telefone}</p></td><td className="px-10 py-6 text-xs font-bold uppercase">{users.find(u => u.id === l.assignedTo)?.nome || 'Fila Geral'}</td><td className="px-10 py-6 text-center"><span className="px-3 py-1 bg-amber-50 text-amber-600 rounded-full text-[8px] font-black uppercase border border-amber-100">{l.status}</span></td><td className="px-10 py-6 text-right"><button onClick={() => onDeleteLeads([l.id])} className="text-red-500 hover:scale-110 transition-transform"><Trash2 size={16} /></button></td></tr>
+                    <tr key={l.id} className={`transition-all ${selectedLeads.includes(l.id) ? 'bg-sky-50' : ''}`}>
+                      <td className="px-6 py-6 text-center">
+                        <input type="checkbox" checked={selectedLeads.includes(l.id)} onChange={() => toggleLeadSelection(l.id)} className="w-5 h-5 accent-sky-600" />
+                      </td>
+                      <td className="px-10 py-6"><p className="font-black uppercase text-sm">{l.nome}</p><p className="text-[10px] text-sky-600 font-bold">{l.telefone}</p></td>
+                      <td className="px-10 py-6 text-xs font-bold uppercase">{users.find(u => u.id === l.assignedTo)?.nome || 'Fila Geral'}</td>
+                      <td className="px-10 py-6 text-center"><span className="px-3 py-1 bg-amber-50 text-amber-600 rounded-full text-[8px] font-black uppercase border border-amber-100">{l.status}</span></td>
+                      <td className="px-10 py-6 text-right"><button onClick={() => onDeleteLeads([l.id])} className="text-red-500 hover:scale-110 transition-transform"><Trash2 size={16} /></button></td>
+                    </tr>
                   ))}
                   {filteredLeads.length === 0 && (
                     <tr>
