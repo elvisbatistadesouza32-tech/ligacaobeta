@@ -5,14 +5,10 @@ import { Layout } from './components/Layout';
 import { SellerView } from './components/SellerView';
 import { AdminView } from './components/AdminView';
 import { Logo } from './components/Logo';
-import { Loader2, RefreshCw } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import { supabase } from './supabase';
 
 const STORAGE_KEYS = {
-  USERS: 'lp_users_db',
-  LEADS: 'lp_leads_db',
-  CALLS: 'lp_calls_db',
-  SALES: 'lp_sales_db',
   SESSION: 'lp_session_db'
 };
 
@@ -23,7 +19,6 @@ const App: React.FC = () => {
   const [calls, setCalls] = useState<CallRecord[]>([]);
   const [sales, setSales] = useState<Sale[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [isSyncing, setIsSyncing] = useState(false);
   const [isRegistering, setIsRegistering] = useState(false);
   
   const [email, setEmail] = useState('');
@@ -32,69 +27,70 @@ const App: React.FC = () => {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
-  const fetchAllFromTable = async (tableName: string) => {
-    const { data, error } = await supabase
-      .from(tableName)
-      .select('*')
-      .order(tableName === 'calls' || tableName === 'sales' ? 'created_at' : 'createdAt', { ascending: false })
-      .limit(5000); // Limite razoável para performance inicial
-    return data || [];
-  };
-
-  const syncData = useCallback(async () => {
-    setIsSyncing(true);
+  const fetchAllData = useCallback(async () => {
     try {
-      const { data: dbUsers } = await supabase.from('users').select('*');
-      const [dbLeads, dbCalls, dbSales] = await Promise.all([
-        fetchAllFromTable('leads'),
-        fetchAllFromTable('calls'),
-        fetchAllFromTable('sales')
+      const [u, l, c, s] = await Promise.all([
+        supabase.from('users').select('*'),
+        supabase.from('leads').select('*').order('createdAt', { ascending: false }),
+        supabase.from('calls').select('*').order('timestamp', { ascending: false }),
+        supabase.from('sales').select('*').order('created_at', { ascending: false })
       ]);
 
-      if (dbUsers) setUsers(dbUsers);
-      if (dbLeads) setLeads(dbLeads);
-      if (dbCalls) setCalls(dbCalls);
-      if (dbSales) setSales(dbSales);
+      if (u.data) setUsers(u.data);
+      if (l.data) setLeads(l.data);
+      if (c.data) setCalls(c.data);
+      if (s.data) setSales(s.data);
 
-      const storedSession = localStorage.getItem(STORAGE_KEYS.SESSION);
-      if (storedSession && dbUsers) {
-        const sessionUser = dbUsers.find((u: User) => u.id === storedSession);
-        if (sessionUser) setCurrentUser(sessionUser);
+      const storedId = localStorage.getItem(STORAGE_KEYS.SESSION);
+      if (storedId && u.data) {
+        const found = u.data.find(usr => usr.id === storedId);
+        if (found) setCurrentUser(found);
       }
     } catch (err) {
-      console.error('Erro sincronização:', err);
+      console.error("Erro ao carregar dados:", err);
     } finally {
-      setIsSyncing(false);
       setIsLoading(false);
     }
   }, []);
 
-  // REALTIME SUBSCRIPTION
   useEffect(() => {
-    syncData();
+    fetchAllData();
 
     const channel = supabase
-      .channel('schema-db-changes')
+      .channel('db-changes-main')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'calls' }, (payload) => {
         if (payload.eventType === 'INSERT') setCalls(prev => [payload.new as CallRecord, ...prev]);
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'sales' }, (payload) => {
         if (payload.eventType === 'INSERT') setSales(prev => [payload.new as Sale, ...prev]);
+        if (payload.eventType === 'UPDATE') setSales(prev => prev.map(s => s.id === payload.new.id ? (payload.new as Sale) : s));
+        if (payload.eventType === 'DELETE') setSales(prev => prev.filter(s => s.id !== payload.old.id));
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'leads' }, (payload) => {
         if (payload.eventType === 'INSERT') setLeads(prev => [payload.new as Lead, ...prev]);
         if (payload.eventType === 'UPDATE') setLeads(prev => prev.map(l => l.id === payload.new.id ? (payload.new as Lead) : l));
         if (payload.eventType === 'DELETE') setLeads(prev => prev.filter(l => l.id !== payload.old.id));
       })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'users' }, (payload) => {
+        if (payload.eventType === 'UPDATE') setUsers(prev => prev.map(u => u.id === payload.new.id ? (payload.new as User) : u));
+      })
       .subscribe();
 
     return () => { supabase.removeChannel(channel); };
-  }, [syncData]);
+  }, [fetchAllData]);
 
   const handleRegisterSale = async (saleData: Omit<Sale, 'id' | 'created_at'>) => {
     const newSale = { ...saleData, id: crypto.randomUUID(), created_at: new Date().toISOString() };
     await supabase.from('sales').insert([newSale]);
-    // O realtime cuidará do estado
+  };
+
+  const handleUpdateSale = async (id: string, amount: number) => {
+    await supabase.from('sales').update({ amount }).eq('id', id);
+  };
+
+  const handleDeleteSale = async (id: string) => {
+    if (!confirm("Excluir registro de venda definitivamente?")) return;
+    await supabase.from('sales').delete().eq('id', id);
   };
 
   const handleLogCall = async (call: CallRecord) => {
@@ -102,6 +98,41 @@ const App: React.FC = () => {
       supabase.from('calls').insert([call]),
       supabase.from('leads').update({ status: 'CALLED' }).eq('id', call.leadId)
     ]);
+  };
+
+  const handleImportLeads = async (newLeads: Lead[], target: 'none' | 'online' | string) => {
+    const sellersOnline = users.filter(u => u.tipo === 'vendedor' && u.online);
+    const leadsWithData = newLeads.map((l, idx) => ({
+      ...l,
+      id: crypto.randomUUID(),
+      createdAt: new Date().toISOString(),
+      status: 'PENDING',
+      assignedTo: target === 'online' 
+        ? (sellersOnline[idx % (sellersOnline.length || 1)]?.id || null)
+        : (target === 'none' ? null : target)
+    }));
+    await supabase.from('leads').insert(leadsWithData);
+  };
+
+  const handleClearSellerLeads = async (userId: string) => {
+    const sellerName = users.find(u => u.id === userId)?.nome;
+    if (!confirm(`Deseja ZERAR e EXCLUIR todos os leads pendentes de ${sellerName}?`)) return;
+    await supabase.from('leads').delete().eq('assignedTo', userId).eq('status', 'PENDING');
+  };
+
+  const handleTransferLeads = async (leadIds: string[], userId: string | null) => {
+    await supabase.from('leads').update({ assignedTo: userId }).in('id', leadIds);
+  };
+
+  const handleDeleteLeads = async (leadIds: string[]) => {
+    if (!confirm(`Excluir ${leadIds.length} lead(s)?`)) return;
+    await supabase.from('leads').delete().in('id', leadIds);
+  };
+
+  const handleToggleUser = async (id: string) => {
+    const user = users.find(u => u.id === id);
+    if (!user) return;
+    await supabase.from('users').update({ online: !user.online }).eq('id', id);
   };
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -124,50 +155,14 @@ const App: React.FC = () => {
     const newUser = { id: crypto.randomUUID(), nome, email: email.toLowerCase().trim(), password, tipo: 'vendedor', online: true };
     await supabase.from('users').insert([newUser]);
     setSuccess('CADASTRO REALIZADO!');
-    setTimeout(() => { setIsRegistering(false); syncData(); }, 1500);
+    setTimeout(() => { setIsRegistering(false); fetchAllData(); }, 1500);
     setIsLoading(false);
   };
 
-  const handleImportLeads = async (newLeads: Lead[], target: 'none' | 'online' | string) => {
-    const sellersOnline = users.filter(u => u.tipo === 'vendedor' && u.online);
-    const leadsWithData = newLeads.map((l, idx) => ({
-      ...l,
-      id: crypto.randomUUID(),
-      createdAt: new Date().toISOString(),
-      status: 'PENDING',
-      assignedTo: target === 'online' 
-        ? (sellersOnline[idx % (sellersOnline.length || 1)]?.id || null)
-        : (target === 'none' ? null : target)
-    }));
-    await supabase.from('leads').insert(leadsWithData);
-  };
-
-  const handleTransferLeads = async (leadIds: string[], userId: string | null) => {
-    await supabase.from('leads').update({ assignedTo: userId }).in('id', leadIds);
-  };
-
-  const handleDeleteLeads = async (leadIds: string[]) => {
-    if (!confirm(`Excluir ${leadIds.length} lead(s)?`)) return;
-    await supabase.from('leads').delete().in('id', leadIds);
-  };
-
-  const handleToggleUser = async (id: string) => {
-    const user = users.find(u => u.id === id);
-    if (!user) return;
-    await supabase.from('users').update({ online: !user.online }).eq('id', id);
-    setUsers(prev => prev.map(u => u.id === id ? { ...u, online: !u.online } : u));
-  };
-
-  const handleDeleteUser = async (id: string) => {
-    if (!confirm("Remover usuário?")) return;
-    await supabase.from('users').delete().eq('id', id);
-    setUsers(prev => prev.filter(u => u.id !== id));
-  };
-
-  if (isLoading && !isRegistering && !email) return (
+  if (isLoading && !email && !currentUser) return (
     <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center gap-4">
       <Loader2 className="animate-spin text-sky-500 w-12 h-12" />
-      <span className="text-white/40 text-[10px] font-black uppercase tracking-[0.3em]">Conectando Portal...</span>
+      <span className="text-white/40 text-[10px] font-black uppercase tracking-[0.3em]">Carregando Sistema...</span>
     </div>
   );
 
@@ -207,8 +202,11 @@ const App: React.FC = () => {
       {currentUser.tipo === 'adm' ? (
         <AdminView 
           users={users} leads={leads} calls={calls} sales={sales}
-          onImportLeads={handleImportLeads} onToggleUserStatus={handleToggleUser} onDeleteUser={handleDeleteUser}
+          onImportLeads={handleImportLeads} onToggleUserStatus={handleToggleUser} onDeleteUser={() => {}}
           onTransferLeads={handleTransferLeads} onDeleteLeads={handleDeleteLeads}
+          onClearSellerLeads={handleClearSellerLeads}
+          onUpdateSale={handleUpdateSale}
+          onDeleteSale={handleDeleteSale}
         />
       ) : (
         <SellerView 
