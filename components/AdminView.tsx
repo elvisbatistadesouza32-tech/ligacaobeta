@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo, useRef } from 'react';
 import { User, Lead, CallRecord, CallStatus } from '../types';
-import { Users, Database, Power, Search, Trash2, Loader2, FileSpreadsheet, Check, BarChart3, Clock, AlertCircle, Share2, X, ChevronRight, Inbox, Award, Layers, LayoutGrid, CalendarDays, RotateCcw, Filter, CheckSquare, Square } from 'lucide-react';
+import { Users, Database, Power, Search, Trash2, Loader2, FileSpreadsheet, Check, BarChart3, Clock, AlertCircle, Share2, X, ChevronRight, Inbox, Award, Layers, LayoutGrid, CalendarDays, RotateCcw, Filter, CheckSquare, Square, ListFilter } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import * as XLSX from 'xlsx';
 
@@ -78,13 +78,20 @@ export const AdminView: React.FC<AdminViewProps> = ({ users, leads, calls, onImp
 
   const filteredLeads = useMemo(() => {
     return leads.filter(l => {
-      const matchesSearch = l.nome.toLowerCase().includes(search.toLowerCase()) || 
-        l.telefone.includes(search) ||
-        l.base.toLowerCase().includes(search.toLowerCase());
+      // Filtro de Texto
+      const searchTerm = search.toLowerCase().trim();
+      const matchesSearch = searchTerm === '' || 
+        l.nome.toLowerCase().includes(searchTerm) || 
+        l.telefone.includes(searchTerm) ||
+        l.base.toLowerCase().includes(searchTerm);
       
-      const matchesOperator = operatorFilter === '' 
-        ? true 
-        : (operatorFilter === 'none' ? l.assignedTo === null : l.assignedTo === operatorFilter);
+      // Filtro de Operador (Lógica Corrigida)
+      let matchesOperator = true;
+      if (operatorFilter === 'none') {
+        matchesOperator = !l.assignedTo;
+      } else if (operatorFilter !== '') {
+        matchesOperator = l.assignedTo === operatorFilter;
+      }
 
       return matchesSearch && matchesOperator;
     });
@@ -98,11 +105,11 @@ export const AdminView: React.FC<AdminViewProps> = ({ users, leads, calls, onImp
 
   const handleSelectAll = () => {
     if (isAllFilteredSelected) {
-      // Se todos os filtrados estão selecionados, desmarcamos todos os filtrados da lista global de selecionados
+      // Desmarca apenas os que estão visíveis no filtro atual
       const filteredIds = filteredLeads.map(l => l.id);
       setSelectedLeads(prev => prev.filter(id => !filteredIds.includes(id)));
     } else {
-      // Se nem todos estão selecionados, adicionamos todos os filtrados
+      // Adiciona todos os visíveis na seleção global
       const filteredIds = filteredLeads.map(l => l.id);
       setSelectedLeads(prev => {
         const newSelection = [...prev];
@@ -183,12 +190,34 @@ export const AdminView: React.FC<AdminViewProps> = ({ users, leads, calls, onImp
 
       {isTransferring && (
         <div className="fixed inset-0 z-[110] bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-6">
-          <div className="bg-white rounded-[3.5rem] w-full max-w-lg p-10 shadow-2xl"><h3 className="text-xl font-black uppercase italic text-slate-900 mb-8">Transferir {selectedLeads.length} Lead(s)</h3><div className="max-h-96 overflow-y-auto space-y-3"><button onClick={() => handleBulkTransfer(null)} className="w-full p-5 rounded-3xl border-2 border-gray-100 hover:border-amber-400 text-left"><p className="font-black uppercase text-xs text-slate-800">Fila Geral</p></button>{sellers.map(s => (<button key={s.id} onClick={() => handleBulkTransfer(s.id)} className="w-full p-5 rounded-3xl border-2 border-gray-100 hover:border-sky-500 text-left"><p className="font-black uppercase text-xs text-slate-800">{s.nome}</p></button>))}</div><button onClick={() => setIsTransferring(false)} className="mt-6 w-full text-xs font-black uppercase text-gray-400">Cancelar</button></div>
+          <div className="bg-white rounded-[3.5rem] w-full max-w-lg p-10 shadow-2xl animate-in zoom-in-95 duration-300">
+            <h3 className="text-xl font-black uppercase italic text-slate-900 mb-8">Transferir {selectedLeads.length} Lead(s)</h3>
+            <div className="max-h-96 overflow-y-auto space-y-3 pr-2 scrollbar-thin">
+              <button onClick={() => handleBulkTransfer(null)} className="w-full p-5 rounded-3xl border-2 border-gray-100 hover:border-amber-400 hover:bg-amber-50 text-left transition-all"><p className="font-black uppercase text-xs text-slate-800">Fila Geral</p></button>
+              {sellers.map(s => (
+                <button key={s.id} onClick={() => handleBulkTransfer(s.id)} className="w-full p-5 rounded-3xl border-2 border-gray-100 hover:border-sky-500 hover:bg-sky-50 text-left transition-all"><p className="font-black uppercase text-xs text-slate-800">{s.nome}</p></button>
+              ))}
+            </div>
+            <button onClick={() => setIsTransferring(false)} className="mt-6 w-full text-xs font-black uppercase text-gray-400 hover:text-slate-900 transition-colors py-4">Cancelar</button>
+          </div>
         </div>
       )}
 
       {selectedLeads.length > 0 && (
-        <div className="fixed bottom-10 left-1/2 -translate-x-1/2 z-[90] animate-in slide-in-from-bottom-10 duration-500"><div className="bg-slate-900 text-white px-8 py-5 rounded-full shadow-2xl flex items-center gap-8"><span className="bg-sky-600 w-8 h-8 rounded-full flex items-center justify-center font-black text-xs">{selectedLeads.length}</span><button onClick={() => setIsTransferring(true)} className="bg-white text-slate-900 px-6 py-2 rounded-full font-black uppercase text-[10px]">Transferir</button><button onClick={() => onDeleteLeads(selectedLeads)} className="text-red-400 font-black uppercase text-[10px]">Excluir</button></div></div>
+        <div className="fixed bottom-10 left-1/2 -translate-x-1/2 z-[90] animate-in slide-in-from-bottom-10 duration-500">
+          <div className="bg-slate-900 text-white px-8 py-5 rounded-full shadow-[0_20px_50px_rgba(0,0,0,0.3)] flex items-center gap-8 border border-white/10 backdrop-blur-md">
+            <div className="flex items-center gap-3">
+              <span className="bg-sky-500 w-8 h-8 rounded-full flex items-center justify-center font-black text-xs shadow-lg shadow-sky-500/30">{selectedLeads.length}</span>
+              <span className="text-[10px] font-black uppercase tracking-widest text-white/60">Selecionados</span>
+            </div>
+            <div className="h-8 w-px bg-white/10" />
+            <div className="flex items-center gap-4">
+              <button onClick={() => setIsTransferring(true)} className="bg-white text-slate-900 px-6 py-2.5 rounded-full font-black uppercase text-[10px] hover:bg-sky-400 hover:text-white transition-all">Transferir</button>
+              <button onClick={() => onDeleteLeads(selectedLeads)} className="text-red-400 font-black uppercase text-[10px] hover:text-red-300 transition-all px-4">Excluir</button>
+              <button onClick={() => setSelectedLeads([])} className="text-white/40 hover:text-white transition-all"><X size={16} /></button>
+            </div>
+          </div>
+        </div>
       )}
 
       <nav className="flex bg-white p-2 rounded-full border shadow-sm max-w-2xl mx-auto mb-10 overflow-hidden">
@@ -266,61 +295,124 @@ export const AdminView: React.FC<AdminViewProps> = ({ users, leads, calls, onImp
             <button onClick={() => fileInput.current?.click()} className="bg-sky-600 text-white px-10 py-5 rounded-3xl font-black uppercase text-xs">Selecionar Arquivo</button>
             <input type="file" ref={fileInput} onChange={handleFile} accept=".xlsx, .xls" className="hidden" />
           </div>
+
           <div className="bg-white rounded-[3rem] border-2 border-gray-100 overflow-hidden shadow-sm">
-            <div className="p-8 border-b border-gray-100 flex flex-col lg:flex-row gap-4">
-              <div className="relative flex-1">
+            <div className="p-8 border-b border-gray-100 flex flex-col lg:flex-row gap-6 items-center">
+              <div className="relative flex-1 w-full">
                 <Search className="absolute left-6 top-1/2 -translate-y-1/2 text-gray-300 w-5 h-5" />
-                <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Pesquisar por nome, base ou telefone..." className="w-full pl-16 pr-6 py-4 bg-gray-50 rounded-2xl border-2 border-transparent focus:border-sky-600 font-bold outline-none transition-all" />
+                <input 
+                  value={search} 
+                  onChange={e => { setSearch(e.target.value); setSelectedLeads([]); }} 
+                  placeholder="Pesquisar por nome, base ou telefone..." 
+                  className="w-full pl-16 pr-6 py-4 bg-gray-50 rounded-2xl border-2 border-transparent focus:border-sky-600 font-bold outline-none transition-all placeholder:text-gray-300" 
+                />
               </div>
-              <div className="flex items-center gap-3 bg-gray-50 px-6 py-2 rounded-2xl border-2 border-transparent hover:border-sky-100 focus-within:border-sky-600 transition-all">
-                <Filter className="w-4 h-4 text-sky-500" />
-                <select 
-                  value={operatorFilter} 
-                  onChange={e => setOperatorFilter(e.target.value)}
-                  className="bg-transparent font-black text-[10px] uppercase text-slate-700 outline-none h-10 w-full sm:w-48 cursor-pointer"
-                >
-                  <option value="">Todos os Operadores</option>
-                  <option value="none">Fila Geral (Sem Operador)</option>
-                  {sellers.map(s => (
-                    <option key={s.id} value={s.id}>{s.nome}</option>
-                  ))}
-                </select>
+              <div className="flex items-center gap-4 w-full lg:w-auto">
+                <div className="flex items-center gap-3 bg-gray-50 px-6 py-2 rounded-2xl border-2 border-transparent hover:border-sky-200 focus-within:border-sky-600 transition-all flex-1 lg:flex-none">
+                  <ListFilter className="w-4 h-4 text-sky-500" />
+                  <select 
+                    value={operatorFilter} 
+                    onChange={e => { setOperatorFilter(e.target.value); setSelectedLeads([]); }}
+                    className="bg-transparent font-black text-[10px] uppercase text-slate-700 outline-none h-10 w-full sm:w-56 cursor-pointer"
+                  >
+                    <option value="">Filtrar: Todos os Leads</option>
+                    <option value="none">📍 Fila Geral (Sem Operador)</option>
+                    <optgroup label="OPERADORES ATIVOS">
+                      {sellers.map(s => (
+                        <option key={s.id} value={s.id}>👤 {s.nome.toUpperCase()}</option>
+                      ))}
+                    </optgroup>
+                  </select>
+                </div>
+                <div className="bg-sky-50 px-5 py-3 rounded-2xl border border-sky-100 flex flex-col items-center min-w-[100px]">
+                  <span className="text-[8px] font-black text-sky-600 uppercase opacity-60">Encontrados</span>
+                  <span className="text-sm font-black italic text-sky-700">{filteredLeads.length}</span>
+                </div>
               </div>
             </div>
+
             <div className="overflow-x-auto">
               <table className="w-full text-left">
                 <thead className="bg-gray-50 font-black uppercase text-[10px] text-gray-400">
                   <tr>
-                    <th className="px-6 py-6 w-12 text-center cursor-pointer" onClick={handleSelectAll}>
-                      <div className="flex justify-center">
+                    <th className="px-6 py-6 w-16 text-center cursor-pointer select-none group" onClick={handleSelectAll}>
+                      <div className="flex justify-center items-center gap-2">
                         {isAllFilteredSelected ? (
-                          <CheckSquare className="w-5 h-5 text-sky-600" />
+                          <CheckSquare className="w-6 h-6 text-sky-600 animate-in zoom-in-75 duration-200" />
                         ) : (
-                          <Square className="w-5 h-5 text-gray-300" />
+                          <div className="w-6 h-6 border-2 border-gray-300 rounded-lg group-hover:border-sky-400 transition-colors flex items-center justify-center">
+                            {selectedLeads.length > 0 && !isAllFilteredSelected && <div className="w-2 h-2 bg-sky-400 rounded-sm" />}
+                          </div>
                         )}
                       </div>
                     </th>
-                    <th className="px-10 py-6">Lead</th>
-                    <th className="px-10 py-6">Operador</th>
+                    <th className="px-10 py-6">Lead / Cliente</th>
+                    <th className="px-10 py-6">Operador Atribuído</th>
                     <th className="px-10 py-6 text-center">Status</th>
-                    <th className="px-10 py-6 text-right">Ação</th>
+                    <th className="px-10 py-6 text-right">Ações</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
                   {filteredLeads.map(l => (
-                    <tr key={l.id} className={`transition-all ${selectedLeads.includes(l.id) ? 'bg-sky-50' : ''}`}>
+                    <tr key={l.id} className={`transition-all hover:bg-gray-50/50 ${selectedLeads.includes(l.id) ? 'bg-sky-50/50' : ''}`}>
                       <td className="px-6 py-6 text-center">
-                        <input type="checkbox" checked={selectedLeads.includes(l.id)} onChange={() => toggleLeadSelection(l.id)} className="w-5 h-5 accent-sky-600" />
+                        <input 
+                          type="checkbox" 
+                          checked={selectedLeads.includes(l.id)} 
+                          onChange={() => toggleLeadSelection(l.id)} 
+                          className="w-5 h-5 accent-sky-600 cursor-pointer" 
+                        />
                       </td>
-                      <td className="px-10 py-6"><p className="font-black uppercase text-sm">{l.nome}</p><p className="text-[10px] text-sky-600 font-bold">{l.telefone}</p></td>
-                      <td className="px-10 py-6 text-xs font-bold uppercase">{users.find(u => u.id === l.assignedTo)?.nome || 'Fila Geral'}</td>
-                      <td className="px-10 py-6 text-center"><span className="px-3 py-1 bg-amber-50 text-amber-600 rounded-full text-[8px] font-black uppercase border border-amber-100">{l.status}</span></td>
-                      <td className="px-10 py-6 text-right"><button onClick={() => onDeleteLeads([l.id])} className="text-red-500 hover:scale-110 transition-transform"><Trash2 size={16} /></button></td>
+                      <td className="px-10 py-6">
+                        <p className="font-black uppercase text-sm text-slate-800">{l.nome}</p>
+                        <div className="flex items-center gap-2 mt-1">
+                          <span className="text-[10px] text-sky-600 font-bold">{l.telefone}</span>
+                          <span className="text-[9px] text-gray-300 font-bold">•</span>
+                          <span className="text-[9px] text-gray-400 font-black uppercase">{l.base}</span>
+                        </div>
+                      </td>
+                      <td className="px-10 py-6">
+                        <div className="flex items-center gap-2">
+                          {l.assignedTo ? (
+                            <div className="flex items-center gap-2">
+                              <div className="w-2 h-2 rounded-full bg-sky-500" />
+                              <span className="text-xs font-black uppercase text-slate-600">{users.find(u => u.id === l.assignedTo)?.nome}</span>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-2">
+                              <div className="w-2 h-2 rounded-full bg-amber-400" />
+                              <span className="text-xs font-black uppercase text-amber-600">Fila Geral</span>
+                            </div>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-10 py-6 text-center">
+                        <span className={`px-4 py-1.5 rounded-full text-[8px] font-black uppercase border ${
+                          l.status === 'CALLED' 
+                            ? 'bg-emerald-50 text-emerald-600 border-emerald-100' 
+                            : 'bg-amber-50 text-amber-600 border-amber-100'
+                        }`}>
+                          {l.status === 'CALLED' ? 'Chamado' : 'Pendente'}
+                        </span>
+                      </td>
+                      <td className="px-10 py-6 text-right">
+                        <button 
+                          onClick={() => onDeleteLeads([l.id])} 
+                          className="p-3 text-red-300 hover:text-red-500 hover:bg-red-50 rounded-2xl transition-all"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </td>
                     </tr>
                   ))}
                   {filteredLeads.length === 0 && (
                     <tr>
-                      <td colSpan={5} className="py-20 text-center text-gray-300 font-black uppercase text-xs italic">Nenhum lead encontrado com estes filtros</td>
+                      <td colSpan={5} className="py-32 text-center">
+                        <div className="flex flex-col items-center gap-4 opacity-20">
+                          <Database size={64} />
+                          <p className="font-black uppercase text-sm italic">Nenhum lead encontrado com estes filtros</p>
+                        </div>
+                      </td>
                     </tr>
                   )}
                 </tbody>
