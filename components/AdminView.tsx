@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { User, Lead, CallRecord, CallStatus } from '../types';
-import { Users, Database, Power, Search, Trash2, Loader2, FileSpreadsheet, Check, BarChart3, Clock, AlertCircle, Share2, X, ChevronRight, Inbox, Award, Layers, LayoutGrid, CalendarDays, RotateCcw, Filter, CheckSquare, Square, ListFilter } from 'lucide-react';
+import { Users, Database, Power, Search, Trash2, Loader2, FileSpreadsheet, Check, BarChart3, Clock, AlertCircle, Share2, X, ChevronRight, Inbox, Award, Layers, LayoutGrid, CalendarDays, RotateCcw, Filter, CheckSquare, Square, ListFilter, Activity } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import * as XLSX from 'xlsx';
 
@@ -22,6 +22,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ users, leads, calls, onImp
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [search, setSearch] = useState('');
   const [operatorFilter, setOperatorFilter] = useState<string>(''); // '' = todos, 'none' = fila geral
+  const [statusFilter, setStatusFilter] = useState<string>(''); // '' = todos, 'PENDING', 'CALLED'
   const [pendingLeads, setPendingLeads] = useState<Lead[] | null>(null);
   const [target, setTarget] = useState<'none' | 'online' | string>('none');
   const [loading, setLoading] = useState(false);
@@ -76,10 +77,10 @@ export const AdminView: React.FC<AdminViewProps> = ({ users, leads, calls, onImp
       .sort((a, b) => b.callCount - a.callCount);
   }, [sellers, filteredCalls, leads]);
 
-  // Lógica de Filtragem REFORMULADA para precisão absoluta
+  // Lógica de Filtragem com suporte a Status e Operador absoluto
   const filteredLeads = useMemo(() => {
     return leads.filter(l => {
-      // 1. Filtro de Texto (Nome, Telefone ou Base)
+      // 1. Filtro de Texto
       const searchTerm = search.toLowerCase().trim();
       const matchesSearch = searchTerm === '' || 
         l.nome.toLowerCase().includes(searchTerm) || 
@@ -88,22 +89,23 @@ export const AdminView: React.FC<AdminViewProps> = ({ users, leads, calls, onImp
       
       if (!matchesSearch) return false;
 
-      // 2. Filtro de Operador (Regras Estritas)
+      // 2. Filtro de Status
+      const matchesStatus = statusFilter === '' || l.status === statusFilter;
+      if (!matchesStatus) return false;
+
+      // 3. Filtro de Operador (Regras Estritas)
       if (operatorFilter === '') {
-        return true; // "Todos os Leads" selecionado
+        return true; 
       }
       
       if (operatorFilter === 'none') {
-        // FILA GERAL: Só retorna leads onde assignedTo é null, undefined ou vazio
         return l.assignedTo === null || l.assignedTo === undefined || l.assignedTo === '';
       }
 
-      // VENDEDOR ESPECÍFICO: Só retorna se o ID for exatamente igual ao filtro
       return l.assignedTo === operatorFilter;
     });
-  }, [leads, search, operatorFilter]);
+  }, [leads, search, operatorFilter, statusFilter]);
 
-  // Função para verificar se todos os leads filtrados estão selecionados
   const isAllFilteredSelected = useMemo(() => {
     if (filteredLeads.length === 0) return false;
     return filteredLeads.every(l => selectedLeads.includes(l.id));
@@ -175,10 +177,9 @@ export const AdminView: React.FC<AdminViewProps> = ({ users, leads, calls, onImp
     }
   };
 
-  // Limpa seleção ao trocar de aba ou filtro para evitar erros
   useEffect(() => {
     setSelectedLeads([]);
-  }, [tab, operatorFilter]);
+  }, [tab, operatorFilter, statusFilter]);
 
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-top-4 duration-700 relative">
@@ -306,7 +307,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ users, leads, calls, onImp
           </div>
 
           <div className="bg-white rounded-[3rem] border-2 border-gray-100 overflow-hidden shadow-sm">
-            <div className="p-8 border-b border-gray-100 flex flex-col lg:flex-row gap-6 items-center">
+            <div className="p-8 border-b border-gray-100 flex flex-col gap-6">
               <div className="relative flex-1 w-full">
                 <Search className="absolute left-6 top-1/2 -translate-y-1/2 text-gray-300 w-5 h-5" />
                 <input 
@@ -316,15 +317,16 @@ export const AdminView: React.FC<AdminViewProps> = ({ users, leads, calls, onImp
                   className="w-full pl-16 pr-6 py-4 bg-gray-50 rounded-2xl border-2 border-transparent focus:border-sky-600 font-bold outline-none transition-all placeholder:text-gray-300" 
                 />
               </div>
-              <div className="flex items-center gap-4 w-full lg:w-auto">
-                <div className="flex items-center gap-3 bg-gray-50 px-6 py-2 rounded-2xl border-2 border-sky-200 focus-within:border-sky-600 transition-all flex-1 lg:flex-none">
+              <div className="flex flex-col md:flex-row items-center gap-4 w-full">
+                {/* Filtro de Operador */}
+                <div className="flex items-center gap-3 bg-gray-50 px-6 py-2 rounded-2xl border-2 border-sky-200 focus-within:border-sky-600 transition-all flex-1 w-full">
                   <ListFilter className="w-4 h-4 text-sky-500" />
                   <select 
                     value={operatorFilter} 
                     onChange={e => setOperatorFilter(e.target.value)}
-                    className="bg-transparent font-black text-[10px] uppercase text-slate-700 outline-none h-10 w-full sm:w-64 cursor-pointer"
+                    className="bg-transparent font-black text-[10px] uppercase text-slate-700 outline-none h-10 w-full cursor-pointer"
                   >
-                    <option value="">Filtrar: Exibir Todos os Leads</option>
+                    <option value="">Operadores: Todos</option>
                     <option value="none">📍 Fila Geral (Sem Operador)</option>
                     <optgroup label="VENDEDORES ESPECÍFICOS">
                       {sellers.map(s => (
@@ -333,7 +335,23 @@ export const AdminView: React.FC<AdminViewProps> = ({ users, leads, calls, onImp
                     </optgroup>
                   </select>
                 </div>
-                <div className="bg-sky-50 px-5 py-3 rounded-2xl border border-sky-100 flex flex-col items-center min-w-[120px]">
+
+                {/* Filtro de Status */}
+                <div className="flex items-center gap-3 bg-gray-50 px-6 py-2 rounded-2xl border-2 border-sky-200 focus-within:border-sky-600 transition-all flex-1 w-full">
+                  <Activity className="w-4 h-4 text-sky-500" />
+                  <select 
+                    value={statusFilter} 
+                    onChange={e => setStatusFilter(e.target.value)}
+                    className="bg-transparent font-black text-[10px] uppercase text-slate-700 outline-none h-10 w-full cursor-pointer"
+                  >
+                    <option value="">Status: Todos</option>
+                    <option value="PENDING">🕒 Somente Pendentes</option>
+                    <option value="CALLED">📞 Somente Ligados</option>
+                  </select>
+                </div>
+
+                {/* Badge de Resultados */}
+                <div className="bg-sky-50 px-5 py-3 rounded-2xl border border-sky-100 flex flex-col items-center min-w-[120px] w-full md:w-auto">
                   <span className="text-[8px] font-black text-sky-600 uppercase opacity-60">Resultados</span>
                   <span className="text-sm font-black italic text-sky-700">{filteredLeads.length}</span>
                 </div>
@@ -419,7 +437,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ users, leads, calls, onImp
                       <td colSpan={5} className="py-32 text-center">
                         <div className="flex flex-col items-center gap-4 opacity-20">
                           <Database size={64} />
-                          <p className="font-black uppercase text-sm italic">Nenhum lead encontrado para este operador</p>
+                          <p className="font-black uppercase text-sm italic">Nenhum lead encontrado com estes filtros</p>
                         </div>
                       </td>
                     </tr>
