@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { User, Lead, CallRecord } from './types';
+import { User, Lead, CallRecord, Sale } from './types';
 import { Layout } from './components/Layout';
 import { SellerView } from './components/SellerView';
 import { AdminView } from './components/AdminView';
@@ -12,6 +12,7 @@ const STORAGE_KEYS = {
   USERS: 'lp_users_db',
   LEADS: 'lp_leads_db',
   CALLS: 'lp_calls_db',
+  SALES: 'lp_sales_db',
   SESSION: 'lp_session_db'
 };
 
@@ -20,21 +21,19 @@ const App: React.FC = () => {
   const [users, setUsers] = useState<User[]>([]);
   const [leads, setLeads] = useState<Lead[]>([]);
   const [calls, setCalls] = useState<CallRecord[]>([]);
+  const [sales, setSales] = useState<Sale[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
   const [isRegistering, setIsRegistering] = useState(false);
   
-  // Form states
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [nome, setNome] = useState('');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
-  // Função auxiliar para buscar TODOS os registros ignorando o limite de 1000 do Supabase
   const fetchAllFromTable = async (tableName: string) => {
     let allData: any[] = [];
-    let errorOccurred = false;
     let from = 0;
     const step = 1000;
     let hasMore = true;
@@ -44,57 +43,46 @@ const App: React.FC = () => {
         .from(tableName)
         .select('*')
         .range(from, from + step - 1)
-        .order(tableName === 'calls' ? 'timestamp' : 'createdAt', { ascending: false });
+        .order(tableName === 'calls' || tableName === 'sales' ? 'created_at' : 'createdAt', { ascending: false });
 
-      if (error) {
-        console.error(`Erro ao buscar ${tableName}:`, error);
-        errorOccurred = true;
-        break;
-      }
-
+      if (error) break;
       if (data && data.length > 0) {
         allData = [...allData, ...data];
-        if (data.length < step) {
-          hasMore = false;
-        } else {
-          from += step;
-        }
+        if (data.length < step) hasMore = false;
+        else from += step;
       } else {
         hasMore = false;
       }
-      
-      // Safety break para evitar loops infinitos caso algo dê errado
       if (from > 50000) break; 
     }
-
-    return errorOccurred ? null : allData;
+    return allData;
   };
 
   const syncData = useCallback(async () => {
     setIsSyncing(true);
     try {
-      // Busca usuários (geralmente poucos, não precisa de paginação agressiva)
       const { data: dbUsers } = await supabase.from('users').select('*');
-      
-      // Busca Leads e Chamadas com paginação para quebrar o limite de 1000
-      const [dbLeads, dbCalls] = await Promise.all([
+      const [dbLeads, dbCalls, dbSales] = await Promise.all([
         fetchAllFromTable('leads'),
-        fetchAllFromTable('calls')
+        fetchAllFromTable('calls'),
+        fetchAllFromTable('sales')
       ]);
 
       if (dbUsers) {
         setUsers(dbUsers);
         localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(dbUsers));
       }
-      
       if (dbLeads) {
         setLeads(dbLeads);
         localStorage.setItem(STORAGE_KEYS.LEADS, JSON.stringify(dbLeads));
       }
-
       if (dbCalls) {
         setCalls(dbCalls);
         localStorage.setItem(STORAGE_KEYS.CALLS, JSON.stringify(dbCalls));
+      }
+      if (dbSales) {
+        setSales(dbSales);
+        localStorage.setItem(STORAGE_KEYS.SALES, JSON.stringify(dbSales));
       }
 
       const storedSession = localStorage.getItem(STORAGE_KEYS.SESSION);
@@ -103,31 +91,37 @@ const App: React.FC = () => {
         if (sessionUser) setCurrentUser(sessionUser);
       }
     } catch (err) {
-      console.error('Erro geral na sincronização:', err);
-      // Fallback para cache local em caso de erro de rede
-      const cachedUsers = localStorage.getItem(STORAGE_KEYS.USERS);
-      const cachedLeads = localStorage.getItem(STORAGE_KEYS.LEADS);
-      const cachedCalls = localStorage.getItem(STORAGE_KEYS.CALLS);
-      if (cachedUsers) setUsers(JSON.parse(cachedUsers));
-      if (cachedLeads) setLeads(JSON.parse(cachedLeads));
-      if (cachedCalls) setCalls(JSON.parse(cachedCalls));
+      console.error('Erro sincronização:', err);
     } finally {
       setIsSyncing(false);
       setIsLoading(false);
     }
   }, []);
 
-  useEffect(() => {
-    syncData();
-  }, [syncData]);
+  useEffect(() => { syncData(); }, [syncData]);
+
+  const handleRegisterSale = async (saleData: Omit<Sale, 'id' | 'created_at'>) => {
+    const newSale = {
+      ...saleData,
+      id: crypto.randomUUID(),
+      created_at: new Date().toISOString()
+    };
+    
+    try {
+      await supabase.from('sales').insert([newSale]);
+      setSales(prev => [newSale, ...prev]);
+    } catch (err) {
+      console.error('Erro ao registrar venda:', err);
+      throw err;
+    }
+  };
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
     setError('');
-    
     try {
-      const { data: user, error: loginError } = await supabase
+      const { data: user } = await supabase
         .from('users')
         .select('*')
         .eq('email', email.toLowerCase().trim())
@@ -137,35 +131,18 @@ const App: React.FC = () => {
       if (user) {
         setCurrentUser(user);
         localStorage.setItem(STORAGE_KEYS.SESSION, user.id);
-        setError('');
       } else {
         setError('E-MAIL OU SENHA INCORRETOS.');
       }
     } catch (err) {
-      setError('ERRO DE CONEXÃO COM O SERVIDOR.');
-    } finally {
-      setIsLoading(false);
-    }
+      setError('ERRO DE CONEXÃO.');
+    } finally { setIsLoading(false); }
   };
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
-    setError('');
-    
     try {
-      const { data: existing } = await supabase
-        .from('users')
-        .select('id')
-        .eq('email', email.toLowerCase().trim())
-        .maybeSingle();
-
-      if (existing) {
-        setError('ESTE E-MAIL JÁ ESTÁ CADASTRADO.');
-        setIsLoading(false);
-        return;
-      }
-
       const newUser = {
         id: crypto.randomUUID(),
         nome,
@@ -174,25 +151,11 @@ const App: React.FC = () => {
         tipo: 'vendedor',
         online: true
       };
-
-      const { error: regError } = await supabase.from('users').insert([newUser]);
-
-      if (regError) throw regError;
-
-      setSuccess('CADASTRO REALIZADO COM SUCESSO!');
-      setTimeout(() => {
-        setSuccess('');
-        setIsRegistering(false);
-        setPassword('');
-        syncData();
-      }, 2000);
-      
-    } catch (err) {
-      setError('ERRO AO REALIZAR CADASTRO.');
-      console.error(err);
-    } finally {
-      setIsLoading(false);
-    }
+      await supabase.from('users').insert([newUser]);
+      setSuccess('CADASTRO REALIZADO!');
+      setTimeout(() => { setIsRegistering(false); syncData(); }, 2000);
+    } catch (err) { setError('ERRO AO CADASTRAR.'); }
+    finally { setIsLoading(false); }
   };
 
   const handleLogout = () => {
@@ -203,15 +166,12 @@ const App: React.FC = () => {
   const handleLogCall = async (call: CallRecord) => {
     setLeads(prev => prev.map(l => l.id === call.leadId ? { ...l, status: 'CALLED' as const } : l));
     setCalls(prev => [call, ...prev]);
-
     try {
       await Promise.all([
         supabase.from('calls').insert([call]),
         supabase.from('leads').update({ status: 'CALLED' }).eq('id', call.leadId)
       ]);
-    } catch (err) {
-      console.error('Erro ao registrar chamada no Supabase:', err);
-    }
+    } catch (err) { console.error('Erro call:', err); }
   };
 
   const handleImportLeads = async (newLeads: Lead[], target: 'none' | 'online' | string) => {
@@ -223,80 +183,52 @@ const App: React.FC = () => {
         ? users.filter(u => u.tipo === 'vendedor' && u.online)[idx % (users.filter(u => u.tipo === 'vendedor' && u.online).length || 1)]?.id || null
         : (target === 'none' ? null : target)
     }));
-
     try {
       await supabase.from('leads').insert(leadsWithData);
       setLeads(prev => [...leadsWithData, ...prev]);
-    } catch (err) {
-      console.error('Erro ao importar leads para o Supabase:', err);
-    }
+    } catch (err) { console.error('Erro import:', err); }
   };
 
   const handleTransferLeads = async (leadIds: string[], userId: string | null) => {
     setIsSyncing(true);
     try {
-      await supabase
-        .from('leads')
-        .update({ assignedTo: userId })
-        .in('id', leadIds);
-
-      setLeads(prev => prev.map(l => 
-        leadIds.includes(l.id) ? { ...l, assignedTo: userId } : l
-      ));
-    } catch (err) {
-      console.error('Erro ao transferir leads:', err);
-      alert("Erro ao realizar transferência.");
-    } finally {
-      setIsSyncing(false);
-    }
+      await supabase.from('leads').update({ assignedTo: userId }).in('id', leadIds);
+      setLeads(prev => prev.map(l => leadIds.includes(l.id) ? { ...l, assignedTo: userId } : l));
+    } finally { setIsSyncing(false); }
   };
 
   const handleDeleteLeads = async (leadIds: string[]) => {
-    if (!confirm(`Tem certeza que deseja excluir ${leadIds.length} lead(s)?`)) return;
+    if (!confirm(`Excluir ${leadIds.length} lead(s)?`)) return;
     setIsSyncing(true);
     try {
       await supabase.from('leads').delete().in('id', leadIds);
       setLeads(prev => prev.filter(l => !leadIds.includes(l.id)));
-    } catch (err) {
-      console.error('Erro ao excluir leads:', err);
-      alert("Erro ao excluir leads.");
-    } finally {
-      setIsSyncing(false);
-    }
+    } finally { setIsSyncing(false); }
   };
 
   const handleToggleUser = async (id: string) => {
     const user = users.find(u => u.id === id);
     if (!user) return;
-
     const newStatus = !user.online;
-    try {
-      await supabase.from('users').update({ online: newStatus }).eq('id', id);
-      setUsers(prev => prev.map(u => u.id === id ? { ...u, online: newStatus } : u));
-    } catch (err) {
-      console.error('Erro ao atualizar status do usuário no Supabase:', err);
-    }
+    await supabase.from('users').update({ online: newStatus }).eq('id', id);
+    setUsers(prev => prev.map(u => u.id === id ? { ...u, online: newStatus } : u));
   };
 
   const handleDeleteUser = async (id: string) => {
-    if (!confirm("Remover este usuário definitivamente?")) return;
-    try {
-      await supabase.from('users').delete().eq('id', id);
-      setUsers(prev => prev.filter(u => u.id !== id));
-    } catch (err) {
-      console.error('Erro ao excluir usuário no Supabase:', err);
-    }
+    if (!confirm("Remover usuário?")) return;
+    await supabase.from('users').delete().eq('id', id);
+    setUsers(prev => prev.filter(u => u.id !== id));
   };
 
   if (isLoading && !isRegistering && !email) return (
     <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center gap-4">
       <Loader2 className="animate-spin text-sky-500 w-12 h-12" />
-      <span className="text-white/40 text-[10px] font-black uppercase tracking-[0.3em]">Sincronizando Banco de Dados...</span>
+      <span className="text-white/40 text-[10px] font-black uppercase tracking-[0.3em]">Carregando Sistema...</span>
     </div>
   );
 
   if (!currentUser) return (
-    <div className="min-h-screen bg-slate-950 flex items-center justify-center p-6 selection:bg-red-200">
+    <div className="min-h-screen bg-slate-950 flex items-center justify-center p-6">
       <div className="w-full max-w-sm bg-white p-10 sm:p-14 rounded-[3.5rem] shadow-2xl flex flex-col items-center border border-white/10 relative overflow-hidden animate-in zoom-in-95 duration-300">
         <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-red-600 via-sky-600 to-red-600"></div>
         <Logo size={90} />
@@ -304,80 +236,38 @@ const App: React.FC = () => {
           <span className="text-red-600">LIGAÇÕES</span>
           <span className="text-sky-600">PORTAL</span>
         </h1>
-        
-        {error && (
-          <div className="w-full animate-in zoom-in-95 duration-200">
-            <p className="text-red-600 text-[11px] font-black uppercase mb-6 bg-red-50 w-full py-4 rounded-3xl text-center border-2 border-red-100">
-              {error}
-            </p>
-          </div>
-        )}
-
-        {success && (
-          <div className="w-full animate-in zoom-in-95 duration-200">
-            <p className="text-emerald-600 text-[11px] font-black uppercase mb-6 bg-emerald-50 w-full py-4 rounded-3xl text-center border-2 border-emerald-100">
-              {success}
-            </p>
-          </div>
-        )}
+        {error && <p className="text-red-600 text-[11px] font-black uppercase mb-6 bg-red-50 w-full py-4 rounded-3xl text-center border-2 border-red-100">{error}</p>}
+        {success && <p className="text-emerald-600 text-[11px] font-black uppercase mb-6 bg-emerald-50 w-full py-4 rounded-3xl text-center border-2 border-emerald-100">{success}</p>}
 
         {isRegistering ? (
-          <form onSubmit={handleRegister} className="space-y-4 w-full animate-in slide-in-from-right-4 duration-300">
-             <div className="space-y-1">
-              <label className="text-[10px] font-black text-gray-400 uppercase ml-5">Nome Completo</label>
-              <input type="text" placeholder="Ex: João Silva" value={nome} onChange={e => setNome(e.target.value)} className="w-full p-5 bg-gray-50 border-2 border-gray-100 rounded-3xl outline-none focus:border-sky-600 focus:bg-white font-bold transition-all text-center placeholder:text-gray-300" required />
-            </div>
-            <div className="space-y-1">
-              <label className="text-[10px] font-black text-gray-400 uppercase ml-5">E-mail Corporativo</label>
-              <input type="email" placeholder="seu@portal.com" value={email} onChange={e => setEmail(e.target.value)} className="w-full p-5 bg-gray-50 border-2 border-gray-100 rounded-3xl outline-none focus:border-sky-600 focus:bg-white font-bold transition-all text-center placeholder:text-gray-300" required />
-            </div>
-            <div className="space-y-1">
-              <label className="text-[10px] font-black text-gray-400 uppercase ml-5">Criar Senha</label>
-              <input type="password" placeholder="••••••••" value={password} onChange={e => setPassword(e.target.value)} className="w-full p-5 bg-gray-50 border-2 border-gray-100 rounded-3xl outline-none focus:border-sky-600 focus:bg-white font-bold transition-all text-center placeholder:text-gray-300" required />
-            </div>
-            <button disabled={isLoading} className="w-full bg-sky-600 text-white py-6 rounded-3xl font-black uppercase italic shadow-xl shadow-sky-100 hover:bg-sky-700 hover:shadow-2xl transition-all active:scale-95 mt-4 flex items-center justify-center gap-2">
-              {isLoading ? <Loader2 className="animate-spin w-5 h-5" /> : <><UserPlus className="w-5 h-5" /> Finalizar Cadastro</>}
-            </button>
-            <button type="button" onClick={() => { setIsRegistering(false); setError(''); }} className="w-full text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center justify-center gap-2 pt-2 hover:text-gray-600 transition-colors">
-              <ArrowLeft className="w-3 h-3" /> Voltar para o Login
-            </button>
+          <form onSubmit={handleRegister} className="space-y-4 w-full">
+            <input type="text" placeholder="Nome Completo" value={nome} onChange={e => setNome(e.target.value)} className="w-full p-5 bg-gray-50 border-2 border-gray-100 rounded-3xl font-bold text-center" required />
+            <input type="email" placeholder="seu@portal.com" value={email} onChange={e => setEmail(e.target.value)} className="w-full p-5 bg-gray-50 border-2 border-gray-100 rounded-3xl font-bold text-center" required />
+            <input type="password" placeholder="Senha" value={password} onChange={e => setPassword(e.target.value)} className="w-full p-5 bg-gray-50 border-2 border-gray-100 rounded-3xl font-bold text-center" required />
+            <button disabled={isLoading} className="w-full bg-sky-600 text-white py-6 rounded-3xl font-black uppercase italic shadow-xl shadow-sky-100 hover:bg-sky-700 transition-all">Finalizar Cadastro</button>
+            <button type="button" onClick={() => setIsRegistering(false)} className="w-full text-[10px] font-black text-gray-400 uppercase tracking-widest pt-2">Voltar para o Login</button>
           </form>
         ) : (
-          <form onSubmit={handleLogin} className="space-y-4 w-full animate-in slide-in-from-left-4 duration-300">
-            <div className="space-y-1">
-              <label className="text-[10px] font-black text-gray-400 uppercase ml-5">E-mail Corporativo</label>
-              <input type="email" placeholder="seu@portal.com" value={email} onChange={e => setEmail(e.target.value)} className="w-full p-5 bg-gray-50 border-2 border-gray-100 rounded-3xl outline-none focus:border-sky-600 focus:bg-white font-bold transition-all text-center placeholder:text-gray-300" required />
-            </div>
-            <div className="space-y-1">
-              <label className="text-[10px] font-black text-gray-400 uppercase ml-5">Senha de Acesso</label>
-              <input type="password" placeholder="••••••••" value={password} onChange={e => setPassword(e.target.value)} className="w-full p-5 bg-gray-50 border-2 border-gray-100 rounded-3xl outline-none focus:border-sky-600 focus:bg-white font-bold transition-all text-center placeholder:text-gray-300" required />
-            </div>
-            <button disabled={isLoading} className="w-full bg-red-600 text-white py-6 rounded-3xl font-black uppercase italic shadow-xl shadow-red-100 hover:bg-red-700 hover:shadow-2xl transition-all active:scale-95 mt-4 flex items-center justify-center gap-2">
-              {isLoading ? <Loader2 className="animate-spin w-5 h-5" /> : 'LOGIN'}
-            </button>
-            <button type="button" onClick={() => { setIsRegistering(true); setError(''); }} className="w-full py-5 border-2 border-gray-100 text-gray-500 rounded-3xl font-black uppercase text-[10px] tracking-widest hover:bg-gray-50 transition-all flex items-center justify-center gap-2">
-              <UserPlus className="w-4 h-4" /> Cadastrar Vendedor
-            </button>
+          <form onSubmit={handleLogin} className="space-y-4 w-full">
+            <input type="email" placeholder="seu@portal.com" value={email} onChange={e => setEmail(e.target.value)} className="w-full p-5 bg-gray-50 border-2 border-gray-100 rounded-3xl font-bold text-center" required />
+            <input type="password" placeholder="Sua Senha" value={password} onChange={e => setPassword(e.target.value)} className="w-full p-5 bg-gray-50 border-2 border-gray-100 rounded-3xl font-bold text-center" required />
+            <button disabled={isLoading} className="w-full bg-red-600 text-white py-6 rounded-3xl font-black uppercase italic shadow-xl shadow-red-100 hover:bg-red-700 transition-all">LOGIN</button>
+            <button type="button" onClick={() => setIsRegistering(true)} className="w-full py-5 border-2 border-gray-100 text-gray-500 rounded-3xl font-black uppercase text-[10px] tracking-widest hover:bg-gray-50 transition-all">Cadastrar Vendedor</button>
           </form>
         )}
-        
-        <p className="mt-8 text-[9px] font-bold text-gray-400 uppercase tracking-widest text-center opacity-60">
-          Infraestrutura Supabase • V.9.5-PAGINATED
-        </p>
       </div>
     </div>
   );
 
   return (
     <Layout user={currentUser} onLogout={handleLogout}>
-      <div className="fixed bottom-8 right-8 z-[60]">
+      <div className="fixed bottom-8 right-8 z-[60] flex flex-col gap-4">
         <button 
           onClick={syncData} 
           disabled={isSyncing}
-          className={`group p-5 bg-white shadow-2xl rounded-full text-sky-600 border-2 border-sky-50 hover:border-sky-200 hover:scale-110 active:scale-90 transition-all ${isSyncing ? 'animate-spin' : ''}`}
-          title="Sincronizar Cloud"
+          className={`p-5 bg-white shadow-2xl rounded-full text-sky-600 border-2 border-sky-50 hover:border-sky-200 transition-all ${isSyncing ? 'animate-spin' : ''}`}
         >
-          <RefreshCw className={`w-6 h-6 transition-transform ${isSyncing ? '' : 'group-hover:rotate-180 duration-500'}`} />
+          <RefreshCw className="w-6 h-6" />
         </button>
       </div>
       {currentUser.tipo === 'adm' ? (
@@ -385,6 +275,7 @@ const App: React.FC = () => {
           users={users} 
           leads={leads} 
           calls={calls} 
+          sales={sales}
           onImportLeads={handleImportLeads} 
           onToggleUserStatus={handleToggleUser} 
           onDeleteUser={handleDeleteUser}
@@ -392,7 +283,14 @@ const App: React.FC = () => {
           onDeleteLeads={handleDeleteLeads}
         />
       ) : (
-        <SellerView user={currentUser} leads={leads} calls={calls} onLogCall={handleLogCall} />
+        <SellerView 
+          user={currentUser} 
+          leads={leads} 
+          calls={calls} 
+          sales={sales}
+          onLogCall={handleLogCall} 
+          onRegisterSale={handleRegisterSale}
+        />
       )}
     </Layout>
   );

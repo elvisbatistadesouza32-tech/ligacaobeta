@@ -5,6 +5,8 @@ export enum CallStatus {
   INVALID_NUMBER = 'INVALID_NUMBER'
 }
 
+export type SaleChannel = 'call' | 'whatsapp';
+
 export interface User {
   id: string;
   nome: string;
@@ -31,4 +33,13 @@ export interface CallRecord {
   status: CallStatus;
   durationSeconds: number;
   timestamp: string;
+}
+
+export interface Sale {
+  id: string;
+  seller_id: string;
+  customer_name: string;
+  amount: number;
+  canal: SaleChannel;
+  created_at: string;
 }
