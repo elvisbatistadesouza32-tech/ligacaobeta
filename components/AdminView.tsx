@@ -35,7 +35,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
 
   const [search, setSearch] = useState('');
   const [filterOperator, setFilterOperator] = useState<string>('all');
-  const [importTarget, setImportTarget] = useState<string>('none'); // Destino do upload
+  const [importTarget, setImportTarget] = useState<string>('none'); 
   const [selectedLeads, setSelectedLeads] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [editingSaleId, setEditingSaleId] = useState<string | null>(null);
@@ -241,61 +241,77 @@ export const AdminView: React.FC<AdminViewProps> = ({
 
       {tab === 'leads' && (
         <div className="space-y-6 animate-in fade-in duration-500">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div className="bg-white p-6 rounded-[2.5rem] border-2 border-gray-100 flex flex-col gap-3">
-              <p className="text-[9px] font-black uppercase text-gray-400 tracking-widest">Importar Leads</p>
-              <div className="relative">
-                <UserPlus className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-300" size={14} />
-                <select 
-                  value={importTarget} 
-                  onChange={e => setImportTarget(e.target.value)}
-                  className="w-full pl-9 pr-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl font-bold uppercase text-[9px] outline-none focus:border-sky-500 transition-all appearance-none"
-                >
-                  <option value="none">ENVIAR PARA FILA GERAL</option>
-                  <option value="online">DISTRIBUIR ENTRE ONLINE</option>
-                  {sellers.map(s => <option key={s.id} value={s.id}>ENVIAR PARA: {s.nome}</option>)}
-                </select>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+            {/* Card de Importação Melhorado */}
+            <div className="bg-white p-8 rounded-[3rem] border-2 border-gray-100 flex flex-col gap-5 shadow-sm hover:shadow-md transition-shadow">
+              <div>
+                <p className="text-xs font-black uppercase text-gray-400 tracking-[0.2em] mb-4">Importar Novos Leads</p>
+                <div className="relative group">
+                  <div className="absolute left-4 top-1/2 -translate-y-1/2 text-sky-500 group-focus-within:scale-110 transition-transform">
+                    <UserPlus size={18} />
+                  </div>
+                  <select 
+                    value={importTarget} 
+                    onChange={e => setImportTarget(e.target.value)}
+                    className="w-full pl-12 pr-6 py-5 bg-gray-50 border-2 border-gray-100 rounded-[1.5rem] font-black uppercase text-xs outline-none focus:border-sky-500 focus:bg-white transition-all appearance-none cursor-pointer"
+                  >
+                    <option value="none">ENVIAR PARA FILA GERAL</option>
+                    <option value="online">DISTRIBUIR ENTRE ONLINE</option>
+                    {sellers.map(s => <option key={s.id} value={s.id}>ENVIAR PARA: {s.nome}</option>)}
+                  </select>
+                </div>
               </div>
-              <button onClick={() => fileInput.current?.click()} className="w-full py-4 bg-sky-600 text-white rounded-2xl font-black uppercase text-[10px] flex items-center justify-center gap-2 shadow-lg shadow-sky-100 active:scale-95 transition-all">
-                {loading ? <Loader2 className="animate-spin" /> : <FileSpreadsheet size={16} />} Selecionar XLSX
+              
+              <button 
+                onClick={() => fileInput.current?.click()} 
+                className="w-full py-6 bg-sky-600 text-white rounded-[1.5rem] font-black uppercase italic text-sm flex items-center justify-center gap-3 shadow-xl shadow-sky-100 hover:bg-sky-700 hover:-translate-y-1 active:scale-95 transition-all"
+              >
+                {loading ? <Loader2 className="animate-spin" /> : <FileSpreadsheet size={20} />} 
+                Selecionar XLSX
               </button>
               <input ref={fileInput} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={handleFileUpload} />
             </div>
-            <div className="bg-white p-6 rounded-[2.5rem] border-2 border-gray-100">
-              <p className="text-[9px] font-black uppercase text-gray-400 mb-3 tracking-widest">Busca Rápida</p>
+
+            <div className="bg-white p-8 rounded-[3rem] border-2 border-gray-100 flex flex-col justify-center">
+              <p className="text-xs font-black uppercase text-gray-400 mb-4 tracking-[0.2em]">Busca Rápida</p>
               <div className="relative">
-                <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-300" size={16} />
-                <input value={search} onChange={e => setSearch(e.target.value)} className="w-full pl-10 pr-4 py-4 bg-gray-50 rounded-2xl font-bold uppercase text-[10px] outline-none border-2 border-transparent focus:border-sky-500 transition-all" placeholder="Nome, base..." />
+                <Search className="absolute left-5 top-1/2 -translate-y-1/2 text-gray-300" size={20} />
+                <input value={search} onChange={e => setSearch(e.target.value)} className="w-full pl-14 pr-6 py-5 bg-gray-50 rounded-[1.5rem] font-black uppercase text-xs outline-none border-2 border-transparent focus:border-sky-500 focus:bg-white transition-all" placeholder="NOME OU BASE..." />
               </div>
             </div>
-            <div className="bg-white p-6 rounded-[2.5rem] border-2 border-gray-100">
-              <p className="text-[9px] font-black uppercase text-gray-400 mb-3 tracking-widest">Filtrar Operador</p>
+
+            <div className="bg-white p-8 rounded-[3rem] border-2 border-gray-100 flex flex-col justify-center">
+              <p className="text-xs font-black uppercase text-gray-400 mb-4 tracking-[0.2em]">Filtrar Operador</p>
               <div className="relative">
-                <Filter className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-300" size={16} />
-                <select value={filterOperator} onChange={e => setFilterOperator(e.target.value)} className="w-full pl-10 pr-4 py-4 bg-gray-50 rounded-2xl font-bold uppercase text-[10px] outline-none border-2 border-transparent focus:border-sky-500 appearance-none">
+                <Filter className="absolute left-5 top-1/2 -translate-y-1/2 text-gray-300" size={20} />
+                <select value={filterOperator} onChange={e => setFilterOperator(e.target.value)} className="w-full pl-14 pr-6 py-5 bg-gray-50 rounded-[1.5rem] font-black uppercase text-xs outline-none border-2 border-transparent focus:border-sky-500 appearance-none cursor-pointer focus:bg-white transition-all">
                   <option value="all">TODOS OPERADORES</option>
                   <option value="none">FILA GERAL (SEM DONO)</option>
                   {sellers.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
                 </select>
               </div>
             </div>
-            <div className="bg-amber-500 p-6 rounded-[2.5rem] text-white flex flex-col justify-center text-center shadow-lg shadow-amber-100">
-              <p className="text-[9px] font-black uppercase opacity-60 mb-1">Filtrados / Total</p>
-              <p className="text-2xl font-black italic">{currentLeads.filter(l => l.status === 'PENDING').length} <span className="text-sm opacity-40">/ {leads.filter(l => l.status === 'PENDING').length}</span></p>
+
+            <div className="bg-amber-500 p-8 rounded-[3rem] text-white flex flex-col justify-center text-center shadow-lg shadow-amber-100">
+              <p className="text-xs font-black uppercase opacity-60 mb-2 tracking-widest">Leads Pendentes</p>
+              <p className="text-4xl font-black italic tracking-tighter">
+                {currentLeads.filter(l => l.status === 'PENDING').length} 
+                <span className="text-lg opacity-40 ml-2">/ {leads.filter(l => l.status === 'PENDING').length}</span>
+              </p>
             </div>
           </div>
 
           {selectedLeads.length > 0 && (
             <div className="bg-slate-900 p-6 rounded-[2rem] flex items-center justify-between text-white animate-in slide-in-from-top-4">
-              <p className="font-black uppercase text-[10px] italic">{selectedLeads.length} selecionados</p>
-              <div className="flex gap-3">
-                <select onChange={e => { onTransferLeads(selectedLeads, e.target.value === 'none' ? null : e.target.value); setSelectedLeads([]); }} className="bg-white/10 px-4 py-2 rounded-xl font-black uppercase text-[9px] outline-none border border-white/10 focus:border-white/40">
+              <p className="font-black uppercase text-sm italic">{selectedLeads.length} selecionados</p>
+              <div className="flex gap-4">
+                <select onChange={e => { onTransferLeads(selectedLeads, e.target.value === 'none' ? null : e.target.value); setSelectedLeads([]); }} className="bg-white/10 px-6 py-3 rounded-xl font-black uppercase text-xs outline-none border border-white/10 focus:border-white/40">
                   <option value="">Transferir para...</option>
                   <option value="none">Fila Geral</option>
                   {sellers.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
                 </select>
-                <button onClick={() => { onDeleteLeads(selectedLeads); setSelectedLeads([]); }} className="bg-red-500 p-2 rounded-xl hover:bg-red-600 transition-colors"><Trash2 size={16} /></button>
-                <button onClick={() => setSelectedLeads([])} className="text-white/40"><Ban size={16} /></button>
+                <button onClick={() => { onDeleteLeads(selectedLeads); setSelectedLeads([]); }} className="bg-red-500 p-3 rounded-xl hover:bg-red-600 transition-colors shadow-lg shadow-red-500/20"><Trash2 size={20} /></button>
+                <button onClick={() => setSelectedLeads([])} className="text-white/40 hover:text-white transition-colors"><Ban size={20} /></button>
               </div>
             </div>
           )}
@@ -303,27 +319,27 @@ export const AdminView: React.FC<AdminViewProps> = ({
           <div className="bg-white rounded-[3rem] border-2 border-gray-100 overflow-hidden shadow-sm">
             <div className="overflow-x-auto">
               <table className="w-full text-left">
-                <thead className="bg-gray-50 text-[10px] font-black uppercase text-gray-400">
+                <thead className="bg-gray-50 text-xs font-black uppercase text-gray-400">
                   <tr>
-                    <th className="px-10 py-6 w-10">
-                      <input type="checkbox" checked={selectedLeads.length > 0 && selectedLeads.length === currentLeads.length} onChange={e => setSelectedLeads(e.target.checked ? currentLeads.map(l => l.id) : [])} />
+                    <th className="px-10 py-8 w-10">
+                      <input type="checkbox" className="w-5 h-5 rounded-lg" checked={selectedLeads.length > 0 && selectedLeads.length === currentLeads.length} onChange={e => setSelectedLeads(e.target.checked ? currentLeads.map(l => l.id) : [])} />
                     </th>
-                    <th className="px-10 py-6">Lead</th>
-                    <th className="px-10 py-6">Operador</th>
-                    <th className="px-10 py-6 text-center">Status</th>
+                    <th className="px-10 py-8">Lead</th>
+                    <th className="px-10 py-8">Operador</th>
+                    <th className="px-10 py-8 text-center">Status</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
                   {currentLeads.slice(0, 100).map(l => (
-                    <tr key={l.id} className="hover:bg-gray-50 transition-colors">
-                      <td className="px-10 py-6"><input type="checkbox" checked={selectedLeads.includes(l.id)} onChange={e => setSelectedLeads(prev => e.target.checked ? [...prev, l.id] : prev.filter(id => id !== l.id))} /></td>
-                      <td className="px-10 py-6">
-                        <p className="font-black uppercase text-sm">{l.nome}</p>
-                        <span className="text-[9px] font-bold text-sky-400">{l.telefone} • {l.base}</span>
+                    <tr key={l.id} className="hover:bg-gray-50 transition-colors group">
+                      <td className="px-10 py-7"><input type="checkbox" className="w-5 h-5 rounded-lg" checked={selectedLeads.includes(l.id)} onChange={e => setSelectedLeads(prev => e.target.checked ? [...prev, l.id] : prev.filter(id => id !== l.id))} /></td>
+                      <td className="px-10 py-7">
+                        <p className="font-black uppercase text-base text-slate-800 group-hover:text-sky-600 transition-colors">{l.nome}</p>
+                        <span className="text-xs font-bold text-sky-400 tracking-wider">{l.telefone} • {l.base}</span>
                       </td>
-                      <td className="px-10 py-6 text-xs font-black uppercase text-slate-500">{l.assignedTo ? users.find(u => u.id === l.assignedTo)?.nome : 'Disponível'}</td>
-                      <td className="px-10 py-6 text-center">
-                        <span className={`px-4 py-1.5 rounded-full text-[8px] font-black uppercase border ${l.status === 'CALLED' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-amber-50 text-amber-600 border-amber-100'}`}>
+                      <td className="px-10 py-7 text-sm font-black uppercase text-slate-500">{l.assignedTo ? users.find(u => u.id === l.assignedTo)?.nome : 'Disponível'}</td>
+                      <td className="px-10 py-7 text-center">
+                        <span className={`px-6 py-2 rounded-full text-[10px] font-black uppercase border-2 ${l.status === 'CALLED' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-amber-50 text-amber-600 border-amber-100'}`}>
                           {l.status === 'CALLED' ? 'Chamado' : 'Pendente'}
                         </span>
                       </td>
@@ -340,27 +356,27 @@ export const AdminView: React.FC<AdminViewProps> = ({
         <div className="max-w-4xl mx-auto space-y-6 animate-in fade-in duration-500">
           <div className="bg-white rounded-[3rem] border-2 border-gray-100 overflow-hidden shadow-sm">
             <table className="w-full text-left">
-              <thead className="bg-gray-50 text-[10px] font-black uppercase text-gray-400">
-                <tr><th className="px-10 py-6">Vendedor</th><th className="px-10 py-6 text-center">Fila Atual</th><th className="px-10 py-6 text-right">Ações</th></tr>
+              <thead className="bg-gray-50 text-xs font-black uppercase text-gray-400">
+                <tr><th className="px-10 py-8">Vendedor</th><th className="px-10 py-8 text-center">Fila Atual</th><th className="px-10 py-8 text-right">Ações</th></tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
                 {users.map(u => (
                   <tr key={u.id} className="hover:bg-gray-50 transition-colors">
-                    <td className="px-10 py-6">
-                      <div className="flex items-center gap-3">
-                        <div className={`w-3 h-3 rounded-full ${u.online ? 'bg-emerald-500 animate-pulse' : 'bg-gray-300'}`} />
-                        <p className="font-black uppercase text-sm">{u.nome}</p>
+                    <td className="px-10 py-7">
+                      <div className="flex items-center gap-4">
+                        <div className={`w-4 h-4 rounded-full ${u.online ? 'bg-emerald-500 animate-pulse' : 'bg-gray-300'}`} />
+                        <p className="font-black uppercase text-base text-slate-800">{u.nome}</p>
                       </div>
                     </td>
-                    <td className="px-10 py-6 text-center font-black text-sky-600">
+                    <td className="px-10 py-7 text-center font-black text-xl text-sky-600">
                       {leads.filter(l => l.assignedTo === u.id && l.status === 'PENDING').length}
                     </td>
-                    <td className="px-10 py-6 text-right flex justify-end gap-2">
-                      <button onClick={() => onClearSellerLeads(u.id)} className="p-3 bg-red-50 text-red-500 rounded-xl border border-red-100 hover:bg-red-500 hover:text-white transition-all group relative" title="Zerar Leads do Vendedor">
-                        <RotateCcw size={16} />
+                    <td className="px-10 py-7 text-right flex justify-end gap-3">
+                      <button onClick={() => onClearSellerLeads(u.id)} className="p-4 bg-red-50 text-red-500 rounded-2xl border-2 border-red-100 hover:bg-red-500 hover:text-white transition-all group relative" title="Zerar Leads do Vendedor">
+                        <RotateCcw size={18} />
                       </button>
-                      <button onClick={() => onToggleUserStatus(u.id)} className={`p-3 rounded-xl border-2 transition-all ${u.online ? 'bg-emerald-50 border-emerald-100 text-emerald-600' : 'bg-gray-100 text-gray-400'}`}>
-                        <Power size={16} />
+                      <button onClick={() => onToggleUserStatus(u.id)} className={`p-4 rounded-2xl border-2 transition-all ${u.online ? 'bg-emerald-50 border-emerald-100 text-emerald-600' : 'bg-gray-100 text-gray-400'}`}>
+                        <Power size={18} />
                       </button>
                     </td>
                   </tr>
@@ -375,30 +391,30 @@ export const AdminView: React.FC<AdminViewProps> = ({
         <div className="animate-in fade-in duration-500 space-y-6">
           <div className="bg-white rounded-[3rem] border-2 border-gray-100 overflow-hidden shadow-sm">
             <table className="w-full text-left">
-              <thead className="bg-gray-50 text-[10px] font-black uppercase text-gray-400">
-                <tr><th className="px-10 py-6">Vendedor</th><th className="px-10 py-6">Cliente</th><th className="px-10 py-6 text-right">Valor</th><th className="px-10 py-6 text-right">Ação</th></tr>
+              <thead className="bg-gray-50 text-xs font-black uppercase text-gray-400">
+                <tr><th className="px-10 py-8">Vendedor</th><th className="px-10 py-8">Cliente</th><th className="px-10 py-8 text-right">Valor</th><th className="px-10 py-8 text-right">Ação</th></tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
                 {sales.map(s => (
                   <tr key={s.id} className="hover:bg-gray-50">
-                    <td className="px-10 py-6 font-black uppercase text-xs">{users.find(u => u.id === s.seller_id)?.nome}</td>
-                    <td className="px-10 py-6 font-black uppercase text-[10px] text-slate-500">{s.customer_name}</td>
-                    <td className="px-10 py-6 text-right font-black italic text-emerald-600">
+                    <td className="px-10 py-7 font-black uppercase text-sm">{users.find(u => u.id === s.seller_id)?.nome}</td>
+                    <td className="px-10 py-7 font-black uppercase text-xs text-slate-500">{s.customer_name}</td>
+                    <td className="px-10 py-7 text-right font-black italic text-lg text-emerald-600">
                       {editingSaleId === s.id ? (
-                        <input value={editAmount} onChange={e => setEditAmount(e.target.value)} className="w-24 p-2 border-2 border-sky-500 rounded-lg text-right outline-none" autoFocus />
+                        <input value={editAmount} onChange={e => setEditAmount(e.target.value)} className="w-32 p-3 border-2 border-sky-500 rounded-xl text-right outline-none font-black" autoFocus />
                       ) : `R$ ${s.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`}
                     </td>
-                    <td className="px-10 py-6 text-right">
-                      <div className="flex justify-end gap-2">
+                    <td className="px-10 py-7 text-right">
+                      <div className="flex justify-end gap-3">
                         {editingSaleId === s.id ? (
                           <>
-                            <button onClick={() => { onUpdateSale(s.id, parseFloat(editAmount.replace(',', '.'))); setEditingSaleId(null); }} className="p-2 bg-emerald-500 text-white rounded-lg"><Save size={14} /></button>
-                            <button onClick={() => setEditingSaleId(null)} className="p-2 bg-gray-200 text-gray-500 rounded-lg"><X size={14} /></button>
+                            <button onClick={() => { onUpdateSale(s.id, parseFloat(editAmount.replace(',', '.'))); setEditingSaleId(null); }} className="p-3 bg-emerald-500 text-white rounded-xl"><Save size={18} /></button>
+                            <button onClick={() => setEditingSaleId(null)} className="p-3 bg-gray-200 text-gray-500 rounded-xl"><X size={18} /></button>
                           </>
                         ) : (
                           <>
-                            <button onClick={() => { setEditingSaleId(s.id); setEditAmount(s.amount.toString()); }} className="p-2 text-sky-600 hover:bg-sky-50 rounded-lg"><Edit3 size={14} /></button>
-                            <button onClick={() => onDeleteSale(s.id)} className="p-2 text-red-500 hover:bg-red-50 rounded-lg"><Trash2 size={14} /></button>
+                            <button onClick={() => { setEditingSaleId(s.id); setEditAmount(s.amount.toString()); }} className="p-3 text-sky-600 hover:bg-sky-50 rounded-xl border-2 border-transparent hover:border-sky-100"><Edit3 size={18} /></button>
+                            <button onClick={() => onDeleteSale(s.id)} className="p-3 text-red-500 hover:bg-red-50 rounded-xl border-2 border-transparent hover:border-red-100"><Trash2 size={18} /></button>
                           </>
                         )}
                       </div>
