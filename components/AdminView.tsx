@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { User, Lead, CallRecord, CallStatus } from '../types';
 import { Users, Database, Power, Search, Trash2, Loader2, FileSpreadsheet, Check, BarChart3, Clock, AlertCircle, Share2, X, ChevronRight, Inbox, Award, Layers, LayoutGrid, CalendarDays, RotateCcw, Filter, CheckSquare, Square, ListFilter } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
@@ -76,24 +76,30 @@ export const AdminView: React.FC<AdminViewProps> = ({ users, leads, calls, onImp
       .sort((a, b) => b.callCount - a.callCount);
   }, [sellers, filteredCalls, leads]);
 
+  // Lógica de Filtragem REFORMULADA para precisão absoluta
   const filteredLeads = useMemo(() => {
     return leads.filter(l => {
-      // Filtro de Texto
+      // 1. Filtro de Texto (Nome, Telefone ou Base)
       const searchTerm = search.toLowerCase().trim();
       const matchesSearch = searchTerm === '' || 
         l.nome.toLowerCase().includes(searchTerm) || 
         l.telefone.includes(searchTerm) ||
         l.base.toLowerCase().includes(searchTerm);
       
-      // Filtro de Operador (Lógica Corrigida)
-      let matchesOperator = true;
+      if (!matchesSearch) return false;
+
+      // 2. Filtro de Operador (Regras Estritas)
+      if (operatorFilter === '') {
+        return true; // "Todos os Leads" selecionado
+      }
+      
       if (operatorFilter === 'none') {
-        matchesOperator = !l.assignedTo;
-      } else if (operatorFilter !== '') {
-        matchesOperator = l.assignedTo === operatorFilter;
+        // FILA GERAL: Só retorna leads onde assignedTo é null, undefined ou vazio
+        return l.assignedTo === null || l.assignedTo === undefined || l.assignedTo === '';
       }
 
-      return matchesSearch && matchesOperator;
+      // VENDEDOR ESPECÍFICO: Só retorna se o ID for exatamente igual ao filtro
+      return l.assignedTo === operatorFilter;
     });
   }, [leads, search, operatorFilter]);
 
@@ -105,11 +111,9 @@ export const AdminView: React.FC<AdminViewProps> = ({ users, leads, calls, onImp
 
   const handleSelectAll = () => {
     if (isAllFilteredSelected) {
-      // Desmarca apenas os que estão visíveis no filtro atual
       const filteredIds = filteredLeads.map(l => l.id);
       setSelectedLeads(prev => prev.filter(id => !filteredIds.includes(id)));
     } else {
-      // Adiciona todos os visíveis na seleção global
       const filteredIds = filteredLeads.map(l => l.id);
       setSelectedLeads(prev => {
         const newSelection = [...prev];
@@ -171,6 +175,11 @@ export const AdminView: React.FC<AdminViewProps> = ({ users, leads, calls, onImp
     }
   };
 
+  // Limpa seleção ao trocar de aba ou filtro para evitar erros
+  useEffect(() => {
+    setSelectedLeads([]);
+  }, [tab, operatorFilter]);
+
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-top-4 duration-700 relative">
       
@@ -205,7 +214,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ users, leads, calls, onImp
 
       {selectedLeads.length > 0 && (
         <div className="fixed bottom-10 left-1/2 -translate-x-1/2 z-[90] animate-in slide-in-from-bottom-10 duration-500">
-          <div className="bg-slate-900 text-white px-8 py-5 rounded-full shadow-[0_20px_50px_rgba(0,0,0,0.3)] flex items-center gap-8 border border-white/10 backdrop-blur-md">
+          <div className="bg-slate-900 text-white px-8 py-5 rounded-full shadow-[0_20px_50px_rgba(0,0,0,0.5)] flex items-center gap-8 border border-white/10 backdrop-blur-md">
             <div className="flex items-center gap-3">
               <span className="bg-sky-500 w-8 h-8 rounded-full flex items-center justify-center font-black text-xs shadow-lg shadow-sky-500/30">{selectedLeads.length}</span>
               <span className="text-[10px] font-black uppercase tracking-widest text-white/60">Selecionados</span>
@@ -226,7 +235,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ users, leads, calls, onImp
           { id: 'leads', label: 'Leads', icon: Database },
           { id: 'users', label: 'Equipe', icon: Users }
         ].map((t) => (
-          <button key={t.id} onClick={() => { setTab(t.id as any); setSelectedLeads([]); }} className={`flex-1 flex items-center justify-center gap-2 py-3.5 rounded-full font-black text-[10px] uppercase transition-all duration-300 ${tab === t.id ? 'bg-sky-600 text-white shadow-xl shadow-sky-100 translate-y-[-2px]' : 'text-gray-400 hover:bg-gray-50'}`}>
+          <button key={t.id} onClick={() => setTab(t.id as any)} className={`flex-1 flex items-center justify-center gap-2 py-3.5 rounded-full font-black text-[10px] uppercase transition-all duration-300 ${tab === t.id ? 'bg-sky-600 text-white shadow-xl shadow-sky-100 translate-y-[-2px]' : 'text-gray-400 hover:bg-gray-50'}`}>
             <t.icon className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">{t.label}</span>
           </button>
@@ -302,30 +311,30 @@ export const AdminView: React.FC<AdminViewProps> = ({ users, leads, calls, onImp
                 <Search className="absolute left-6 top-1/2 -translate-y-1/2 text-gray-300 w-5 h-5" />
                 <input 
                   value={search} 
-                  onChange={e => { setSearch(e.target.value); setSelectedLeads([]); }} 
+                  onChange={e => setSearch(e.target.value)} 
                   placeholder="Pesquisar por nome, base ou telefone..." 
                   className="w-full pl-16 pr-6 py-4 bg-gray-50 rounded-2xl border-2 border-transparent focus:border-sky-600 font-bold outline-none transition-all placeholder:text-gray-300" 
                 />
               </div>
               <div className="flex items-center gap-4 w-full lg:w-auto">
-                <div className="flex items-center gap-3 bg-gray-50 px-6 py-2 rounded-2xl border-2 border-transparent hover:border-sky-200 focus-within:border-sky-600 transition-all flex-1 lg:flex-none">
+                <div className="flex items-center gap-3 bg-gray-50 px-6 py-2 rounded-2xl border-2 border-sky-200 focus-within:border-sky-600 transition-all flex-1 lg:flex-none">
                   <ListFilter className="w-4 h-4 text-sky-500" />
                   <select 
                     value={operatorFilter} 
-                    onChange={e => { setOperatorFilter(e.target.value); setSelectedLeads([]); }}
-                    className="bg-transparent font-black text-[10px] uppercase text-slate-700 outline-none h-10 w-full sm:w-56 cursor-pointer"
+                    onChange={e => setOperatorFilter(e.target.value)}
+                    className="bg-transparent font-black text-[10px] uppercase text-slate-700 outline-none h-10 w-full sm:w-64 cursor-pointer"
                   >
-                    <option value="">Filtrar: Todos os Leads</option>
+                    <option value="">Filtrar: Exibir Todos os Leads</option>
                     <option value="none">📍 Fila Geral (Sem Operador)</option>
-                    <optgroup label="OPERADORES ATIVOS">
+                    <optgroup label="VENDEDORES ESPECÍFICOS">
                       {sellers.map(s => (
                         <option key={s.id} value={s.id}>👤 {s.nome.toUpperCase()}</option>
                       ))}
                     </optgroup>
                   </select>
                 </div>
-                <div className="bg-sky-50 px-5 py-3 rounded-2xl border border-sky-100 flex flex-col items-center min-w-[100px]">
-                  <span className="text-[8px] font-black text-sky-600 uppercase opacity-60">Encontrados</span>
+                <div className="bg-sky-50 px-5 py-3 rounded-2xl border border-sky-100 flex flex-col items-center min-w-[120px]">
+                  <span className="text-[8px] font-black text-sky-600 uppercase opacity-60">Resultados</span>
                   <span className="text-sm font-black italic text-sky-700">{filteredLeads.length}</span>
                 </div>
               </div>
@@ -336,12 +345,12 @@ export const AdminView: React.FC<AdminViewProps> = ({ users, leads, calls, onImp
                 <thead className="bg-gray-50 font-black uppercase text-[10px] text-gray-400">
                   <tr>
                     <th className="px-6 py-6 w-16 text-center cursor-pointer select-none group" onClick={handleSelectAll}>
-                      <div className="flex justify-center items-center gap-2">
+                      <div className="flex justify-center items-center">
                         {isAllFilteredSelected ? (
                           <CheckSquare className="w-6 h-6 text-sky-600 animate-in zoom-in-75 duration-200" />
                         ) : (
-                          <div className="w-6 h-6 border-2 border-gray-300 rounded-lg group-hover:border-sky-400 transition-colors flex items-center justify-center">
-                            {selectedLeads.length > 0 && !isAllFilteredSelected && <div className="w-2 h-2 bg-sky-400 rounded-sm" />}
+                          <div className={`w-6 h-6 border-2 rounded-lg group-hover:border-sky-400 transition-colors flex items-center justify-center ${selectedLeads.length > 0 ? 'border-sky-300 bg-sky-50' : 'border-gray-300'}`}>
+                            {selectedLeads.length > 0 && <div className="w-2 h-2 bg-sky-400 rounded-sm" />}
                           </div>
                         )}
                       </div>
@@ -368,15 +377,15 @@ export const AdminView: React.FC<AdminViewProps> = ({ users, leads, calls, onImp
                         <div className="flex items-center gap-2 mt-1">
                           <span className="text-[10px] text-sky-600 font-bold">{l.telefone}</span>
                           <span className="text-[9px] text-gray-300 font-bold">•</span>
-                          <span className="text-[9px] text-gray-400 font-black uppercase">{l.base}</span>
+                          <span className="text-[9px] text-gray-400 font-black uppercase tracking-tighter">{l.base}</span>
                         </div>
                       </td>
                       <td className="px-10 py-6">
                         <div className="flex items-center gap-2">
                           {l.assignedTo ? (
                             <div className="flex items-center gap-2">
-                              <div className="w-2 h-2 rounded-full bg-sky-500" />
-                              <span className="text-xs font-black uppercase text-slate-600">{users.find(u => u.id === l.assignedTo)?.nome}</span>
+                              <div className="w-2 h-2 rounded-full bg-sky-500 shadow-[0_0_8px_rgba(14,165,233,0.4)]" />
+                              <span className="text-xs font-black uppercase text-slate-600">{users.find(u => u.id === l.assignedTo)?.nome || 'Vendedor Removido'}</span>
                             </div>
                           ) : (
                             <div className="flex items-center gap-2">
@@ -410,7 +419,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ users, leads, calls, onImp
                       <td colSpan={5} className="py-32 text-center">
                         <div className="flex flex-col items-center gap-4 opacity-20">
                           <Database size={64} />
-                          <p className="font-black uppercase text-sm italic">Nenhum lead encontrado com estes filtros</p>
+                          <p className="font-black uppercase text-sm italic">Nenhum lead encontrado para este operador</p>
                         </div>
                       </td>
                     </tr>
