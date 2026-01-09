@@ -32,21 +32,34 @@ export const AdminView: React.FC<AdminViewProps> = ({ users, leads, calls, sales
   const sellers = useMemo(() => users.filter(u => u.tipo === 'vendedor'), [users]);
   
   const filteredCalls = useMemo(() => {
-    return calls.filter(c => viewMode === 'day' ? c.timestamp.startsWith(date) : c.timestamp.startsWith(date.slice(0, 7)));
+    return calls.filter(c => {
+      // Tenta pegar a data de timestamp ou created_at (fallback para Supabase)
+      const callDateStr = c.timestamp || (c as any).created_at;
+      if (!callDateStr) return false;
+      
+      const filterValue = viewMode === 'day' ? date : date.slice(0, 7);
+      return callDateStr.startsWith(filterValue);
+    });
   }, [calls, date, viewMode]);
 
   const filteredSales = useMemo(() => {
-    return sales.filter(s => viewMode === 'day' ? s.created_at.startsWith(date) : s.created_at.startsWith(date.slice(0, 7)));
+    return sales.filter(s => {
+      const saleDateStr = s.created_at;
+      if (!saleDateStr) return false;
+      
+      const filterValue = viewMode === 'day' ? date : date.slice(0, 7);
+      return saleDateStr.startsWith(filterValue);
+    });
   }, [sales, date, viewMode]);
 
   const stats = useMemo(() => {
     const totalVendido = filteredSales.reduce((acc, s) => acc + s.amount, 0);
     const qtdVendas = filteredSales.length;
     
-    // Cálculo dos indicadores de chamadas que estavam zerados
-    const ans = filteredCalls.filter(c => c.status === CallStatus.ANSWERED).length;
-    const noAns = filteredCalls.filter(c => c.status === CallStatus.NO_ANSWER).length;
-    const inv = filteredCalls.filter(c => c.status === CallStatus.INVALID_NUMBER).length;
+    // Filtros de status com normalização para maiúsculas
+    const ans = filteredCalls.filter(c => String(c.status).toUpperCase() === 'ANSWERED').length;
+    const noAns = filteredCalls.filter(c => String(c.status).toUpperCase() === 'NO_ANSWER').length;
+    const inv = filteredCalls.filter(c => String(c.status).toUpperCase() === 'INVALID_NUMBER').length;
     
     const totalCalls = filteredCalls.length;
     const getPct = (val: number) => totalCalls > 0 ? ((val / totalCalls) * 100).toFixed(0) : '0';
@@ -123,7 +136,6 @@ export const AdminView: React.FC<AdminViewProps> = ({ users, leads, calls, sales
             </div>
           </div>
 
-          {/* Cards de Indicadores Financeiros e de Chamadas */}
           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
             <div className="bg-emerald-600 p-8 rounded-[2.5rem] text-white shadow-xl col-span-2 lg:col-span-1 relative overflow-hidden flex flex-col justify-center">
               <DollarSign className="absolute -right-4 -bottom-4 w-24 h-24 opacity-10" />
