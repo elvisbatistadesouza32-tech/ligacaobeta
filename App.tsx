@@ -62,7 +62,14 @@ const App: React.FC = () => {
         if (payload.eventType === 'INSERT') setCalls(prev => [payload.new as CallRecord, ...prev]);
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'sales' }, (payload) => {
-        if (payload.eventType === 'INSERT') setSales(prev => [payload.new as Sale, ...prev]);
+        if (payload.eventType === 'INSERT') {
+          // Evita duplicatas se o handleRegisterSale já inseriu localmente
+          setSales(prev => {
+            const exists = prev.some(s => s.id === payload.new.id);
+            if (exists) return prev;
+            return [payload.new as Sale, ...prev];
+          });
+        }
         if (payload.eventType === 'UPDATE') setSales(prev => prev.map(s => s.id === payload.new.id ? (payload.new as Sale) : s));
         if (payload.eventType === 'DELETE') setSales(prev => prev.filter(s => s.id !== payload.old.id));
       })
@@ -81,7 +88,11 @@ const App: React.FC = () => {
 
   const handleRegisterSale = async (saleData: Omit<Sale, 'id' | 'created_at'>) => {
     const newSale = { ...saleData, id: crypto.randomUUID(), created_at: new Date().toISOString() };
-    await supabase.from('sales').insert([newSale]);
+    const { error } = await supabase.from('sales').insert([newSale]);
+    if (!error) {
+      // Atualiza localmente para feedback instantâneo no vendedor e admin (se for o mesmo navegador)
+      setSales(prev => [newSale as Sale, ...prev]);
+    }
   };
 
   const handleUpdateSale = async (id: string, amount: number) => {

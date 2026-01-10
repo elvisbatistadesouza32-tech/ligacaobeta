@@ -36,7 +36,6 @@ export const AdminView: React.FC<AdminViewProps> = ({
   const [search, setSearch] = useState('');
   const [filterOperator, setFilterOperator] = useState<string>('all');
   const [importTarget, setImportTarget] = useState<string>('none'); 
-  const [selectedLeads, setSelectedLeads] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [editingSaleId, setEditingSaleId] = useState<string | null>(null);
   const [editAmount, setEditAmount] = useState('');
@@ -44,16 +43,36 @@ export const AdminView: React.FC<AdminViewProps> = ({
 
   const sellers = useMemo(() => users.filter(u => u.tipo === 'vendedor'), [users]);
   
+  // Função auxiliar para extrair a data local (YYYY-MM-DD) de um timestamp ISO
+  const getLocalDatePart = (isoString: string) => {
+    try {
+      const d = new Date(isoString);
+      const offset = d.getTimezoneOffset();
+      const local = new Date(d.getTime() - (offset * 60 * 1000));
+      return local.toISOString().split('T')[0];
+    } catch {
+      return '';
+    }
+  };
+
   const filteredCalls = useMemo(() => {
     const filter = viewMode === 'day' ? date : date.slice(0, 7);
-    return calls.filter(c => (c.timestamp || (c as any).created_at)?.includes(filter));
+    return calls.filter(c => {
+      const callDate = getLocalDatePart(c.timestamp || (c as any).created_at);
+      return callDate.startsWith(filter);
+    });
   }, [calls, date, viewMode]);
 
-  const stats = useMemo(() => {
+  const periodSales = useMemo(() => {
     const filter = viewMode === 'day' ? date : date.slice(0, 7);
-    const periodSales = sales.filter(s => s.created_at.includes(filter));
+    return sales.filter(s => {
+      const saleDate = getLocalDatePart(s.created_at);
+      return saleDate.startsWith(filter);
+    });
+  }, [sales, date, viewMode]);
+
+  const stats = useMemo(() => {
     const totalVendido = periodSales.reduce((acc, s) => acc + Number(s.amount), 0);
-    
     const total = filteredCalls.length;
     
     const getCount = (st: string) => filteredCalls.filter(c => String(c.status).toUpperCase() === st).length;
@@ -72,28 +91,28 @@ export const AdminView: React.FC<AdminViewProps> = ({
       noAns: { count: noAnsCount, pct: pct(noAnsCount) },
       invalid: { count: invalidCount, pct: pct(invalidCount) }
     };
-  }, [filteredCalls, sales, date, viewMode]);
+  }, [filteredCalls, periodSales]);
 
   const topSellersByValue = useMemo(() => {
-    const filter = viewMode === 'day' ? date : date.slice(0, 7);
-    const periodSales = sales.filter(s => s.created_at.includes(filter));
-    
     return sellers.map(s => {
       const sellerSales = periodSales.filter(sa => sa.seller_id === s.id);
       const totalValue = sellerSales.reduce((acc, sa) => acc + Number(sa.amount), 0);
       return { ...s, totalValue, count: sellerSales.length };
-    }).sort((a, b) => b.totalValue - a.totalValue).slice(0, 5);
-  }, [sellers, sales, date, viewMode]);
+    })
+    .sort((a, b) => b.totalValue - a.totalValue)
+    .slice(0, 10); // Mostra até o TOP 10
+  }, [sellers, periodSales]);
 
   const hourlyEffectiveness = useMemo(() => {
-    if (calls.length < 50) return null;
+    if (calls.length < 20) return null;
     const hours = Array.from({ length: 24 }, (_, i) => ({
       hour: `${String(i).padStart(2, '0')}h`,
       total: 0,
       answered: 0
     }));
     calls.forEach(c => {
-      const h = new Date(c.timestamp).getHours();
+      const d = new Date(c.timestamp);
+      const h = d.getHours();
       hours[h].total++;
       if (String(c.status).toUpperCase() === 'ANSWERED') {
         hours[h].answered++;
@@ -102,7 +121,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
     return hours.map(h => ({
       ...h,
       effectiveness: h.total > 0 ? Math.round((h.answered / h.total) * 100) : 0
-    })).filter(h => h.total > 2);
+    })).filter(h => h.total > 0);
   }, [calls]);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -385,7 +404,15 @@ export const AdminView: React.FC<AdminViewProps> = ({
                     <td className="px-10 py-7 font-black uppercase text-xs text-slate-500">{s.customer_name}</td>
                     <td className="px-10 py-7 text-right font-black italic text-lg text-emerald-600">
                       {editingSaleId === s.id ? (
-                        <input value={editAmount} onChange={e => setEditAmount(e.target.value)} className="w-32 p-3 border-2 border-sky-500 rounded-xl text-right outline-none font-black" autoFocus />
+                        <div className="flex items-center justify-end gap-2">
+                          <input 
+                            value={editAmount} 
+                            onChange={e => setEditAmount(e.target.value)} 
+                            className="w-32 p-3 border-2 border-sky-500 rounded-xl text-right outline-none font-black" 
+                            autoFocus 
+                          />
+                          <button onClick={() => { onUpdateSale(s.id, parseFloat(editAmount)); setEditingSaleId(null); }} className="p-2 bg-sky-500 text-white rounded-lg"><Save size={16}/></button>
+                        </div>
                       ) : `R$ ${Number(s.amount).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`}
                     </td>
                     <td className="px-10 py-7 text-right flex justify-end gap-3">
