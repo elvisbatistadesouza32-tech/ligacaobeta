@@ -1,7 +1,7 @@
 
-import React from 'react';
+import React, { useState } from 'react';
 import { User } from '../types';
-import { LogOut } from 'lucide-react';
+import { LogOut, RefreshCw } from 'lucide-react';
 import { Logo } from './Logo';
 
 interface LayoutProps {
@@ -11,7 +11,17 @@ interface LayoutProps {
 }
 
 export const Layout: React.FC<LayoutProps> = ({ user, onLogout, children }) => {
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
   if (!user) return null;
+
+  const handleUpdate = () => {
+    setIsRefreshing(true);
+    // Pequeno delay para feedback visual da animação antes do reload
+    setTimeout(() => {
+      window.location.reload();
+    }, 600);
+  };
 
   return (
     <div className="min-h-screen flex flex-col bg-gray-50/50">
@@ -24,14 +34,27 @@ export const Layout: React.FC<LayoutProps> = ({ user, onLogout, children }) => {
               <span className="text-sky-600">PORTAL</span>
             </h1>
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2 sm:gap-4">
             <div className="text-right hidden sm:block">
               <p className="text-sm font-black uppercase text-gray-900 leading-none">{user.nome}</p>
               <span className="text-[10px] font-bold text-sky-600 uppercase tracking-widest">{user.tipo === 'adm' ? 'Administrador' : 'Vendedor'}</span>
             </div>
+            
+            {/* Botão Atualizar App */}
+            <button 
+              onClick={handleUpdate}
+              disabled={isRefreshing}
+              className={`p-3 bg-sky-50/50 hover:bg-sky-50 text-sky-600 rounded-2xl transition-all border border-sky-100/50 hover:border-sky-200 flex items-center gap-2 group active:scale-95 ${isRefreshing ? 'opacity-50 cursor-not-allowed' : ''}`}
+              title="Atualizar Aplicativo"
+            >
+              <RefreshCw className={`w-5 h-5 ${isRefreshing ? 'animate-spin text-sky-400' : 'group-hover:rotate-180 transition-transform duration-700'}`} />
+              <span className="hidden md:inline text-[10px] font-black uppercase tracking-widest">Atualizar</span>
+            </button>
+
+            {/* Botão Sair */}
             <button 
               onClick={onLogout} 
-              className="p-3 bg-red-50/50 hover:bg-red-50 text-red-500 rounded-2xl transition-all border border-red-100/50 hover:border-red-200"
+              className="p-3 bg-red-50/50 hover:bg-red-50 text-red-500 rounded-2xl transition-all border border-red-100/50 hover:border-red-200 active:scale-95"
               title="Sair do sistema"
             >
               <LogOut className="w-5 h-5" />
