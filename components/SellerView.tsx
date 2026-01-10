@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { Lead, CallStatus, CallRecord, User, Sale, SaleChannel } from '../types';
-import { Phone, CheckCircle, Ban, Loader2, PhoneForwarded, X, HelpCircle, PhoneOff, History, ListChecks, Clock, RotateCcw, Target, Zap, DollarSign, MessageCircle } from 'lucide-react';
+import { Phone, CheckCircle, Ban, Loader2, PhoneForwarded, X, HelpCircle, PhoneOff, History, ListChecks, Clock, RotateCcw, Target, Zap, DollarSign, MessageCircle, TrendingUp } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
@@ -37,7 +37,15 @@ export const SellerView: React.FC<SellerViewProps> = ({ user, leads, calls, sale
   const myAssignedLeads = useMemo(() => leads.filter(l => l.assignedTo === user.id), [leads, user.id]);
   const myLeads = useMemo(() => myAssignedLeads.filter(l => l.status === 'PENDING'), [myAssignedLeads]);
   const myCalledCount = useMemo(() => myAssignedLeads.filter(l => l.status === 'CALLED').length, [myAssignedLeads]);
-  const mySales = useMemo(() => sales.filter(s => s.seller_id === user.id), [sales, user.id]);
+  
+  const mySalesStats = useMemo(() => {
+    const mySales = sales.filter(s => s.seller_id === user.id);
+    const totalValue = mySales.reduce((acc, s) => acc + Number(s.amount), 0);
+    return {
+      count: mySales.length,
+      value: totalValue
+    };
+  }, [sales, user.id]);
   
   const totalLeads = myAssignedLeads.length;
   const progressPercent = totalLeads > 0 ? Math.round((myCalledCount / totalLeads) * 100) : 0;
@@ -163,18 +171,22 @@ export const SellerView: React.FC<SellerViewProps> = ({ user, leads, calls, sale
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-4">
-        <div className="bg-sky-600 p-8 rounded-[2.5rem] text-white shadow-xl shadow-sky-100">
-          <p className="text-[10px] uppercase font-black opacity-60 mb-1">Chamadas</p>
-          <p className="text-4xl font-black italic tracking-tighter">{myHistory.length}</p>
+      <div className="grid grid-cols-3 gap-3">
+        <div className="bg-sky-600 p-6 rounded-[2rem] text-white shadow-xl shadow-sky-100">
+          <p className="text-[9px] uppercase font-black opacity-60 mb-1 leading-tight">Calls</p>
+          <p className="text-2xl font-black italic tracking-tighter">{myHistory.length}</p>
         </div>
-        <div className="bg-emerald-500 p-8 rounded-[2.5rem] text-white shadow-xl shadow-emerald-100">
-          <p className="text-[10px] uppercase font-black opacity-60 mb-1">Minhas Vendas</p>
-          <p className="text-4xl font-black italic tracking-tighter">{mySales.length}</p>
+        <div className="bg-slate-900 p-6 rounded-[2rem] text-white shadow-xl">
+          <p className="text-[9px] uppercase font-black opacity-60 mb-1 leading-tight">Vendas</p>
+          <p className="text-2xl font-black italic tracking-tighter">{mySalesStats.count}</p>
+        </div>
+        <div className="bg-emerald-500 p-6 rounded-[2rem] text-white shadow-xl shadow-emerald-100">
+          <p className="text-[9px] uppercase font-black opacity-60 mb-1 leading-tight">Valor</p>
+          <p className="text-xl font-black italic tracking-tighter">R$ {mySalesStats.value.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}</p>
         </div>
       </div>
 
-      {/* Modal Operadora e Chamada mantidos idênticos... */}
+      {/* Modal Operadora e Chamada */}
       {carrier && (
         <div className="fixed inset-0 z-[100] bg-slate-950/80 backdrop-blur-xl flex items-center justify-center p-6">
           <div className="bg-white rounded-[3.5rem] w-full max-w-xs p-10 shadow-2xl">

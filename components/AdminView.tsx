@@ -52,7 +52,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
   const stats = useMemo(() => {
     const filter = viewMode === 'day' ? date : date.slice(0, 7);
     const periodSales = sales.filter(s => s.created_at.includes(filter));
-    const totalVendido = periodSales.reduce((acc, s) => acc + s.amount, 0);
+    const totalVendido = periodSales.reduce((acc, s) => acc + Number(s.amount), 0);
     
     const total = filteredCalls.length;
     
@@ -74,8 +74,19 @@ export const AdminView: React.FC<AdminViewProps> = ({
     };
   }, [filteredCalls, sales, date, viewMode]);
 
+  const topSellersByValue = useMemo(() => {
+    const filter = viewMode === 'day' ? date : date.slice(0, 7);
+    const periodSales = sales.filter(s => s.created_at.includes(filter));
+    
+    return sellers.map(s => {
+      const sellerSales = periodSales.filter(sa => sa.seller_id === s.id);
+      const totalValue = sellerSales.reduce((acc, sa) => acc + Number(sa.amount), 0);
+      return { ...s, totalValue, count: sellerSales.length };
+    }).sort((a, b) => b.totalValue - a.totalValue).slice(0, 5);
+  }, [sellers, sales, date, viewMode]);
+
   const hourlyEffectiveness = useMemo(() => {
-    if (calls.length < 100) return null;
+    if (calls.length < 50) return null;
     const hours = Array.from({ length: 24 }, (_, i) => ({
       hour: `${String(i).padStart(2, '0')}h`,
       total: 0,
@@ -91,7 +102,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
     return hours.map(h => ({
       ...h,
       effectiveness: h.total > 0 ? Math.round((h.answered / h.total) * 100) : 0
-    })).filter(h => h.total > 5);
+    })).filter(h => h.total > 2);
   }, [calls]);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -210,18 +221,19 @@ export const AdminView: React.FC<AdminViewProps> = ({
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
             <div className="lg:col-span-1 bg-white p-10 rounded-[3rem] border-2 border-gray-100">
-              <h4 className="font-black uppercase italic text-slate-800 mb-8 flex items-center gap-2"><TrendingUp className="text-emerald-500" /> TOP VENDEDORES</h4>
+              <h4 className="font-black uppercase italic text-slate-800 mb-8 flex items-center gap-2"><TrendingUp className="text-emerald-500" /> RANKING VENDAS (VALOR)</h4>
               <div className="space-y-4">
-                {sellers.slice(0, 5).map((s, idx) => {
-                  const sSales = sales.filter(sa => sa.seller_id === s.id && sa.created_at.includes(date)).length;
-                  return (
-                    <div key={s.id} className="flex items-center gap-4 p-4 bg-gray-50 rounded-[1.5rem]">
-                      <span className="w-8 h-8 rounded-full bg-sky-100 text-sky-600 flex items-center justify-center font-black text-[10px]">#{idx+1}</span>
-                      <p className="flex-1 font-black uppercase text-[10px]">{s.nome}</p>
-                      <p className="text-lg font-black italic text-emerald-600">{sSales}</p>
+                {topSellersByValue.map((s, idx) => (
+                  <div key={s.id} className="flex items-center gap-4 p-4 bg-gray-50 rounded-[1.5rem]">
+                    <span className="w-8 h-8 rounded-full bg-sky-100 text-sky-600 flex items-center justify-center font-black text-[10px]">#{idx+1}</span>
+                    <div className="flex-1">
+                      <p className="font-black uppercase text-[10px]">{s.nome}</p>
+                      <p className="text-[9px] font-bold text-gray-400">{s.count} vendas realizadas</p>
                     </div>
-                  );
-                })}
+                    <p className="text-lg font-black italic text-emerald-600">R$ {s.totalValue.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}</p>
+                  </div>
+                ))}
+                {topSellersByValue.length === 0 && <p className="text-center py-10 text-[10px] font-black uppercase text-gray-300">Sem vendas registradas</p>}
               </div>
             </div>
             <div className="lg:col-span-2 bg-white p-10 rounded-[3rem] border-2 border-gray-100 flex flex-col">
@@ -374,7 +386,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
                     <td className="px-10 py-7 text-right font-black italic text-lg text-emerald-600">
                       {editingSaleId === s.id ? (
                         <input value={editAmount} onChange={e => setEditAmount(e.target.value)} className="w-32 p-3 border-2 border-sky-500 rounded-xl text-right outline-none font-black" autoFocus />
-                      ) : `R$ ${s.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`}
+                      ) : `R$ ${Number(s.amount).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`}
                     </td>
                     <td className="px-10 py-7 text-right flex justify-end gap-3">
                       <button onClick={() => { setEditingSaleId(s.id); setEditAmount(s.amount.toString()); }} className="p-3 text-sky-600 hover:bg-sky-50 rounded-xl"><Edit3 size={18} /></button>
@@ -382,6 +394,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
                     </td>
                   </tr>
                 ))}
+                {sales.length === 0 && <tr><td colSpan={4} className="text-center py-20 text-[10px] font-black uppercase text-gray-300 tracking-[0.2em]">Sem vendas encontradas</td></tr>}
               </tbody>
             </table>
           </div>
