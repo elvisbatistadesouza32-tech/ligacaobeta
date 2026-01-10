@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo, useRef } from 'react';
 import { User, Lead, CallRecord, Sale, CallStatus } from '../types';
-import { Users, Database, Power, Search, Trash2, Loader2, FileSpreadsheet, BarChart3, Clock, Activity, DollarSign, TrendingUp, Ban, Edit3, Save, X, RotateCcw, Filter, UserPlus, PhoneOff, AlertCircle, PhoneCall } from 'lucide-react';
+import { Users, Database, Power, Search, Trash2, Loader2, FileSpreadsheet, BarChart3, Clock, Activity, DollarSign, TrendingUp, Ban, Edit3, Save, X, RotateCcw, Filter, UserPlus, PhoneOff, AlertCircle, PhoneCall, MessageCircle, Smartphone } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip, CartesianGrid } from 'recharts';
 import * as XLSX from 'xlsx';
 
@@ -27,9 +27,9 @@ export const AdminView: React.FC<AdminViewProps> = ({
   const [tab, setTab] = useState<'dash' | 'leads' | 'users' | 'sales'>('dash');
   const [viewMode, setViewMode] = useState<'month' | 'day'>('day'); 
   const [date, setDate] = useState(() => {
-    const now = new Date();
-    const offset = now.getTimezoneOffset();
-    const local = new Date(now.getTime() - (offset * 60 * 1000));
+    const d = new Date();
+    const offset = d.getTimezoneOffset();
+    const local = new Date(d.getTime() - (offset * 60 * 1000));
     return local.toISOString().split('T')[0];
   });
 
@@ -43,8 +43,8 @@ export const AdminView: React.FC<AdminViewProps> = ({
 
   const sellers = useMemo(() => users.filter(u => u.tipo === 'vendedor'), [users]);
   
-  // Função auxiliar para extrair a data local (YYYY-MM-DD) de um timestamp ISO
   const getLocalDatePart = (isoString: string) => {
+    if (!isoString) return '';
     try {
       const d = new Date(isoString);
       const offset = d.getTimezoneOffset();
@@ -55,14 +55,6 @@ export const AdminView: React.FC<AdminViewProps> = ({
     }
   };
 
-  const filteredCalls = useMemo(() => {
-    const filter = viewMode === 'day' ? date : date.slice(0, 7);
-    return calls.filter(c => {
-      const callDate = getLocalDatePart(c.timestamp || (c as any).created_at);
-      return callDate.startsWith(filter);
-    });
-  }, [calls, date, viewMode]);
-
   const periodSales = useMemo(() => {
     const filter = viewMode === 'day' ? date : date.slice(0, 7);
     return sales.filter(s => {
@@ -71,25 +63,44 @@ export const AdminView: React.FC<AdminViewProps> = ({
     });
   }, [sales, date, viewMode]);
 
+  const filteredCalls = useMemo(() => {
+    const filter = viewMode === 'day' ? date : date.slice(0, 7);
+    return calls.filter(c => {
+      const callDate = getLocalDatePart(c.timestamp || (c as any).created_at);
+      return callDate.startsWith(filter);
+    });
+  }, [calls, date, viewMode]);
+
   const stats = useMemo(() => {
     const totalVendido = periodSales.reduce((acc, s) => acc + Number(s.amount), 0);
-    const total = filteredCalls.length;
+    const totalCalls = filteredCalls.length;
     
     const getCount = (st: string) => filteredCalls.filter(c => String(c.status).toUpperCase() === st).length;
-    
     const ansCount = getCount('ANSWERED');
     const noAnsCount = getCount('NO_ANSWER');
     const invalidCount = getCount('INVALID_NUMBER');
 
-    const pct = (v: number) => total > 0 ? ((v / total) * 100).toFixed(0) : '0';
+    const pct = (v: number) => totalCalls > 0 ? ((v / totalCalls) * 100).toFixed(0) : '0';
+
+    // Stats de Vendas por Canal
+    const totalVendasCount = periodSales.length;
+    const callSales = periodSales.filter(s => s.canal === 'call');
+    const whatsappSales = periodSales.filter(s => s.canal === 'whatsapp');
+
+    const canalPct = (count: number) => totalVendasCount > 0 ? ((count / totalVendasCount) * 100).toFixed(0) : '0';
 
     return {
-      total,
+      totalCalls,
       totalVendido,
-      vendasCount: periodSales.length,
+      totalVendasCount,
       ans: { count: ansCount, pct: pct(ansCount) },
       noAns: { count: noAnsCount, pct: pct(noAnsCount) },
-      invalid: { count: invalidCount, pct: pct(invalidCount) }
+      invalid: { count: invalidCount, pct: pct(invalidCount) },
+      canais: {
+        call: { count: callSales.length, pct: canalPct(callSales.length) },
+        whatsapp: { count: whatsappSales.length, pct: canalPct(whatsappSales.length) }
+      },
+      ticketMedio: totalVendasCount > 0 ? (totalVendido / totalVendasCount) : 0
     };
   }, [filteredCalls, periodSales]);
 
@@ -100,29 +111,8 @@ export const AdminView: React.FC<AdminViewProps> = ({
       return { ...s, totalValue, count: sellerSales.length };
     })
     .sort((a, b) => b.totalValue - a.totalValue)
-    .slice(0, 10); // Mostra até o TOP 10
+    .slice(0, 5);
   }, [sellers, periodSales]);
-
-  const hourlyEffectiveness = useMemo(() => {
-    if (calls.length < 20) return null;
-    const hours = Array.from({ length: 24 }, (_, i) => ({
-      hour: `${String(i).padStart(2, '0')}h`,
-      total: 0,
-      answered: 0
-    }));
-    calls.forEach(c => {
-      const d = new Date(c.timestamp);
-      const h = d.getHours();
-      hours[h].total++;
-      if (String(c.status).toUpperCase() === 'ANSWERED') {
-        hours[h].answered++;
-      }
-    });
-    return hours.map(h => ({
-      ...h,
-      effectiveness: h.total > 0 ? Math.round((h.answered / h.total) * 100) : 0
-    })).filter(h => h.total > 0);
-  }, [calls]);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -181,36 +171,32 @@ export const AdminView: React.FC<AdminViewProps> = ({
         ))}
       </nav>
 
+      {/* Seletor de Data compartilhado por todas as abas que usam filtros de tempo */}
+      <div className="bg-white p-6 rounded-[2.5rem] border-2 border-gray-100 flex justify-between items-center shadow-sm mb-8">
+        <div className="flex bg-gray-50 p-1 rounded-2xl">
+          <button onClick={() => setViewMode('day')} className={`px-6 py-2 rounded-xl text-[10px] font-black uppercase transition-all ${viewMode === 'day' ? 'bg-white text-sky-600 shadow-sm' : 'text-gray-400'}`}>Dia</button>
+          <button onClick={() => setViewMode('month')} className={`px-6 py-2 rounded-xl text-[10px] font-black uppercase transition-all ${viewMode === 'month' ? 'bg-white text-sky-600 shadow-sm' : 'text-gray-400'}`}>Mês</button>
+        </div>
+        <div className="flex items-center gap-3 bg-sky-50 px-6 py-3 rounded-2xl border-2 border-sky-100 text-sky-700">
+          <Clock className="w-4 h-4" />
+          <input type="date" value={date} onChange={e => setDate(e.target.value)} className="bg-transparent font-black text-sm uppercase outline-none" />
+        </div>
+      </div>
+
       {tab === 'dash' && (
         <div className="space-y-8 animate-in fade-in duration-500">
-          <div className="bg-white p-6 rounded-[2.5rem] border-2 border-gray-100 flex justify-between items-center shadow-sm">
-            <div className="flex bg-gray-50 p-1 rounded-2xl">
-              <button onClick={() => setViewMode('day')} className={`px-6 py-2 rounded-xl text-[10px] font-black uppercase transition-all ${viewMode === 'day' ? 'bg-white text-sky-600 shadow-sm' : 'text-gray-400'}`}>Dia</button>
-              <button onClick={() => setViewMode('month')} className={`px-6 py-2 rounded-xl text-[10px] font-black uppercase transition-all ${viewMode === 'month' ? 'bg-white text-sky-600 shadow-sm' : 'text-gray-400'}`}>Mês</button>
-            </div>
-            <div className="flex items-center gap-3 bg-sky-50 px-6 py-3 rounded-2xl border-2 border-sky-100 text-sky-700">
-              <Clock className="w-4 h-4" />
-              <input type="date" value={date} onChange={e => setDate(e.target.value)} className="bg-transparent font-black text-sm uppercase outline-none" />
-            </div>
-          </div>
-
           <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4">
-            {/* VALOR VENDIDO */}
-            <div className="bg-emerald-600 p-8 rounded-[2.5rem] text-white shadow-xl shadow-emerald-100 flex flex-col justify-center">
+            <div className="bg-emerald-600 p-8 rounded-[2.5rem] text-white shadow-xl flex flex-col justify-center">
               <p className="text-[10px] uppercase font-black opacity-60 mb-1 tracking-widest">Total Vendido</p>
               <p className="text-3xl font-black italic tracking-tighter">R$ {stats.totalVendido.toLocaleString('pt-BR')}</p>
             </div>
-
-            {/* TOTAL LIGAÇÕES */}
             <div className="bg-white p-8 rounded-[2.5rem] border-2 border-gray-100 shadow-sm flex flex-col justify-center">
               <div className="flex justify-between items-start mb-1">
                 <p className="text-[10px] uppercase font-black text-gray-400 tracking-widest">Total Calls</p>
                 <PhoneCall size={14} className="text-gray-300" />
               </div>
-              <p className="text-4xl font-black italic text-slate-800">{stats.total}</p>
+              <p className="text-4xl font-black italic text-slate-800">{stats.totalCalls}</p>
             </div>
-
-            {/* ATENDIDAS (QTD E %) */}
             <div className="bg-white p-8 rounded-[2.5rem] border-2 border-gray-100 shadow-sm flex flex-col justify-center">
               <div className="flex justify-between items-start mb-1">
                 <p className="text-[10px] uppercase font-black text-gray-400 tracking-widest">Atendidas</p>
@@ -218,8 +204,6 @@ export const AdminView: React.FC<AdminViewProps> = ({
               </div>
               <p className="text-4xl font-black italic text-emerald-600">{stats.ans.count}</p>
             </div>
-
-            {/* NÃO ATENDIDAS (QTD E %) */}
             <div className="bg-white p-8 rounded-[2.5rem] border-2 border-gray-100 shadow-sm flex flex-col justify-center">
               <div className="flex justify-between items-start mb-1">
                 <p className="text-[10px] uppercase font-black text-gray-400 tracking-widest">Não Atend.</p>
@@ -227,8 +211,6 @@ export const AdminView: React.FC<AdminViewProps> = ({
               </div>
               <p className="text-4xl font-black italic text-amber-600">{stats.noAns.count}</p>
             </div>
-
-            {/* INVÁLIDOS (QTD E %) */}
             <div className="bg-slate-900 p-8 rounded-[2.5rem] text-white shadow-xl flex flex-col justify-center">
               <div className="flex justify-between items-start mb-1">
                 <p className="text-[10px] uppercase font-black opacity-60 tracking-widest">Inválidos</p>
@@ -257,25 +239,13 @@ export const AdminView: React.FC<AdminViewProps> = ({
             </div>
             <div className="lg:col-span-2 bg-white p-10 rounded-[3rem] border-2 border-gray-100 flex flex-col">
               <h4 className="font-black uppercase italic text-slate-800 mb-8 flex items-center gap-2">
-                <Clock className="text-sky-500" /> Eficiência por Horário
+                <Clock className="text-sky-500" /> Atividade de Hoje
               </h4>
-              <div className="flex-1 w-full min-h-[300px]">
-                {hourlyEffectiveness ? (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={hourlyEffectiveness}>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                      <XAxis dataKey="hour" axisLine={false} tickLine={false} tick={{ fontSize: 10, fontWeight: 'bold' }} />
-                      <YAxis hide />
-                      <Tooltip cursor={{ fill: '#f8fafc' }} contentStyle={{ borderRadius: '15px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }} />
-                      <Bar dataKey="effectiveness" name="Efetividade %" fill="#0284c7" radius={[10, 10, 0, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                ) : (
-                  <div className="h-full flex flex-col items-center justify-center text-center p-10 gap-4">
-                    <Activity className="text-gray-200" size={32} />
-                    <p className="font-black uppercase text-xs text-slate-400">Amostra insuficiente</p>
-                  </div>
-                )}
+              <div className="flex-1 min-h-[300px] flex items-center justify-center text-center">
+                <div className="space-y-2 opacity-30">
+                  <Activity size={48} className="mx-auto" />
+                  <p className="font-black uppercase text-xs">Gráfico de desempenho em tempo real</p>
+                </div>
               </div>
             </div>
           </div>
@@ -286,75 +256,51 @@ export const AdminView: React.FC<AdminViewProps> = ({
         <div className="space-y-6 animate-in fade-in duration-500">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
             <div className="bg-white p-8 rounded-[3rem] border-2 border-gray-100 flex flex-col gap-5 shadow-sm">
-              <p className="text-xs font-black uppercase text-gray-400 tracking-[0.2em]">Importar Novos Leads</p>
-              <select 
-                value={importTarget} 
-                onChange={e => setImportTarget(e.target.value)}
-                className="w-full pl-6 pr-6 py-5 bg-gray-50 border-2 border-gray-100 rounded-[1.5rem] font-black uppercase text-xs outline-none focus:border-sky-500 appearance-none cursor-pointer"
-              >
-                <option value="none">ENVIAR PARA FILA GERAL</option>
-                <option value="online">DISTRIBUIR ENTRE ONLINE</option>
-                {sellers.map(s => <option key={s.id} value={s.id}>ENVIAR PARA: {s.nome}</option>)}
+              <p className="text-xs font-black uppercase text-gray-400 tracking-[0.2em]">Importar Leads</p>
+              <select value={importTarget} onChange={e => setImportTarget(e.target.value)} className="w-full pl-6 pr-6 py-5 bg-gray-50 border-2 border-gray-100 rounded-[1.5rem] font-black uppercase text-xs outline-none">
+                <option value="none">FILA GERAL</option>
+                <option value="online">DISTRIBUIR ONLINE</option>
+                {sellers.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
               </select>
-              <button 
-                onClick={() => fileInput.current?.click()} 
-                className="w-full py-6 bg-sky-600 text-white rounded-[1.5rem] font-black uppercase italic text-sm flex items-center justify-center gap-3 shadow-xl shadow-sky-100 hover:bg-sky-700 transition-all"
-              >
-                <FileSpreadsheet size={20} /> Selecionar XLSX
-              </button>
+              <button onClick={() => fileInput.current?.click()} className="w-full py-6 bg-sky-600 text-white rounded-[1.5rem] font-black uppercase italic text-sm flex items-center justify-center gap-3"><FileSpreadsheet size={20} /> XLSX</button>
               <input ref={fileInput} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={handleFileUpload} />
             </div>
-
-            <div className="bg-white p-8 rounded-[3rem] border-2 border-gray-100 flex flex-col justify-center">
+            <div className="bg-white p-8 rounded-[3rem] border-2 border-gray-100 flex flex-col justify-center shadow-sm">
               <p className="text-xs font-black uppercase text-gray-400 mb-4 tracking-[0.2em]">Busca Rápida</p>
-              <input value={search} onChange={e => setSearch(e.target.value)} className="w-full px-6 py-5 bg-gray-50 rounded-[1.5rem] font-black uppercase text-xs outline-none border-2 border-transparent focus:border-sky-500" placeholder="NOME OU BASE..." />
+              <input value={search} onChange={e => setSearch(e.target.value)} className="w-full px-6 py-5 bg-gray-50 rounded-[1.5rem] font-black uppercase text-xs outline-none" placeholder="NOME OU TELEFONE..." />
             </div>
-
-            <div className="bg-white p-8 rounded-[3rem] border-2 border-gray-100 flex flex-col justify-center">
-              <p className="text-xs font-black uppercase text-gray-400 mb-4 tracking-[0.2em]">Filtrar Operador</p>
-              <select value={filterOperator} onChange={e => setFilterOperator(e.target.value)} className="w-full px-6 py-5 bg-gray-50 rounded-[1.5rem] font-black uppercase text-xs outline-none border-2 border-transparent focus:border-sky-500 appearance-none">
-                <option value="all">TODOS OPERADORES</option>
+            <div className="bg-white p-8 rounded-[3rem] border-2 border-gray-100 flex flex-col justify-center shadow-sm">
+              <p className="text-xs font-black uppercase text-gray-400 mb-4 tracking-[0.2em]">Vendedor</p>
+              <select value={filterOperator} onChange={e => setFilterOperator(e.target.value)} className="w-full px-6 py-5 bg-gray-50 rounded-[1.5rem] font-black uppercase text-xs outline-none">
+                <option value="all">TODOS</option>
                 <option value="none">FILA GERAL</option>
                 {sellers.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
               </select>
             </div>
-
             <div className="bg-amber-500 p-8 rounded-[3rem] text-white flex flex-col justify-center text-center shadow-lg shadow-amber-100">
-              <p className="text-xs font-black uppercase opacity-60 mb-2 tracking-widest">Leads Pendentes</p>
-              <p className="text-4xl font-black italic tracking-tighter">
-                {currentLeads.filter(l => l.status === 'PENDING').length} 
-              </p>
+              <p className="text-xs font-black uppercase opacity-60 mb-2">Pendentes</p>
+              <p className="text-4xl font-black italic">{currentLeads.filter(l => l.status === 'PENDING').length}</p>
             </div>
           </div>
-
           <div className="bg-white rounded-[3rem] border-2 border-gray-100 overflow-hidden shadow-sm">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left">
-                <thead className="bg-gray-50 text-xs font-black uppercase text-gray-400">
-                  <tr>
-                    <th className="px-10 py-8">Lead</th>
-                    <th className="px-10 py-8">Operador</th>
-                    <th className="px-10 py-8 text-center">Status</th>
+            <table className="w-full text-left">
+              <thead className="bg-gray-50 text-xs font-black uppercase text-gray-400">
+                <tr><th className="px-10 py-8">Lead</th><th className="px-10 py-8">Vendedor</th><th className="px-10 py-8 text-center">Status</th></tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {currentLeads.slice(0, 50).map(l => (
+                  <tr key={l.id} className="hover:bg-gray-50">
+                    <td className="px-10 py-7"><p className="font-black uppercase text-slate-800">{l.nome}</p><span className="text-xs font-bold text-sky-400">{l.telefone}</span></td>
+                    <td className="px-10 py-7 text-sm font-black uppercase text-slate-500">{l.assignedTo ? users.find(u => u.id === l.assignedTo)?.nome : 'Disponível'}</td>
+                    <td className="px-10 py-7 text-center">
+                      <span className={`px-6 py-2 rounded-full text-[10px] font-black uppercase border-2 ${l.status === 'CALLED' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-amber-50 text-amber-600 border-amber-100'}`}>
+                        {l.status === 'CALLED' ? 'Chamado' : 'Pendente'}
+                      </span>
+                    </td>
                   </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-50">
-                  {currentLeads.slice(0, 100).map(l => (
-                    <tr key={l.id} className="hover:bg-gray-50 transition-colors">
-                      <td className="px-10 py-7">
-                        <p className="font-black uppercase text-base text-slate-800">{l.nome}</p>
-                        <span className="text-xs font-bold text-sky-400 tracking-wider">{l.telefone}</span>
-                      </td>
-                      <td className="px-10 py-7 text-sm font-black uppercase text-slate-500">{l.assignedTo ? users.find(u => u.id === l.assignedTo)?.nome : 'Disponível'}</td>
-                      <td className="px-10 py-7 text-center">
-                        <span className={`px-6 py-2 rounded-full text-[10px] font-black uppercase border-2 ${l.status === 'CALLED' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-amber-50 text-amber-600 border-amber-100'}`}>
-                          {l.status === 'CALLED' ? 'Chamado' : 'Pendente'}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
       )}
@@ -364,23 +310,21 @@ export const AdminView: React.FC<AdminViewProps> = ({
           <div className="bg-white rounded-[3rem] border-2 border-gray-100 overflow-hidden shadow-sm">
             <table className="w-full text-left">
               <thead className="bg-gray-50 text-xs font-black uppercase text-gray-400">
-                <tr><th className="px-10 py-8">Vendedor</th><th className="px-10 py-8 text-center">Fila Atual</th><th className="px-10 py-8 text-right">Ações</th></tr>
+                <tr><th className="px-10 py-8">Equipe</th><th className="px-10 py-8 text-center">Fila Atual</th><th className="px-10 py-8 text-right">Ações</th></tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
                 {users.map(u => (
-                  <tr key={u.id} className="hover:bg-gray-50 transition-colors">
+                  <tr key={u.id} className="hover:bg-gray-50">
                     <td className="px-10 py-7">
                       <div className="flex items-center gap-4">
-                        <div className={`w-4 h-4 rounded-full ${u.online ? 'bg-emerald-500 animate-pulse' : 'bg-gray-300'}`} />
-                        <p className="font-black uppercase text-base text-slate-800">{u.nome}</p>
+                        <div className={`w-3 h-3 rounded-full ${u.online ? 'bg-emerald-500 animate-pulse' : 'bg-gray-300'}`} />
+                        <p className="font-black uppercase text-slate-800">{u.nome}</p>
                       </div>
                     </td>
-                    <td className="px-10 py-7 text-center font-black text-xl text-sky-600">
-                      {leads.filter(l => l.assignedTo === u.id && l.status === 'PENDING').length}
-                    </td>
+                    <td className="px-10 py-7 text-center font-black text-xl text-sky-600">{leads.filter(l => l.assignedTo === u.id && l.status === 'PENDING').length}</td>
                     <td className="px-10 py-7 text-right flex justify-end gap-3">
-                      <button onClick={() => onClearSellerLeads(u.id)} className="p-4 bg-red-50 text-red-500 rounded-2xl border-2 border-red-100 hover:bg-red-500 transition-all"><RotateCcw size={18} /></button>
-                      <button onClick={() => onToggleUserStatus(u.id)} className={`p-4 rounded-2xl border-2 transition-all ${u.online ? 'bg-emerald-50 border-emerald-100 text-emerald-600' : 'bg-gray-100 text-gray-400'}`}><Power size={18} /></button>
+                      <button onClick={() => onClearSellerLeads(u.id)} className="p-4 bg-red-50 text-red-500 rounded-2xl border-2 border-red-100"><RotateCcw size={18} /></button>
+                      <button onClick={() => onToggleUserStatus(u.id)} className={`p-4 rounded-2xl border-2 transition-all ${u.online ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-gray-100 text-gray-400'}`}><Power size={18} /></button>
                     </td>
                   </tr>
                 ))}
@@ -391,26 +335,70 @@ export const AdminView: React.FC<AdminViewProps> = ({
       )}
 
       {tab === 'sales' && (
-        <div className="animate-in fade-in duration-500 space-y-6">
+        <div className="animate-in fade-in duration-500 space-y-8">
+          {/* Dashboard de Vendas (Quantidade e Percentual por Canal) */}
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="bg-white p-8 rounded-[2.5rem] border-2 border-gray-100 shadow-sm">
+              <p className="text-[10px] font-black uppercase text-gray-400 mb-2 tracking-widest">Total de Vendas</p>
+              <p className="text-4xl font-black italic text-slate-900">{stats.totalVendasCount}</p>
+            </div>
+            
+            <div className="bg-white p-8 rounded-[2.5rem] border-2 border-gray-100 shadow-sm">
+              <div className="flex justify-between items-start mb-2">
+                <p className="text-[10px] font-black uppercase text-gray-400 tracking-widest">Via Ligação</p>
+                <span className="text-sky-600 font-black text-xs italic">{stats.canais.call.pct}%</span>
+              </div>
+              <div className="flex items-end gap-3">
+                <p className="text-4xl font-black italic text-sky-600">{stats.canais.call.count}</p>
+                <Smartphone className="mb-1 text-sky-200" size={20} />
+              </div>
+            </div>
+
+            <div className="bg-white p-8 rounded-[2.5rem] border-2 border-gray-100 shadow-sm">
+              <div className="flex justify-between items-start mb-2">
+                <p className="text-[10px] font-black uppercase text-gray-400 tracking-widest">Via WhatsApp</p>
+                <span className="text-emerald-500 font-black text-xs italic">{stats.canais.whatsapp.pct}%</span>
+              </div>
+              <div className="flex items-end gap-3">
+                <p className="text-4xl font-black italic text-emerald-600">{stats.canais.whatsapp.count}</p>
+                <MessageCircle className="mb-1 text-emerald-200" size={20} />
+              </div>
+            </div>
+
+            <div className="bg-slate-900 p-8 rounded-[2.5rem] text-white shadow-xl">
+              <p className="text-[10px] font-black uppercase opacity-60 mb-2 tracking-widest">Ticket Médio</p>
+              <p className="text-2xl font-black italic">R$ {stats.ticketMedio.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}</p>
+            </div>
+          </div>
+
+          {/* Tabela de Vendas */}
           <div className="bg-white rounded-[3rem] border-2 border-gray-100 overflow-hidden shadow-sm">
             <table className="w-full text-left">
               <thead className="bg-gray-50 text-xs font-black uppercase text-gray-400">
-                <tr><th className="px-10 py-8">Vendedor</th><th className="px-10 py-8">Cliente</th><th className="px-10 py-8 text-right">Valor</th><th className="px-10 py-8 text-right">Ação</th></tr>
+                <tr><th className="px-10 py-8">Vendedor</th><th className="px-10 py-8">Canal</th><th className="px-10 py-8">Cliente</th><th className="px-10 py-8 text-right">Valor</th><th className="px-10 py-8 text-right">Ação</th></tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
-                {sales.map(s => (
+                {periodSales.map(s => (
                   <tr key={s.id} className="hover:bg-gray-50">
                     <td className="px-10 py-7 font-black uppercase text-sm">{users.find(u => u.id === s.seller_id)?.nome}</td>
+                    <td className="px-10 py-7">
+                      <div className="flex items-center gap-2">
+                        {s.canal === 'whatsapp' ? (
+                          <div className="bg-emerald-50 text-emerald-600 p-2 rounded-xl flex items-center gap-2 text-[9px] font-black uppercase tracking-tighter border border-emerald-100">
+                            <MessageCircle size={14} /> WhatsApp
+                          </div>
+                        ) : (
+                          <div className="bg-sky-50 text-sky-600 p-2 rounded-xl flex items-center gap-2 text-[9px] font-black uppercase tracking-tighter border border-sky-100">
+                            <PhoneCall size={14} /> Ligação
+                          </div>
+                        )}
+                      </div>
+                    </td>
                     <td className="px-10 py-7 font-black uppercase text-xs text-slate-500">{s.customer_name}</td>
                     <td className="px-10 py-7 text-right font-black italic text-lg text-emerald-600">
                       {editingSaleId === s.id ? (
                         <div className="flex items-center justify-end gap-2">
-                          <input 
-                            value={editAmount} 
-                            onChange={e => setEditAmount(e.target.value)} 
-                            className="w-32 p-3 border-2 border-sky-500 rounded-xl text-right outline-none font-black" 
-                            autoFocus 
-                          />
+                          <input value={editAmount} onChange={e => setEditAmount(e.target.value)} className="w-32 p-3 border-2 border-sky-500 rounded-xl text-right outline-none font-black" autoFocus />
                           <button onClick={() => { onUpdateSale(s.id, parseFloat(editAmount)); setEditingSaleId(null); }} className="p-2 bg-sky-500 text-white rounded-lg"><Save size={16}/></button>
                         </div>
                       ) : `R$ ${Number(s.amount).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`}
@@ -421,7 +409,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
                     </td>
                   </tr>
                 ))}
-                {sales.length === 0 && <tr><td colSpan={4} className="text-center py-20 text-[10px] font-black uppercase text-gray-300 tracking-[0.2em]">Sem vendas encontradas</td></tr>}
+                {periodSales.length === 0 && <tr><td colSpan={5} className="text-center py-20 text-[10px] font-black uppercase text-gray-300 tracking-[0.2em]">Sem vendas encontradas no período</td></tr>}
               </tbody>
             </table>
           </div>
