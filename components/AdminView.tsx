@@ -2,7 +2,7 @@
 import React, { useState, useMemo, useRef } from 'react';
 import { User, Lead, CallRecord, Sale, CallStatus } from '../types';
 import { Users, Database, Power, Search, Trash2, Loader2, FileSpreadsheet, BarChart3, Clock, Activity, DollarSign, TrendingUp, Ban, Edit3, Save, X, RotateCcw, Filter, UserPlus, PhoneOff, AlertCircle, PhoneCall, MessageCircle, Smartphone, RefreshCw } from 'lucide-react';
-import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip, CartesianGrid } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip, CartesianGrid, Legend } from 'recharts';
 import * as XLSX from 'xlsx';
 
 interface AdminViewProps {
@@ -111,6 +111,33 @@ export const AdminView: React.FC<AdminViewProps> = ({
     };
   }, [filteredCalls, periodSales]);
 
+  const hourlyData = useMemo(() => {
+    const hours = Array.from({ length: 24 }, (_, i) => ({
+      hour: `${String(i).padStart(2, '0')}h`,
+      total: 0,
+      atendidas: 0
+    }));
+
+    filteredCalls.forEach(c => {
+      const d = new Date(c.timestamp);
+      const h = d.getHours();
+      hours[h].total++;
+      if (c.status === 'ANSWERED') {
+        hours[h].atendidas++;
+      }
+    });
+
+    // Filtra horas sem atividade para o gráfico não ficar vazio demais
+    const hasActivity = hours.some(h => h.total > 0);
+    if (!hasActivity) return [];
+
+    // Retorna apenas o intervalo comercial ou onde houve atividade
+    return hours.filter((h, idx) => {
+      if (h.total > 0) return true;
+      return idx >= 8 && idx <= 20; // Padrão comercial
+    });
+  }, [filteredCalls]);
+
   const topSellersByValue = useMemo(() => {
     return sellers.map(s => {
       const sellerSales = periodSales.filter(sa => sa.seller_id === s.id);
@@ -178,7 +205,6 @@ export const AdminView: React.FC<AdminViewProps> = ({
         ))}
       </nav>
 
-      {/* Cabeçalho de Dados e Sincronização */}
       <div className="bg-white p-6 rounded-[2.5rem] border-2 border-gray-100 flex flex-wrap gap-4 justify-between items-center shadow-sm mb-8">
         <div className="flex bg-gray-50 p-1 rounded-2xl">
           <button onClick={() => setViewMode('day')} className={`px-6 py-2 rounded-xl text-[10px] font-black uppercase transition-all ${viewMode === 'day' ? 'bg-white text-sky-600 shadow-sm' : 'text-gray-400'}`}>Dia</button>
@@ -257,13 +283,40 @@ export const AdminView: React.FC<AdminViewProps> = ({
             </div>
             <div className="lg:col-span-2 bg-white p-10 rounded-[3rem] border-2 border-gray-100 flex flex-col">
               <h4 className="font-black uppercase italic text-slate-800 mb-8 flex items-center gap-2">
-                <Clock className="text-sky-500" /> Atividade em Tempo Real
+                <Clock className="text-sky-500" /> Atividade por Horário
               </h4>
-              <div className="flex-1 min-h-[300px] flex items-center justify-center text-center">
-                <div className="space-y-2 opacity-30">
-                  <Activity size={48} className="mx-auto" />
-                  <p className="font-black uppercase text-xs">Dados atualizados automaticamente ao registrar ações</p>
-                </div>
+              <div className="flex-1 min-h-[300px] w-full">
+                {hourlyData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={hourlyData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                      <XAxis 
+                        dataKey="hour" 
+                        axisLine={false} 
+                        tickLine={false} 
+                        tick={{ fontSize: 10, fontWeight: 900, fill: '#94a3b8' }} 
+                      />
+                      <YAxis 
+                        axisLine={false} 
+                        tickLine={false} 
+                        tick={{ fontSize: 10, fontWeight: 900, fill: '#94a3b8' }} 
+                      />
+                      <Tooltip 
+                        cursor={{ fill: '#f8fafc' }}
+                        contentStyle={{ borderRadius: '20px', border: 'none', boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.1)', padding: '15px' }}
+                        itemStyle={{ fontSize: '10px', fontWeight: '900', textTransform: 'uppercase' }}
+                        labelStyle={{ fontSize: '12px', fontWeight: '900', marginBottom: '5px', color: '#1e293b' }}
+                      />
+                      <Bar dataKey="total" name="Total Calls" fill="#0ea5e9" radius={[6, 6, 0, 0]} barSize={20} />
+                      <Bar dataKey="atendidas" name="Atendidas" fill="#10b981" radius={[6, 6, 0, 0]} barSize={20} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="h-full flex flex-col items-center justify-center text-center p-10 gap-4 opacity-30">
+                    <Activity size={48} className="mx-auto" />
+                    <p className="font-black uppercase text-xs">Aguardando dados de chamadas</p>
+                  </div>
+                )}
               </div>
             </div>
           </div>
