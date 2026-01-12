@@ -1,8 +1,8 @@
 
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { User, Lead, CallRecord, Sale, CallStatus } from '../types';
-import { Users, Database, Power, Search, Trash2, Loader2, FileSpreadsheet, BarChart3, Clock, Activity, DollarSign, TrendingUp, Ban, Edit3, Save, X, RotateCcw, Filter, UserPlus, PhoneOff, AlertCircle, PhoneCall, MessageCircle, Smartphone, RefreshCw } from 'lucide-react';
-import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip, CartesianGrid } from 'recharts';
+import { Users, Database, Power, Search, Trash2, Loader2, FileSpreadsheet, BarChart3, Clock, Activity, DollarSign, TrendingUp, Ban, Edit3, Save, X, RotateCcw, Filter, UserPlus, PhoneOff, AlertCircle, PhoneCall, MessageCircle, Smartphone, RefreshCw, CheckSquare, Square } from 'lucide-react';
+import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip, CartesianGrid, Legend } from 'recharts';
 import * as XLSX from 'xlsx';
 
 interface AdminViewProps {
@@ -40,6 +40,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
   const [loading, setLoading] = useState(false);
   const [editingSaleId, setEditingSaleId] = useState<string | null>(null);
   const [editAmount, setEditAmount] = useState('');
+  const [selectedLeadIds, setSelectedLeadIds] = useState<string[]>([]);
   const fileInput = useRef<HTMLInputElement>(null);
 
   const sellers = useMemo(() => users.filter(u => u.tipo === 'vendedor'), [users]);
@@ -111,6 +112,31 @@ export const AdminView: React.FC<AdminViewProps> = ({
     };
   }, [filteredCalls, periodSales]);
 
+  const hourlyData = useMemo(() => {
+    const hours = Array.from({ length: 24 }, (_, i) => ({
+      hour: `${String(i).padStart(2, '0')}h`,
+      total: 0,
+      atendidas: 0
+    }));
+
+    filteredCalls.forEach(c => {
+      const d = new Date(c.timestamp);
+      const h = d.getHours();
+      hours[h].total++;
+      if (c.status === 'ANSWERED') {
+        hours[h].atendidas++;
+      }
+    });
+
+    const hasActivity = hours.some(h => h.total > 0);
+    if (!hasActivity) return [];
+
+    return hours.filter((h, idx) => {
+      if (h.total > 0) return true;
+      return idx >= 8 && idx <= 20; 
+    });
+  }, [filteredCalls]);
+
   const topSellersByValue = useMemo(() => {
     return sellers.map(s => {
       const sellerSales = periodSales.filter(sa => sa.seller_id === s.id);
@@ -162,6 +188,38 @@ export const AdminView: React.FC<AdminViewProps> = ({
     });
   }, [leads, search, filterOperator]);
 
+  const toggleLeadSelection = (id: string) => {
+    setSelectedLeadIds(prev => 
+      prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
+    );
+  };
+
+  const toggleSelectAllLeads = () => {
+    if (selectedLeadIds.length === currentLeads.length && currentLeads.length > 0) {
+      setSelectedLeadIds([]);
+    } else {
+      setSelectedLeadIds(currentLeads.map(l => l.id));
+    }
+  };
+
+  const handleDeleteIndividualLead = async (id: string) => {
+    if (confirm("Deseja realmente excluir este lead permanentemente?")) {
+      await onDeleteLeads([id]);
+      setSelectedLeadIds(prev => prev.filter(i => i !== id));
+    }
+  };
+
+  const handleBulkDeleteLeads = async () => {
+    if (confirm(`Deseja realmente excluir os ${selectedLeadIds.length} leads selecionados?`)) {
+      await onDeleteLeads(selectedLeadIds);
+      setSelectedLeadIds([]);
+    }
+  };
+
+  useEffect(() => {
+    setSelectedLeadIds([]);
+  }, [tab, filterOperator, search]);
+
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-20">
       <nav className="flex bg-white p-2 rounded-full border shadow-sm max-w-3xl mx-auto mb-10 overflow-hidden relative">
@@ -178,7 +236,6 @@ export const AdminView: React.FC<AdminViewProps> = ({
         ))}
       </nav>
 
-      {/* Cabeçalho de Dados e Sincronização */}
       <div className="bg-white p-6 rounded-[2.5rem] border-2 border-gray-100 flex flex-wrap gap-4 justify-between items-center shadow-sm mb-8">
         <div className="flex bg-gray-50 p-1 rounded-2xl">
           <button onClick={() => setViewMode('day')} className={`px-6 py-2 rounded-xl text-[10px] font-black uppercase transition-all ${viewMode === 'day' ? 'bg-white text-sky-600 shadow-sm' : 'text-gray-400'}`}>Dia</button>
@@ -257,13 +314,40 @@ export const AdminView: React.FC<AdminViewProps> = ({
             </div>
             <div className="lg:col-span-2 bg-white p-10 rounded-[3rem] border-2 border-gray-100 flex flex-col">
               <h4 className="font-black uppercase italic text-slate-800 mb-8 flex items-center gap-2">
-                <Clock className="text-sky-500" /> Atividade em Tempo Real
+                <Clock className="text-sky-500" /> Atividade por Horário
               </h4>
-              <div className="flex-1 min-h-[300px] flex items-center justify-center text-center">
-                <div className="space-y-2 opacity-30">
-                  <Activity size={48} className="mx-auto" />
-                  <p className="font-black uppercase text-xs">Dados atualizados automaticamente ao registrar ações</p>
-                </div>
+              <div className="flex-1 min-h-[300px] w-full">
+                {hourlyData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={hourlyData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                      <XAxis 
+                        dataKey="hour" 
+                        axisLine={false} 
+                        tickLine={false} 
+                        tick={{ fontSize: 10, fontWeight: 900, fill: '#94a3b8' }} 
+                      />
+                      <YAxis 
+                        axisLine={false} 
+                        tickLine={false} 
+                        tick={{ fontSize: 10, fontWeight: 900, fill: '#94a3b8' }} 
+                      />
+                      <Tooltip 
+                        cursor={{ fill: '#f8fafc' }}
+                        contentStyle={{ borderRadius: '20px', border: 'none', boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.1)', padding: '15px' }}
+                        itemStyle={{ fontSize: '10px', fontWeight: '900', textTransform: 'uppercase' }}
+                        labelStyle={{ fontSize: '12px', fontWeight: '900', marginBottom: '5px', color: '#1e293b' }}
+                      />
+                      <Bar dataKey="total" name="Total Calls" fill="#0ea5e9" radius={[6, 6, 0, 0]} barSize={20} />
+                      <Bar dataKey="atendidas" name="Atendidas" fill="#10b981" radius={[6, 6, 0, 0]} barSize={20} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="h-full flex flex-col items-center justify-center text-center p-10 gap-4 opacity-30">
+                    <Activity size={48} className="mx-auto" />
+                    <p className="font-black uppercase text-xs">Aguardando dados de chamadas</p>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -300,23 +384,88 @@ export const AdminView: React.FC<AdminViewProps> = ({
               <p className="text-4xl font-black italic">{currentLeads.filter(l => l.status === 'PENDING').length}</p>
             </div>
           </div>
-          <div className="bg-white rounded-[3rem] border-2 border-gray-100 overflow-hidden shadow-sm">
+
+          <div className="bg-white rounded-[3rem] border-2 border-gray-100 overflow-hidden shadow-sm relative">
+            {/* Barra de Ações em Massa - Só aparece se houver seleção */}
+            {selectedLeadIds.length > 0 && (
+              <div className="absolute top-0 left-0 right-0 z-20 bg-slate-900 text-white p-6 flex items-center justify-between animate-in slide-in-from-top-full duration-300">
+                <div className="flex items-center gap-4">
+                  <span className="bg-sky-600 text-white px-4 py-1.5 rounded-full text-[10px] font-black uppercase italic shadow-lg">
+                    {selectedLeadIds.length} Selecionados
+                  </span>
+                  <p className="text-xs font-bold text-gray-400 hidden sm:block">Gerencie os leads selecionados na lista abaixo</p>
+                </div>
+                <div className="flex gap-3">
+                  <button onClick={() => setSelectedLeadIds([])} className="px-6 py-3 text-[10px] font-black uppercase tracking-widest hover:text-sky-400 transition-colors">Cancelar</button>
+                  <button 
+                    onClick={handleBulkDeleteLeads} 
+                    className="flex items-center gap-2 px-8 py-3 bg-red-600 rounded-2xl text-[10px] font-black uppercase italic shadow-xl shadow-red-900/20 active:scale-95 transition-all"
+                  >
+                    <Trash2 size={14} /> Excluir Tudo
+                  </button>
+                </div>
+              </div>
+            )}
+
             <table className="w-full text-left">
               <thead className="bg-gray-50 text-xs font-black uppercase text-gray-400">
-                <tr><th className="px-10 py-8">Lead</th><th className="px-10 py-8">Vendedor</th><th className="px-10 py-8 text-center">Status</th></tr>
+                <tr>
+                  <th className="px-6 py-8 text-center w-16">
+                    <button 
+                      onClick={toggleSelectAllLeads} 
+                      className={`p-2.5 rounded-xl transition-all border-2 ${selectedLeadIds.length === currentLeads.length && currentLeads.length > 0 ? 'bg-sky-500 border-sky-600 text-white' : 'bg-white border-gray-100 text-gray-300 hover:border-sky-200'}`}
+                      title="Selecionar Todos Filtrados"
+                    >
+                      {selectedLeadIds.length === currentLeads.length && currentLeads.length > 0 ? <CheckSquare size={20} /> : <Square size={20} />}
+                    </button>
+                  </th>
+                  <th className="px-10 py-8">Lead</th>
+                  <th className="px-10 py-8">Vendedor</th>
+                  <th className="px-10 py-8 text-center">Status</th>
+                  <th className="px-10 py-8 text-right">Ação</th>
+                </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
-                {currentLeads.slice(0, 50).map(l => (
-                  <tr key={l.id} className="hover:bg-gray-50">
-                    <td className="px-10 py-7"><p className="font-black uppercase text-slate-800">{l.nome}</p><span className="text-xs font-bold text-sky-400">{l.telefone}</span></td>
-                    <td className="px-10 py-7 text-sm font-black uppercase text-slate-500">{l.assignedTo ? users.find(u => u.id === l.assignedTo)?.nome : 'Disponível'}</td>
+                {currentLeads.slice(0, 100).map(l => (
+                  <tr key={l.id} className={`hover:bg-gray-50 transition-all ${selectedLeadIds.includes(l.id) ? 'bg-sky-50/50' : ''}`}>
+                    <td className="px-6 py-7 text-center">
+                      <button 
+                        onClick={() => toggleLeadSelection(l.id)} 
+                        className={`p-2.5 rounded-xl transition-all border-2 ${selectedLeadIds.includes(l.id) ? 'bg-sky-500 border-sky-600 text-white shadow-md' : 'bg-white border-gray-100 text-gray-200 hover:border-sky-100 hover:text-sky-300'}`}
+                      >
+                        {selectedLeadIds.includes(l.id) ? <CheckSquare size={18} /> : <Square size={18} />}
+                      </button>
+                    </td>
+                    <td className="px-10 py-7">
+                      <p className="font-black uppercase text-slate-800 italic">{l.nome}</p>
+                      <span className="text-xs font-bold text-sky-400 tracking-widest">{l.telefone}</span>
+                    </td>
+                    <td className="px-10 py-7 text-sm font-black uppercase text-slate-500">
+                      {l.assignedTo ? users.find(u => u.id === l.assignedTo)?.nome : 'Fila Geral'}
+                    </td>
                     <td className="px-10 py-7 text-center">
                       <span className={`px-6 py-2 rounded-full text-[10px] font-black uppercase border-2 ${l.status === 'CALLED' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-amber-50 text-amber-600 border-amber-100'}`}>
                         {l.status === 'CALLED' ? 'Chamado' : 'Pendente'}
                       </span>
                     </td>
+                    <td className="px-10 py-7 text-right">
+                      <button 
+                        onClick={() => handleDeleteIndividualLead(l.id)} 
+                        className="p-3 text-red-500 hover:bg-red-50 rounded-xl transition-all active:scale-90"
+                        title="Excluir Lead Individual"
+                      >
+                        <Trash2 size={18} />
+                      </button>
+                    </td>
                   </tr>
                 ))}
+                {currentLeads.length === 0 && (
+                  <tr>
+                    <td colSpan={5} className="text-center py-20 text-[10px] font-black uppercase text-gray-300 tracking-[0.2em]">
+                      Nenhum lead encontrado para os critérios selecionados
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
@@ -328,7 +477,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
           <div className="bg-white rounded-[3rem] border-2 border-gray-100 overflow-hidden shadow-sm">
             <table className="w-full text-left">
               <thead className="bg-gray-50 text-xs font-black uppercase text-gray-400">
-                <tr><th className="px-10 py-8">Equipe</th><th className="px-10 py-8 text-center">Fila Atual</th><th className="px-10 py-8 text-right">Ações</th></tr>
+                <tr><th className="px-10 py-8">Equipe</th><th className="px-10 py-8 text-center">Fila Atual</th><th className="px-10 py-8 text-right">AÇÕES</th></tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
                 {users.map(u => (
@@ -341,8 +490,8 @@ export const AdminView: React.FC<AdminViewProps> = ({
                     </td>
                     <td className="px-10 py-7 text-center font-black text-xl text-sky-600">{leads.filter(l => l.assignedTo === u.id && l.status === 'PENDING').length}</td>
                     <td className="px-10 py-7 text-right flex justify-end gap-3">
-                      <button onClick={() => onClearSellerLeads(u.id)} className="p-4 bg-red-50 text-red-500 rounded-2xl border-2 border-red-100"><RotateCcw size={18} /></button>
-                      <button onClick={() => onToggleUserStatus(u.id)} className={`p-4 rounded-2xl border-2 transition-all ${u.online ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-gray-100 text-gray-400'}`}><Power size={18} /></button>
+                      <button onClick={() => onClearSellerLeads(u.id)} className="p-4 bg-red-50 text-red-500 rounded-2xl border-2 border-red-100" title="Limpar Fila"><RotateCcw size={18} /></button>
+                      <button onClick={() => onToggleUserStatus(u.id)} className={`p-4 rounded-2xl border-2 transition-all ${u.online ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-gray-100 text-gray-400'}`} title={u.online ? "Desativar" : "Ativar"}><Power size={18} /></button>
                     </td>
                   </tr>
                 ))}
@@ -396,7 +545,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
               <tbody className="divide-y divide-gray-50">
                 {periodSales.map(s => (
                   <tr key={s.id} className="hover:bg-gray-50">
-                    <td className="px-10 py-7 font-black uppercase text-sm">{users.find(u => u.id === s.seller_id)?.nome}</td>
+                    <td className="px-10 py-7 font-black uppercase text-sm italic">{users.find(u => u.id === s.seller_id)?.nome}</td>
                     <td className="px-10 py-7">
                       <div className="flex items-center gap-2">
                         {s.canal === 'whatsapp' ? (

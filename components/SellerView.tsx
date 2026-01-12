@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { Lead, CallStatus, CallRecord, User, Sale, SaleChannel } from '../types';
-import { Phone, CheckCircle, Ban, Loader2, PhoneForwarded, X, HelpCircle, PhoneOff, History, ListChecks, Clock, RotateCcw, Target, Zap, DollarSign, MessageCircle, TrendingUp, RefreshCw, Tag } from 'lucide-react';
+import { Phone, CheckCircle, Ban, Loader2, PhoneForwarded, X, HelpCircle, PhoneOff, History, ListChecks, Clock, RotateCcw, Target, Zap, DollarSign, MessageCircle, TrendingUp, RefreshCw } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
@@ -218,18 +218,9 @@ export const SellerView: React.FC<SellerViewProps> = ({ user, leads, calls, sale
 
       {active && !carrier && (
         <div className="fixed inset-0 z-[100] bg-slate-950/90 backdrop-blur-xl flex items-center justify-center p-6 text-center">
-          <div className="bg-white rounded-[3.5rem] w-full max-w-sm p-10 shadow-2xl overflow-hidden relative">
-            <div className="absolute top-0 right-0 p-8 opacity-5"><Tag size={80} /></div>
-            
-            <div className="mb-8">
-               <span className="bg-sky-50 text-sky-600 px-6 py-2 rounded-full text-[10px] font-black uppercase tracking-widest border border-sky-100">
-                 Base: {active.base}
-               </span>
-            </div>
-
+          <div className="bg-white rounded-[3.5rem] w-full max-w-sm p-10 shadow-2xl">
             <h3 className="text-3xl font-black italic uppercase tracking-tighter mb-2 text-slate-900 leading-tight">{active.nome}</h3>
             <p className="text-sky-600 font-bold text-xl mb-10 tracking-wider">{active.telefone}</p>
-            
             <div className="space-y-4">
               <button onClick={() => handleStatus(CallStatus.ANSWERED)} className="w-full py-6 bg-emerald-500 text-white rounded-[2rem] font-black uppercase italic shadow-xl shadow-emerald-100 flex items-center justify-center gap-3 active:scale-95 transition-all"><CheckCircle className="w-5 h-5" /> Atendeu</button>
               <button onClick={() => handleStatus(CallStatus.NO_ANSWER)} className="w-full py-6 bg-red-500 text-white rounded-[2rem] font-black uppercase italic shadow-xl shadow-red-100 flex items-center justify-center gap-3 active:scale-95 transition-all"><PhoneOff className="w-5 h-5" /> Não Atendeu</button>
@@ -252,11 +243,8 @@ export const SellerView: React.FC<SellerViewProps> = ({ user, leads, calls, sale
             {myLeads.map(l => (
               <div key={l.id} className="bg-white p-6 rounded-[3rem] border-2 border-gray-100 flex justify-between items-center group hover:border-sky-600 transition-all shadow-sm">
                 <div className="flex-1">
-                  <p className="font-black uppercase italic text-xl tracking-tighter text-slate-900 leading-none mb-1">{l.nome}</p>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-[10px] font-bold text-sky-400 uppercase">{l.telefone}</span>
-                    <span className="text-[9px] font-black text-gray-400 uppercase bg-gray-50 px-2 py-0.5 rounded-lg border border-gray-100">{l.base}</span>
-                  </div>
+                  <p className="font-black uppercase italic text-xl tracking-tighter text-slate-900">{l.nome}</p>
+                  <span className="text-[10px] font-bold text-sky-400 uppercase">{l.telefone}</span>
                 </div>
                 <button onClick={() => { setActive(l); setCarrier(true); }} className="bg-sky-600 text-white p-6 rounded-[2rem] shadow-xl shadow-sky-100 active:scale-90 transition-all"><Phone className="w-6 h-6" /></button>
               </div>
@@ -271,11 +259,8 @@ export const SellerView: React.FC<SellerViewProps> = ({ user, leads, calls, sale
              {myHistory.map(item => (
                 <div key={item.id} className="bg-white p-5 rounded-[2rem] border border-gray-100 flex justify-between items-center group shadow-sm">
                   <div className="flex-1">
-                    <p className="font-black uppercase italic text-sm text-slate-700 leading-none mb-1">{item.lead?.nome}</p>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-[9px] font-bold uppercase text-gray-400">{formatDistanceToNow(new Date(item.timestamp), { addSuffix: true, locale: ptBR })}</span>
-                      <span className="text-[8px] font-black text-sky-500 uppercase bg-sky-50 px-1.5 py-0.5 rounded border border-sky-100">{item.lead?.base}</span>
-                    </div>
+                    <p className="font-black uppercase italic text-sm text-slate-700">{item.lead?.nome}</p>
+                    <div className="flex items-center gap-2"><span className="text-[9px] font-bold uppercase text-gray-400">{formatDistanceToNow(new Date(item.timestamp), { addSuffix: true, locale: ptBR })}</span></div>
                   </div>
                   <button onClick={() => { setActive(item.lead!); setCarrier(true); }} className="p-4 bg-gray-50 text-gray-400 rounded-2xl hover:bg-sky-600 hover:text-white transition-all"><RotateCcw className="w-4 h-4" /></button>
                 </div>
