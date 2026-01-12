@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { Lead, CallStatus, CallRecord, User, Sale, SaleChannel } from '../types';
-import { Phone, CheckCircle, Ban, Loader2, PhoneForwarded, X, HelpCircle, PhoneOff, History, ListChecks, Clock, RotateCcw, Target, Zap, DollarSign, MessageCircle, TrendingUp } from 'lucide-react';
+import { Phone, CheckCircle, Ban, Loader2, PhoneForwarded, X, HelpCircle, PhoneOff, History, ListChecks, Clock, RotateCcw, Target, Zap, DollarSign, MessageCircle, TrendingUp, RefreshCw } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
@@ -26,6 +26,7 @@ export const SellerView: React.FC<SellerViewProps> = ({ user, leads, calls, sale
   const [active, setActive] = useState<Lead | null>(null);
   const [carrier, setCarrier] = useState<boolean>(false);
   const [loading, setLoading] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
   const [start, setStart] = useState<number>(0);
 
   // Form Venda
@@ -65,6 +66,13 @@ export const SellerView: React.FC<SellerViewProps> = ({ user, leads, calls, sale
     setCarrier(false);
     setStart(Date.now());
     window.location.href = `tel:${code}${active.telefone.replace(/\D/g, '')}`;
+  };
+
+  const handleSync = () => {
+    setIsSyncing(true);
+    setTimeout(() => {
+      window.location.reload();
+    }, 600);
   };
 
   const handleStatus = async (status: CallStatus) => {
@@ -111,6 +119,15 @@ export const SellerView: React.FC<SellerViewProps> = ({ user, leads, calls, sale
         className="fixed bottom-8 left-8 z-[60] bg-emerald-500 text-white px-8 py-5 rounded-full font-black uppercase italic shadow-2xl shadow-emerald-200 flex items-center gap-3 hover:bg-emerald-600 hover:scale-105 active:scale-95 transition-all"
       >
         <DollarSign className="w-5 h-5" /> Registrar Venda
+      </button>
+
+      {/* Botão Visual de Atualização Flutuante (Direita) */}
+      <button 
+        onClick={handleSync}
+        className="fixed bottom-8 right-8 z-[60] bg-white text-sky-600 p-5 rounded-full shadow-2xl border-2 border-sky-50 hover:bg-sky-50 hover:scale-110 active:scale-90 transition-all flex items-center gap-2 group"
+      >
+        <RefreshCw className={`w-6 h-6 ${isSyncing ? 'animate-spin' : 'group-hover:rotate-180 transition-transform duration-500'}`} />
+        <span className="text-[10px] font-black uppercase hidden sm:inline">Atualizar</span>
       </button>
 
       {/* Modal de Venda */}
@@ -232,6 +249,9 @@ export const SellerView: React.FC<SellerViewProps> = ({ user, leads, calls, sale
                 <button onClick={() => { setActive(l); setCarrier(true); }} className="bg-sky-600 text-white p-6 rounded-[2rem] shadow-xl shadow-sky-100 active:scale-90 transition-all"><Phone className="w-6 h-6" /></button>
               </div>
             ))}
+            {myLeads.length === 0 && (
+              <div className="py-20 text-center opacity-30 italic font-black text-xs uppercase">Sem leads pendentes</div>
+            )}
           </>
         ) : (
           <div className="space-y-3">

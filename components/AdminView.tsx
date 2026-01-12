@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo, useRef } from 'react';
 import { User, Lead, CallRecord, Sale, CallStatus } from '../types';
-import { Users, Database, Power, Search, Trash2, Loader2, FileSpreadsheet, BarChart3, Clock, Activity, DollarSign, TrendingUp, Ban, Edit3, Save, X, RotateCcw, Filter, UserPlus, PhoneOff, AlertCircle, PhoneCall, MessageCircle, Smartphone } from 'lucide-react';
+import { Users, Database, Power, Search, Trash2, Loader2, FileSpreadsheet, BarChart3, Clock, Activity, DollarSign, TrendingUp, Ban, Edit3, Save, X, RotateCcw, Filter, UserPlus, PhoneOff, AlertCircle, PhoneCall, MessageCircle, Smartphone, RefreshCw } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip, CartesianGrid } from 'recharts';
 import * as XLSX from 'xlsx';
 
@@ -26,6 +26,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
 }) => {
   const [tab, setTab] = useState<'dash' | 'leads' | 'users' | 'sales'>('dash');
   const [viewMode, setViewMode] = useState<'month' | 'day'>('day'); 
+  const [isSyncing, setIsSyncing] = useState(false);
   const [date, setDate] = useState(() => {
     const d = new Date();
     const offset = d.getTimezoneOffset();
@@ -55,6 +56,13 @@ export const AdminView: React.FC<AdminViewProps> = ({
     }
   };
 
+  const handleSync = () => {
+    setIsSyncing(true);
+    setTimeout(() => {
+      window.location.reload();
+    }, 600);
+  };
+
   const periodSales = useMemo(() => {
     const filter = viewMode === 'day' ? date : date.slice(0, 7);
     return sales.filter(s => {
@@ -82,7 +90,6 @@ export const AdminView: React.FC<AdminViewProps> = ({
 
     const pct = (v: number) => totalCalls > 0 ? ((v / totalCalls) * 100).toFixed(0) : '0';
 
-    // Stats de Vendas por Canal
     const totalVendasCount = periodSales.length;
     const callSales = periodSales.filter(s => s.canal === 'call');
     const whatsappSales = periodSales.filter(s => s.canal === 'whatsapp');
@@ -157,7 +164,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-20">
-      <nav className="flex bg-white p-2 rounded-full border shadow-sm max-w-3xl mx-auto mb-10 overflow-hidden">
+      <nav className="flex bg-white p-2 rounded-full border shadow-sm max-w-3xl mx-auto mb-10 overflow-hidden relative">
         {[
           { id: 'dash', label: 'Painel', icon: BarChart3 },
           { id: 'leads', label: 'Leads', icon: Database },
@@ -171,15 +178,26 @@ export const AdminView: React.FC<AdminViewProps> = ({
         ))}
       </nav>
 
-      {/* Seletor de Data compartilhado por todas as abas que usam filtros de tempo */}
-      <div className="bg-white p-6 rounded-[2.5rem] border-2 border-gray-100 flex justify-between items-center shadow-sm mb-8">
+      {/* Cabeçalho de Dados e Sincronização */}
+      <div className="bg-white p-6 rounded-[2.5rem] border-2 border-gray-100 flex flex-wrap gap-4 justify-between items-center shadow-sm mb-8">
         <div className="flex bg-gray-50 p-1 rounded-2xl">
           <button onClick={() => setViewMode('day')} className={`px-6 py-2 rounded-xl text-[10px] font-black uppercase transition-all ${viewMode === 'day' ? 'bg-white text-sky-600 shadow-sm' : 'text-gray-400'}`}>Dia</button>
           <button onClick={() => setViewMode('month')} className={`px-6 py-2 rounded-xl text-[10px] font-black uppercase transition-all ${viewMode === 'month' ? 'bg-white text-sky-600 shadow-sm' : 'text-gray-400'}`}>Mês</button>
         </div>
-        <div className="flex items-center gap-3 bg-sky-50 px-6 py-3 rounded-2xl border-2 border-sky-100 text-sky-700">
-          <Clock className="w-4 h-4" />
-          <input type="date" value={date} onChange={e => setDate(e.target.value)} className="bg-transparent font-black text-sm uppercase outline-none" />
+        
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3 bg-sky-50 px-6 py-3 rounded-2xl border-2 border-sky-100 text-sky-700">
+            <Clock className="w-4 h-4" />
+            <input type="date" value={date} onChange={e => setDate(e.target.value)} className="bg-transparent font-black text-sm uppercase outline-none" />
+          </div>
+          
+          <button 
+            onClick={handleSync}
+            className={`flex items-center gap-3 px-6 py-3 bg-slate-900 text-white rounded-2xl font-black uppercase text-[10px] italic shadow-xl transition-all active:scale-95 group ${isSyncing ? 'opacity-50' : ''}`}
+          >
+            <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin' : 'group-hover:rotate-180 transition-transform duration-500'}`} />
+            Atualizar Dados
+          </button>
         </div>
       </div>
 
@@ -239,12 +257,12 @@ export const AdminView: React.FC<AdminViewProps> = ({
             </div>
             <div className="lg:col-span-2 bg-white p-10 rounded-[3rem] border-2 border-gray-100 flex flex-col">
               <h4 className="font-black uppercase italic text-slate-800 mb-8 flex items-center gap-2">
-                <Clock className="text-sky-500" /> Atividade de Hoje
+                <Clock className="text-sky-500" /> Atividade em Tempo Real
               </h4>
               <div className="flex-1 min-h-[300px] flex items-center justify-center text-center">
                 <div className="space-y-2 opacity-30">
                   <Activity size={48} className="mx-auto" />
-                  <p className="font-black uppercase text-xs">Gráfico de desempenho em tempo real</p>
+                  <p className="font-black uppercase text-xs">Dados atualizados automaticamente ao registrar ações</p>
                 </div>
               </div>
             </div>
@@ -336,7 +354,6 @@ export const AdminView: React.FC<AdminViewProps> = ({
 
       {tab === 'sales' && (
         <div className="animate-in fade-in duration-500 space-y-8">
-          {/* Dashboard de Vendas (Quantidade e Percentual por Canal) */}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div className="bg-white p-8 rounded-[2.5rem] border-2 border-gray-100 shadow-sm">
               <p className="text-[10px] font-black uppercase text-gray-400 mb-2 tracking-widest">Total de Vendas</p>
@@ -371,7 +388,6 @@ export const AdminView: React.FC<AdminViewProps> = ({
             </div>
           </div>
 
-          {/* Tabela de Vendas */}
           <div className="bg-white rounded-[3rem] border-2 border-gray-100 overflow-hidden shadow-sm">
             <table className="w-full text-left">
               <thead className="bg-gray-50 text-xs font-black uppercase text-gray-400">

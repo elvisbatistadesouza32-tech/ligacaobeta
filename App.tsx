@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { User, Lead, CallRecord, Sale } from './types';
+import { User, Lead, CallRecord, Sale, CallStatus } from './types';
 import { Layout } from './components/Layout';
 import { SellerView } from './components/SellerView';
 import { AdminView } from './components/AdminView';
@@ -59,14 +59,17 @@ const App: React.FC = () => {
     const channel = supabase
       .channel('db-changes-main')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'calls' }, (payload) => {
-        if (payload.eventType === 'INSERT') setCalls(prev => [payload.new as CallRecord, ...prev]);
+        if (payload.eventType === 'INSERT') {
+          setCalls(prev => {
+            if (prev.some(c => c.id === payload.new.id)) return prev;
+            return [payload.new as CallRecord, ...prev];
+          });
+        }
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'sales' }, (payload) => {
         if (payload.eventType === 'INSERT') {
-          // Evita duplicatas se o handleRegisterSale já inseriu localmente
           setSales(prev => {
-            const exists = prev.some(s => s.id === payload.new.id);
-            if (exists) return prev;
+            if (prev.some(s => s.id === payload.new.id)) return prev;
             return [payload.new as Sale, ...prev];
           });
         }
@@ -74,8 +77,10 @@ const App: React.FC = () => {
         if (payload.eventType === 'DELETE') setSales(prev => prev.filter(s => s.id !== payload.old.id));
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'leads' }, (payload) => {
+        if (payload.eventType === 'UPDATE') {
+          setLeads(prev => prev.map(l => l.id === payload.new.id ? (payload.new as Lead) : l));
+        }
         if (payload.eventType === 'INSERT') setLeads(prev => [payload.new as Lead, ...prev]);
-        if (payload.eventType === 'UPDATE') setLeads(prev => prev.map(l => l.id === payload.new.id ? (payload.new as Lead) : l));
         if (payload.eventType === 'DELETE') setLeads(prev => prev.filter(l => l.id !== payload.old.id));
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'users' }, (payload) => {
@@ -88,23 +93,26 @@ const App: React.FC = () => {
 
   const handleRegisterSale = async (saleData: Omit<Sale, 'id' | 'created_at'>) => {
     const newSale = { ...saleData, id: crypto.randomUUID(), created_at: new Date().toISOString() };
-    const { error } = await supabase.from('sales').insert([newSale]);
-    if (!error) {
-      // Atualiza localmente para feedback instantâneo no vendedor e admin (se for o mesmo navegador)
-      setSales(prev => [newSale as Sale, ...prev]);
-    }
+    setSales(prev => [newSale as Sale, ...prev]); // Instant UI
+    await supabase.from('sales').insert([newSale]);
   };
 
   const handleUpdateSale = async (id: string, amount: number) => {
+    setSales(prev => prev.map(s => s.id === id ? { ...s, amount } : s));
     await supabase.from('sales').update({ amount }).eq('id', id);
   };
 
   const handleDeleteSale = async (id: string) => {
     if (!confirm("Excluir registro de venda definitivamente?")) return;
+    setSales(prev => prev.filter(s => s.id !== id));
     await supabase.from('sales').delete().eq('id', id);
   };
 
   const handleLogCall = async (call: CallRecord) => {
+    // ATUALIZAÇÃO OTIMISTA: Remove o lead da fila e adiciona ao histórico instantaneamente
+    setLeads(prev => prev.map(l => l.id === call.leadId ? { ...l, status: 'CALLED' } : l));
+    setCalls(prev => [call, ...prev]);
+
     await Promise.all([
       supabase.from('calls').insert([call]),
       supabase.from('leads').update({ status: 'CALLED' }).eq('id', call.leadId)
@@ -128,21 +136,25 @@ const App: React.FC = () => {
   const handleClearSellerLeads = async (userId: string) => {
     const sellerName = users.find(u => u.id === userId)?.nome;
     if (!confirm(`Deseja ZERAR e EXCLUIR todos os leads pendentes de ${sellerName}?`)) return;
+    setLeads(prev => prev.filter(l => !(l.assignedTo === userId && l.status === 'PENDING')));
     await supabase.from('leads').delete().eq('assignedTo', userId).eq('status', 'PENDING');
   };
 
   const handleTransferLeads = async (leadIds: string[], userId: string | null) => {
+    setLeads(prev => prev.map(l => leadIds.includes(l.id) ? { ...l, assignedTo: userId } : l));
     await supabase.from('leads').update({ assignedTo: userId }).in('id', leadIds);
   };
 
   const handleDeleteLeads = async (leadIds: string[]) => {
     if (!confirm(`Excluir ${leadIds.length} lead(s)?`)) return;
+    setLeads(prev => prev.filter(l => !leadIds.includes(l.id)));
     await supabase.from('leads').delete().in('id', leadIds);
   };
 
   const handleToggleUser = async (id: string) => {
     const user = users.find(u => u.id === id);
     if (!user) return;
+    setUsers(prev => prev.map(u => u.id === id ? { ...u, online: !u.online } : u));
     await supabase.from('users').update({ online: !user.online }).eq('id', id);
   };
 
