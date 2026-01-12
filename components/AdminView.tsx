@@ -127,14 +127,12 @@ export const AdminView: React.FC<AdminViewProps> = ({
       }
     });
 
-    // Filtra horas sem atividade para o gráfico não ficar vazio demais
     const hasActivity = hours.some(h => h.total > 0);
     if (!hasActivity) return [];
 
-    // Retorna apenas o intervalo comercial ou onde houve atividade
     return hours.filter((h, idx) => {
       if (h.total > 0) return true;
-      return idx >= 8 && idx <= 20; // Padrão comercial
+      return idx >= 8 && idx <= 20; 
     });
   }, [filteredCalls]);
 
@@ -188,6 +186,12 @@ export const AdminView: React.FC<AdminViewProps> = ({
       return matchesSearch && matchesOperator;
     });
   }, [leads, search, filterOperator]);
+
+  const handleDeleteIndividualLead = async (id: string) => {
+    if (confirm("Deseja realmente excluir este lead permanentemente?")) {
+      await onDeleteLeads([id]);
+    }
+  };
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-20">
@@ -356,20 +360,46 @@ export const AdminView: React.FC<AdminViewProps> = ({
           <div className="bg-white rounded-[3rem] border-2 border-gray-100 overflow-hidden shadow-sm">
             <table className="w-full text-left">
               <thead className="bg-gray-50 text-xs font-black uppercase text-gray-400">
-                <tr><th className="px-10 py-8">Lead</th><th className="px-10 py-8">Vendedor</th><th className="px-10 py-8 text-center">Status</th></tr>
+                <tr>
+                  <th className="px-10 py-8">Lead</th>
+                  <th className="px-10 py-8">Vendedor</th>
+                  <th className="px-10 py-8 text-center">Status</th>
+                  <th className="px-10 py-8 text-right">Ação</th>
+                </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
-                {currentLeads.slice(0, 50).map(l => (
+                {currentLeads.slice(0, 100).map(l => (
                   <tr key={l.id} className="hover:bg-gray-50">
-                    <td className="px-10 py-7"><p className="font-black uppercase text-slate-800">{l.nome}</p><span className="text-xs font-bold text-sky-400">{l.telefone}</span></td>
-                    <td className="px-10 py-7 text-sm font-black uppercase text-slate-500">{l.assignedTo ? users.find(u => u.id === l.assignedTo)?.nome : 'Disponível'}</td>
+                    <td className="px-10 py-7">
+                      <p className="font-black uppercase text-slate-800">{l.nome}</p>
+                      <span className="text-xs font-bold text-sky-400">{l.telefone}</span>
+                    </td>
+                    <td className="px-10 py-7 text-sm font-black uppercase text-slate-500">
+                      {l.assignedTo ? users.find(u => u.id === l.assignedTo)?.nome : 'Disponível'}
+                    </td>
                     <td className="px-10 py-7 text-center">
                       <span className={`px-6 py-2 rounded-full text-[10px] font-black uppercase border-2 ${l.status === 'CALLED' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-amber-50 text-amber-600 border-amber-100'}`}>
                         {l.status === 'CALLED' ? 'Chamado' : 'Pendente'}
                       </span>
                     </td>
+                    <td className="px-10 py-7 text-right">
+                      <button 
+                        onClick={() => handleDeleteIndividualLead(l.id)} 
+                        className="p-3 text-red-500 hover:bg-red-50 rounded-xl transition-all active:scale-90"
+                        title="Excluir Lead"
+                      >
+                        <Trash2 size={18} />
+                      </button>
+                    </td>
                   </tr>
                 ))}
+                {currentLeads.length === 0 && (
+                  <tr>
+                    <td colSpan={4} className="text-center py-20 text-[10px] font-black uppercase text-gray-300 tracking-[0.2em]">
+                      Nenhum lead encontrado para os filtros atuais
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
@@ -381,7 +411,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
           <div className="bg-white rounded-[3rem] border-2 border-gray-100 overflow-hidden shadow-sm">
             <table className="w-full text-left">
               <thead className="bg-gray-50 text-xs font-black uppercase text-gray-400">
-                <tr><th className="px-10 py-8">Equipe</th><th className="px-10 py-8 text-center">Fila Atual</th><th className="px-10 py-8 text-right">Ações</th></tr>
+                <tr><th className="px-10 py-8">Equipe</th><th className="px-10 py-8 text-center">Fila Atual</th><th className="px-10 py-8 text-right">AÇÕES</th></tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
                 {users.map(u => (
@@ -395,6 +425,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
                     <td className="px-10 py-7 text-center font-black text-xl text-sky-600">{leads.filter(l => l.assignedTo === u.id && l.status === 'PENDING').length}</td>
                     <td className="px-10 py-7 text-right flex justify-end gap-3">
                       <button onClick={() => onClearSellerLeads(u.id)} className="p-4 bg-red-50 text-red-500 rounded-2xl border-2 border-red-100"><RotateCcw size={18} /></button>
+                      {/* Fixed typo: replaced 'onToggleUserStatus(id: string)' with 'onToggleUserStatus(u.id)' */}
                       <button onClick={() => onToggleUserStatus(u.id)} className={`p-4 rounded-2xl border-2 transition-all ${u.online ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-gray-100 text-gray-400'}`}><Power size={18} /></button>
                     </td>
                   </tr>
