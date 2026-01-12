@@ -1,7 +1,7 @@
 
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { User, Lead, CallRecord, Sale, CallStatus } from '../types';
-import { Users, Database, Power, Search, Trash2, Loader2, FileSpreadsheet, BarChart3, Clock, Activity, DollarSign, TrendingUp, Ban, Edit3, Save, X, RotateCcw, Filter, UserPlus, PhoneOff, AlertCircle, PhoneCall, MessageCircle, Smartphone, RefreshCw } from 'lucide-react';
+import { Users, Database, Power, Search, Trash2, Loader2, FileSpreadsheet, BarChart3, Clock, Activity, DollarSign, TrendingUp, Ban, Edit3, Save, X, RotateCcw, Filter, UserPlus, PhoneOff, AlertCircle, PhoneCall, MessageCircle, Smartphone, RefreshCw, CheckSquare, Square } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip, CartesianGrid, Legend } from 'recharts';
 import * as XLSX from 'xlsx';
 
@@ -40,6 +40,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
   const [loading, setLoading] = useState(false);
   const [editingSaleId, setEditingSaleId] = useState<string | null>(null);
   const [editAmount, setEditAmount] = useState('');
+  const [selectedLeadIds, setSelectedLeadIds] = useState<string[]>([]);
   const fileInput = useRef<HTMLInputElement>(null);
 
   const sellers = useMemo(() => users.filter(u => u.tipo === 'vendedor'), [users]);
@@ -187,11 +188,38 @@ export const AdminView: React.FC<AdminViewProps> = ({
     });
   }, [leads, search, filterOperator]);
 
+  const toggleLeadSelection = (id: string) => {
+    setSelectedLeadIds(prev => 
+      prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
+    );
+  };
+
+  const toggleSelectAllLeads = () => {
+    if (selectedLeadIds.length === currentLeads.length) {
+      setSelectedLeadIds([]);
+    } else {
+      setSelectedLeadIds(currentLeads.map(l => l.id));
+    }
+  };
+
   const handleDeleteIndividualLead = async (id: string) => {
     if (confirm("Deseja realmente excluir este lead permanentemente?")) {
       await onDeleteLeads([id]);
+      setSelectedLeadIds(prev => prev.filter(i => i !== id));
     }
   };
+
+  const handleBulkDeleteLeads = async () => {
+    if (confirm(`Deseja realmente excluir ${selectedLeadIds.length} leads selecionados?`)) {
+      await onDeleteLeads(selectedLeadIds);
+      setSelectedLeadIds([]);
+    }
+  };
+
+  // Limpar seleção ao mudar de aba para evitar erros
+  useEffect(() => {
+    setSelectedLeadIds([]);
+  }, [tab]);
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-20">
@@ -352,15 +380,32 @@ export const AdminView: React.FC<AdminViewProps> = ({
                 {sellers.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
               </select>
             </div>
-            <div className="bg-amber-500 p-8 rounded-[3rem] text-white flex flex-col justify-center text-center shadow-lg shadow-amber-100">
-              <p className="text-xs font-black uppercase opacity-60 mb-2">Pendentes</p>
-              <p className="text-4xl font-black italic">{currentLeads.filter(l => l.status === 'PENDING').length}</p>
+            <div className={`p-8 rounded-[3rem] text-white flex flex-col justify-center text-center shadow-lg transition-all duration-500 ${selectedLeadIds.length > 0 ? 'bg-red-500 shadow-red-100' : 'bg-amber-500 shadow-amber-100'}`}>
+              {selectedLeadIds.length > 0 ? (
+                <button onClick={handleBulkDeleteLeads} className="h-full w-full flex flex-col items-center justify-center group">
+                  <p className="text-xs font-black uppercase opacity-60 mb-2">Ações em Lote</p>
+                  <p className="text-2xl font-black italic flex items-center gap-2">
+                    <Trash2 className="animate-bounce" /> Excluir {selectedLeadIds.length}
+                  </p>
+                </button>
+              ) : (
+                <>
+                  <p className="text-xs font-black uppercase opacity-60 mb-2">Pendentes</p>
+                  <p className="text-4xl font-black italic">{currentLeads.filter(l => l.status === 'PENDING').length}</p>
+                </>
+              )}
             </div>
           </div>
+
           <div className="bg-white rounded-[3rem] border-2 border-gray-100 overflow-hidden shadow-sm">
             <table className="w-full text-left">
               <thead className="bg-gray-50 text-xs font-black uppercase text-gray-400">
                 <tr>
+                  <th className="px-6 py-8 text-center w-12">
+                    <button onClick={toggleSelectAllLeads} className={`p-2 rounded-lg transition-all ${selectedLeadIds.length === currentLeads.length && currentLeads.length > 0 ? 'text-sky-600' : 'text-gray-300'}`}>
+                      {selectedLeadIds.length === currentLeads.length && currentLeads.length > 0 ? <CheckSquare size={20} /> : <Square size={20} />}
+                    </button>
+                  </th>
                   <th className="px-10 py-8">Lead</th>
                   <th className="px-10 py-8">Vendedor</th>
                   <th className="px-10 py-8 text-center">Status</th>
@@ -369,10 +414,15 @@ export const AdminView: React.FC<AdminViewProps> = ({
               </thead>
               <tbody className="divide-y divide-gray-50">
                 {currentLeads.slice(0, 100).map(l => (
-                  <tr key={l.id} className="hover:bg-gray-50">
+                  <tr key={l.id} className={`hover:bg-gray-50 transition-colors ${selectedLeadIds.includes(l.id) ? 'bg-sky-50/30' : ''}`}>
+                    <td className="px-6 py-7 text-center">
+                      <button onClick={() => toggleLeadSelection(l.id)} className={`p-2 rounded-lg transition-all ${selectedLeadIds.includes(l.id) ? 'text-sky-600' : 'text-gray-300'}`}>
+                        {selectedLeadIds.includes(l.id) ? <CheckSquare size={20} /> : <Square size={20} />}
+                      </button>
+                    </td>
                     <td className="px-10 py-7">
-                      <p className="font-black uppercase text-slate-800">{l.nome}</p>
-                      <span className="text-xs font-bold text-sky-400">{l.telefone}</span>
+                      <p className="font-black uppercase text-slate-800 italic">{l.nome}</p>
+                      <span className="text-xs font-bold text-sky-400 tracking-wider">{l.telefone}</span>
                     </td>
                     <td className="px-10 py-7 text-sm font-black uppercase text-slate-500">
                       {l.assignedTo ? users.find(u => u.id === l.assignedTo)?.nome : 'Disponível'}
@@ -395,7 +445,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
                 ))}
                 {currentLeads.length === 0 && (
                   <tr>
-                    <td colSpan={4} className="text-center py-20 text-[10px] font-black uppercase text-gray-300 tracking-[0.2em]">
+                    <td colSpan={5} className="text-center py-20 text-[10px] font-black uppercase text-gray-300 tracking-[0.2em]">
                       Nenhum lead encontrado para os filtros atuais
                     </td>
                   </tr>
@@ -424,9 +474,8 @@ export const AdminView: React.FC<AdminViewProps> = ({
                     </td>
                     <td className="px-10 py-7 text-center font-black text-xl text-sky-600">{leads.filter(l => l.assignedTo === u.id && l.status === 'PENDING').length}</td>
                     <td className="px-10 py-7 text-right flex justify-end gap-3">
-                      <button onClick={() => onClearSellerLeads(u.id)} className="p-4 bg-red-50 text-red-500 rounded-2xl border-2 border-red-100"><RotateCcw size={18} /></button>
-                      {/* Fixed typo: replaced 'onToggleUserStatus(id: string)' with 'onToggleUserStatus(u.id)' */}
-                      <button onClick={() => onToggleUserStatus(u.id)} className={`p-4 rounded-2xl border-2 transition-all ${u.online ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-gray-100 text-gray-400'}`}><Power size={18} /></button>
+                      <button onClick={() => onClearSellerLeads(u.id)} className="p-4 bg-red-50 text-red-500 rounded-2xl border-2 border-red-100" title="Limpar Fila"><RotateCcw size={18} /></button>
+                      <button onClick={() => onToggleUserStatus(u.id)} className={`p-4 rounded-2xl border-2 transition-all ${u.online ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-gray-100 text-gray-400'}`} title={u.online ? "Desativar" : "Ativar"}><Power size={18} /></button>
                     </td>
                   </tr>
                 ))}
@@ -480,7 +529,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
               <tbody className="divide-y divide-gray-50">
                 {periodSales.map(s => (
                   <tr key={s.id} className="hover:bg-gray-50">
-                    <td className="px-10 py-7 font-black uppercase text-sm">{users.find(u => u.id === s.seller_id)?.nome}</td>
+                    <td className="px-10 py-7 font-black uppercase text-sm italic">{users.find(u => u.id === s.seller_id)?.nome}</td>
                     <td className="px-10 py-7">
                       <div className="flex items-center gap-2">
                         {s.canal === 'whatsapp' ? (
