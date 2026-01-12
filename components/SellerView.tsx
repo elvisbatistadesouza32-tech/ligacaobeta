@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { Lead, CallStatus, CallRecord, User, Sale, SaleChannel } from '../types';
-import { Phone, CheckCircle, Ban, Loader2, PhoneForwarded, X, HelpCircle, PhoneOff, History, ListChecks, Clock, RotateCcw, Target, Zap, DollarSign, MessageCircle, TrendingUp, RefreshCw } from 'lucide-react';
+import { Phone, CheckCircle, Ban, Loader2, PhoneForwarded, X, HelpCircle, PhoneOff, History, ListChecks, Clock, RotateCcw, Target, Zap, DollarSign, MessageCircle, TrendingUp, RefreshCw, AlertCircle } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
@@ -218,13 +218,37 @@ export const SellerView: React.FC<SellerViewProps> = ({ user, leads, calls, sale
 
       {active && !carrier && (
         <div className="fixed inset-0 z-[100] bg-slate-950/90 backdrop-blur-xl flex items-center justify-center p-6 text-center">
-          <div className="bg-white rounded-[3.5rem] w-full max-w-sm p-10 shadow-2xl">
+          <div className="bg-white rounded-[3.5rem] w-full max-w-sm p-10 shadow-2xl overflow-hidden animate-in zoom-in-95 duration-300">
             <h3 className="text-3xl font-black italic uppercase tracking-tighter mb-2 text-slate-900 leading-tight">{active.nome}</h3>
             <p className="text-sky-600 font-bold text-xl mb-10 tracking-wider">{active.telefone}</p>
-            <div className="space-y-4">
-              <button onClick={() => handleStatus(CallStatus.ANSWERED)} className="w-full py-6 bg-emerald-500 text-white rounded-[2rem] font-black uppercase italic shadow-xl shadow-emerald-100 flex items-center justify-center gap-3 active:scale-95 transition-all"><CheckCircle className="w-5 h-5" /> Atendeu</button>
-              <button onClick={() => handleStatus(CallStatus.NO_ANSWER)} className="w-full py-6 bg-red-500 text-white rounded-[2rem] font-black uppercase italic shadow-xl shadow-red-100 flex items-center justify-center gap-3 active:scale-95 transition-all"><PhoneOff className="w-5 h-5" /> Não Atendeu</button>
-              <button onClick={() => setActive(null)} className="pt-6 text-[11px] font-black uppercase text-gray-400 tracking-widest hover:text-gray-600 transition-colors">Voltar para lista</button>
+            <div className="space-y-3">
+              <button 
+                onClick={() => handleStatus(CallStatus.ANSWERED)} 
+                className="w-full py-6 bg-emerald-500 text-white rounded-[2rem] font-black uppercase italic shadow-xl shadow-emerald-100 flex items-center justify-center gap-3 active:scale-95 transition-all"
+              >
+                <CheckCircle className="w-5 h-5" /> Atendeu
+              </button>
+              
+              <button 
+                onClick={() => handleStatus(CallStatus.NO_ANSWER)} 
+                className="w-full py-6 bg-red-500 text-white rounded-[2rem] font-black uppercase italic shadow-xl shadow-red-100 flex items-center justify-center gap-3 active:scale-95 transition-all"
+              >
+                <PhoneOff className="w-5 h-5" /> Não Atendeu
+              </button>
+
+              <button 
+                onClick={() => handleStatus(CallStatus.INVALID_NUMBER)} 
+                className="w-full py-6 bg-amber-500 text-white rounded-[2rem] font-black uppercase italic shadow-xl shadow-amber-100 flex items-center justify-center gap-3 active:scale-95 transition-all"
+              >
+                <AlertCircle className="w-5 h-5" /> Número Inválido
+              </button>
+
+              <button 
+                onClick={() => setActive(null)} 
+                className="pt-6 text-[11px] font-black uppercase text-gray-400 tracking-widest hover:text-gray-600 transition-colors"
+              >
+                Voltar para lista
+              </button>
             </div>
           </div>
         </div>
