@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { User, Lead, CallRecord, Sale, CallStatus } from '../types';
-import { Users, Database, Power, Search, Trash2, Loader2, FileSpreadsheet, BarChart3, Clock, Activity, DollarSign, TrendingUp, Ban, Edit3, Save, X, RotateCcw, Filter, UserPlus, PhoneOff, AlertCircle, PhoneCall, MessageCircle, Smartphone, RefreshCw, CheckSquare, Square } from 'lucide-react';
+import { Users, Database, Power, Search, Trash2, Loader2, FileSpreadsheet, BarChart3, Clock, Activity, DollarSign, TrendingUp, Ban, Edit3, Save, X, RotateCcw, Filter, UserPlus, PhoneOff, AlertCircle, PhoneCall, MessageCircle, Smartphone, RefreshCw, CheckSquare, Square, Bookmark } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip, CartesianGrid, Legend } from 'recharts';
 import * as XLSX from 'xlsx';
 
@@ -386,9 +386,8 @@ export const AdminView: React.FC<AdminViewProps> = ({
           </div>
 
           <div className="bg-white rounded-[3rem] border-2 border-gray-100 overflow-hidden shadow-sm relative">
-            {/* Barra de Ações em Massa - Só aparece se houver seleção */}
             {selectedLeadIds.length > 0 && (
-              <div className="absolute top-0 left-0 right-0 z-20 bg-slate-900 text-white p-6 flex items-center justify-between animate-in slide-in-from-top-full duration-300">
+              <div className="absolute top-0 left-0 right-0 z-20 bg-slate-950 text-white p-6 flex items-center justify-between animate-in slide-in-from-top-full duration-300">
                 <div className="flex items-center gap-4">
                   <span className="bg-sky-600 text-white px-4 py-1.5 rounded-full text-[10px] font-black uppercase italic shadow-lg">
                     {selectedLeadIds.length} Selecionados
@@ -419,7 +418,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
                       {selectedLeadIds.length === currentLeads.length && currentLeads.length > 0 ? <CheckSquare size={20} /> : <Square size={20} />}
                     </button>
                   </th>
-                  <th className="px-10 py-8">Lead</th>
+                  <th className="px-10 py-8">Lead / Base</th>
                   <th className="px-10 py-8">Vendedor</th>
                   <th className="px-10 py-8 text-center">Status</th>
                   <th className="px-10 py-8 text-right">Ação</th>
@@ -438,7 +437,12 @@ export const AdminView: React.FC<AdminViewProps> = ({
                     </td>
                     <td className="px-10 py-7">
                       <p className="font-black uppercase text-slate-800 italic">{l.nome}</p>
-                      <span className="text-xs font-bold text-sky-400 tracking-widest">{l.telefone}</span>
+                      <div className="flex flex-col mt-0.5">
+                        <span className="text-xs font-bold text-sky-400 tracking-widest">{l.telefone}</span>
+                        <span className="text-[9px] font-black uppercase text-gray-300 flex items-center gap-1">
+                          <Bookmark size={10} /> {l.base}
+                        </span>
+                      </div>
                     </td>
                     <td className="px-10 py-7 text-sm font-black uppercase text-slate-500">
                       {l.assignedTo ? users.find(u => u.id === l.assignedTo)?.nome : 'Fila Geral'}

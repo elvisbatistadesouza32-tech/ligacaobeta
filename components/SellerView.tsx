@@ -1,9 +1,11 @@
 
 import React, { useState, useMemo } from 'react';
 import { Lead, CallStatus, CallRecord, User, Sale, SaleChannel } from '../types';
-import { Phone, CheckCircle, Ban, Loader2, PhoneForwarded, X, HelpCircle, PhoneOff, History, ListChecks, Clock, RotateCcw, Target, Zap, DollarSign, MessageCircle, TrendingUp, RefreshCw, AlertCircle } from 'lucide-react';
+import { Phone, CheckCircle, Ban, Loader2, PhoneForwarded, X, HelpCircle, PhoneOff, History, ListChecks, Clock, RotateCcw, Target, Zap, DollarSign, MessageCircle, TrendingUp, RefreshCw, AlertCircle, Bookmark } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
-import { ptBR } from 'date-fns/locale';
+// Fix: Import ptBR from the specific locale path to avoid "no exported member" error.
+// The locale name in the path is 'pt-BR' but the exported object is usually 'ptBR'.
+import { ptBR } from 'date-fns/locale/pt-BR';
 
 interface SellerViewProps {
   user: User;
@@ -113,7 +115,6 @@ export const SellerView: React.FC<SellerViewProps> = ({ user, leads, calls, sale
   return (
     <div className="space-y-6 max-w-xl mx-auto pb-24 relative">
       
-      {/* Botão Global Registrar Venda */}
       <button 
         onClick={() => setShowSaleModal(true)}
         className="fixed bottom-8 left-8 z-[60] bg-emerald-500 text-white px-8 py-5 rounded-full font-black uppercase italic shadow-2xl shadow-emerald-200 flex items-center gap-3 hover:bg-emerald-600 hover:scale-105 active:scale-95 transition-all"
@@ -121,7 +122,6 @@ export const SellerView: React.FC<SellerViewProps> = ({ user, leads, calls, sale
         <DollarSign className="w-5 h-5" /> Registrar Venda
       </button>
 
-      {/* Botão Visual de Atualização Flutuante (Direita) */}
       <button 
         onClick={handleSync}
         className="fixed bottom-8 right-8 z-[60] bg-white text-sky-600 p-5 rounded-full shadow-2xl border-2 border-sky-50 hover:bg-sky-50 hover:scale-110 active:scale-90 transition-all flex items-center gap-2 group"
@@ -130,7 +130,6 @@ export const SellerView: React.FC<SellerViewProps> = ({ user, leads, calls, sale
         <span className="text-[10px] font-black uppercase hidden sm:inline">Atualizar</span>
       </button>
 
-      {/* Modal de Venda */}
       {showSaleModal && (
         <div className="fixed inset-0 z-[120] bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-6">
           <div className="bg-white rounded-[3.5rem] w-full max-w-sm p-10 shadow-2xl animate-in zoom-in-95 duration-300">
@@ -168,7 +167,6 @@ export const SellerView: React.FC<SellerViewProps> = ({ user, leads, calls, sale
         </div>
       )}
 
-      {/* Cards de Status */}
       <div className="bg-white p-8 rounded-[3rem] border-2 border-gray-100 shadow-sm relative group">
         <div className="absolute top-0 right-0 p-8 opacity-10"><Target size={120} className="text-sky-600" /></div>
         <div className="relative z-10">
@@ -203,7 +201,6 @@ export const SellerView: React.FC<SellerViewProps> = ({ user, leads, calls, sale
         </div>
       </div>
 
-      {/* Modal Operadora e Chamada */}
       {carrier && (
         <div className="fixed inset-0 z-[100] bg-slate-950/80 backdrop-blur-xl flex items-center justify-center p-6">
           <div className="bg-white rounded-[3.5rem] w-full max-w-xs p-10 shadow-2xl">
@@ -220,7 +217,12 @@ export const SellerView: React.FC<SellerViewProps> = ({ user, leads, calls, sale
         <div className="fixed inset-0 z-[100] bg-slate-950/90 backdrop-blur-xl flex items-center justify-center p-6 text-center">
           <div className="bg-white rounded-[3.5rem] w-full max-w-sm p-10 shadow-2xl overflow-hidden animate-in zoom-in-95 duration-300">
             <h3 className="text-3xl font-black italic uppercase tracking-tighter mb-2 text-slate-900 leading-tight">{active.nome}</h3>
-            <p className="text-sky-600 font-bold text-xl mb-10 tracking-wider">{active.telefone}</p>
+            <div className="flex flex-col items-center gap-2 mb-10">
+              <p className="text-sky-600 font-bold text-xl tracking-wider">{active.telefone}</p>
+              <div className="bg-gray-100 px-4 py-1.5 rounded-full flex items-center gap-2 text-[9px] font-black uppercase text-gray-500 italic">
+                <Bookmark size={10} className="text-sky-500" /> Base: {active.base}
+              </div>
+            </div>
             <div className="space-y-3">
               <button 
                 onClick={() => handleStatus(CallStatus.ANSWERED)} 
@@ -254,7 +256,6 @@ export const SellerView: React.FC<SellerViewProps> = ({ user, leads, calls, sale
         </div>
       )}
 
-      {/* Navegação Fila/Histórico */}
       <div className="flex bg-white p-1.5 rounded-3xl border-2 border-gray-100 shadow-sm">
         <button onClick={() => setActiveTab('queue')} className={`flex-1 flex items-center justify-center gap-2 py-4 rounded-2xl font-black text-[10px] uppercase transition-all ${activeTab === 'queue' ? 'bg-sky-600 text-white shadow-lg shadow-sky-100' : 'text-gray-400 hover:bg-gray-50'}`}><ListChecks className="w-4 h-4" /> Minha Fila</button>
         <button onClick={() => setActiveTab('history')} className={`flex-1 flex items-center justify-center gap-2 py-4 rounded-2xl font-black text-[10px] uppercase transition-all ${activeTab === 'history' ? 'bg-sky-600 text-white shadow-lg shadow-sky-100' : 'text-gray-400 hover:bg-gray-50'}`}><History className="w-4 h-4" /> Meu Histórico</button>
@@ -268,7 +269,10 @@ export const SellerView: React.FC<SellerViewProps> = ({ user, leads, calls, sale
               <div key={l.id} className="bg-white p-6 rounded-[3rem] border-2 border-gray-100 flex justify-between items-center group hover:border-sky-600 transition-all shadow-sm">
                 <div className="flex-1">
                   <p className="font-black uppercase italic text-xl tracking-tighter text-slate-900">{l.nome}</p>
-                  <span className="text-[10px] font-bold text-sky-400 uppercase">{l.telefone}</span>
+                  <div className="flex items-center gap-3 mt-1">
+                    <span className="text-[10px] font-bold text-sky-400 uppercase tracking-widest">{l.telefone}</span>
+                    <span className="bg-sky-50 text-sky-600 px-3 py-1 rounded-full text-[8px] font-black uppercase italic border border-sky-100">Base: {l.base}</span>
+                  </div>
                 </div>
                 <button onClick={() => { setActive(l); setCarrier(true); }} className="bg-sky-600 text-white p-6 rounded-[2rem] shadow-xl shadow-sky-100 active:scale-90 transition-all"><Phone className="w-6 h-6" /></button>
               </div>
@@ -284,7 +288,11 @@ export const SellerView: React.FC<SellerViewProps> = ({ user, leads, calls, sale
                 <div key={item.id} className="bg-white p-5 rounded-[2rem] border border-gray-100 flex justify-between items-center group shadow-sm">
                   <div className="flex-1">
                     <p className="font-black uppercase italic text-sm text-slate-700">{item.lead?.nome}</p>
-                    <div className="flex items-center gap-2"><span className="text-[9px] font-bold uppercase text-gray-400">{formatDistanceToNow(new Date(item.timestamp), { addSuffix: true, locale: ptBR })}</span></div>
+                    <div className="flex items-center gap-2">
+                      {/* Fix: In some date-fns versions, passing the locale from a subpath import helps resolve type mismatches in options. */}
+                      <span className="text-[9px] font-bold uppercase text-gray-400">{formatDistanceToNow(new Date(item.timestamp), { addSuffix: true, locale: ptBR })}</span>
+                      <span className="text-[8px] font-black uppercase text-sky-300">Base: {item.lead?.base}</span>
+                    </div>
                   </div>
                   <button onClick={() => { setActive(item.lead!); setCarrier(true); }} className="p-4 bg-gray-50 text-gray-400 rounded-2xl hover:bg-sky-600 hover:text-white transition-all"><RotateCcw className="w-4 h-4" /></button>
                 </div>
