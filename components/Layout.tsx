@@ -65,8 +65,13 @@ export const Layout: React.FC<LayoutProps> = ({ user, onLogout, children }) => {
       <main className="flex-1 max-w-7xl mx-auto w-full p-4 sm:p-8 animate-in fade-in slide-in-from-bottom-2 duration-500">
         {children}
       </main>
-      <footer className="py-8 text-center text-gray-400 text-[10px] font-bold uppercase tracking-[0.2em] opacity-80">
-        &copy; 2024 LIGAÇÕES PORTAL • GESTÃO COMERCIAL DE ALTA PERFORMANCE
+      <footer className="py-10 text-center flex flex-col gap-2 opacity-80">
+        <div className="text-gray-400 text-[10px] font-bold uppercase tracking-[0.2em]">
+          &copy; 2025 LIGAÇÕES PORTAL • GESTÃO COMERCIAL DE ALTA PERFORMANCE
+        </div>
+        <div className="text-gray-400/60 text-[9px] font-medium tracking-widest">
+          Desenvolvido por Elvis Souza
+        </div>
       </footer>
     </div>
   );
