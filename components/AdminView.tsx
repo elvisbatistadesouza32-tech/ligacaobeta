@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { User, Lead, CallRecord, Sale, CallStatus } from '../types';
-import { Users, Database, Power, Search, Trash2, Loader2, FileSpreadsheet, BarChart3, Clock, Activity, DollarSign, TrendingUp, Ban, Edit3, Save, X, RotateCcw, Filter, UserPlus, PhoneOff, AlertCircle, PhoneCall, MessageCircle, Smartphone, RefreshCw, CheckSquare, Square, Bookmark, FileText } from 'lucide-react';
+import { Users, Database, Power, Search, Trash2, Loader2, FileSpreadsheet, BarChart3, Clock, Activity, DollarSign, TrendingUp, Ban, Edit3, Save, X, RotateCcw, Filter, UserPlus, PhoneOff, AlertCircle, PhoneCall, MessageCircle, Smartphone, RefreshCw, CheckSquare, Square, Bookmark, FileText, Star } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip, CartesianGrid, Legend } from 'recharts';
 import * as XLSX from 'xlsx';
 import { jsPDF } from 'jspdf';
@@ -194,41 +194,70 @@ export const AdminView: React.FC<AdminViewProps> = ({
       headStyles: { fillColor: [16, 185, 129] }
     });
 
-    // Seção 3: Inteligência de Horários (Melhores Horários por Turno)
+    // Seção 3: Inteligência de Horários Detalhada
     doc.setFontSize(14);
-    doc.text('MELHORES HORÁRIOS (TAXA DE ATENDIMENTO)', 15, (doc as any).lastAutoTable.finalY + 15);
+    doc.text('MELHORES HORÁRIOS (RANKING DE ATENDIMENTO)', 15, (doc as any).lastAutoTable.finalY + 15);
 
-    const getBestHourInTurn = (start: number, end: number) => {
+    const getTurnMetrics = (start: number, end: number) => {
       const turnHours = hourlyData.filter(h => {
         const hourNum = parseInt(h.hour);
         return hourNum >= start && hourNum < end;
       });
       
-      if (turnHours.length === 0) return 'Sem dados';
+      if (turnHours.length === 0) return ['Sem dados', '-', '-', '-'];
       
       const best = turnHours.reduce((prev, current) => {
+        // Ponderar por volume mínimo para evitar taxas de 100% com 1 ligação
         const prevRate = prev.total > 0 ? prev.atendidas / prev.total : 0;
         const currentRate = current.total > 0 ? current.atendidas / current.total : 0;
         return currentRate >= prevRate ? current : prev;
       });
       
       const rate = best.total > 0 ? ((best.atendidas / best.total) * 100).toFixed(0) : '0';
-      return `${best.hour} (${rate}% de atendimento)`;
+      return [best.hour, best.total.toString(), best.atendidas.toString(), `${rate}%`];
     };
 
-    const turnsData = [
-      ['Manhã (08h - 12h)', getBestHourInTurn(8, 12)],
-      ['Tarde (12h - 18h)', getBestHourInTurn(12, 18)],
-      ['Noite (18h - 22h)', getBestHourInTurn(18, 22)]
+    const turnsTableData = [
+      ['Manhã (08h - 12h)', ...getTurnMetrics(8, 12)],
+      ['Tarde (12h - 18h)', ...getTurnMetrics(12, 18)],
+      ['Noite (18h - 22h)', ...getTurnMetrics(18, 22)]
     ];
 
     (doc as any).autoTable({
       startY: (doc as any).lastAutoTable.finalY + 20,
-      head: [['Turno', 'Melhor Horário Sugerido']],
-      body: turnsData,
+      head: [['Turno', 'Melhor Hora', 'Volume', 'Atendidas', 'Taxa']],
+      body: turnsTableData,
       theme: 'striped',
-      headStyles: { fillColor: [30, 27, 75] }
+      headStyles: { fillColor: [30, 27, 75] },
+      columnStyles: {
+        4: { fontStyle: 'bold', textColor: [16, 185, 129] }
+      }
     });
+
+    // Top 3 Horários de Ouro (Seção Adicional Detalhada)
+    const top3Hours = [...hourlyData]
+      .filter(h => h.total >= 3) // Mínimo de 3 chamadas para ser estatisticamente aceitável
+      .sort((a, b) => (b.atendidas / b.total) - (a.atendidas / a.total))
+      .slice(0, 3);
+
+    if (top3Hours.length > 0) {
+      doc.setFontSize(14);
+      doc.text('TOP 3 - HORÁRIOS DE OURO (EFICIÊNCIA MÁXIMA)', 15, (doc as any).lastAutoTable.finalY + 15);
+      
+      const top3Data = top3Hours.map((h, i) => [
+        `Rank #${i+1}`,
+        h.hour,
+        `${((h.atendidas / h.total) * 100).toFixed(1)}% de aproveitamento`,
+        `Base de ${h.total} tentativas`
+      ]);
+
+      (doc as any).autoTable({
+        startY: (doc as any).lastAutoTable.finalY + 20,
+        body: top3Data,
+        theme: 'plain',
+        bodyStyles: { fontSize: 10, cellPadding: 4 }
+      });
+    }
 
     // Rodapé
     const pageCount = (doc as any).internal.getNumberOfPages();
