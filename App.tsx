@@ -29,22 +29,53 @@ const App: React.FC = () => {
 
   const fetchAllData = useCallback(async () => {
     try {
-      // Aumentamos o limite de 1000 (padrão do Supabase) para 10000 para evitar que o dashboard trave em 1000 registros
-      const [u, l, c, s] = await Promise.all([
-        supabase.from('users').select('*'),
-        supabase.from('leads').select('*').order('createdAt', { ascending: false }).limit(10000),
-        supabase.from('calls').select('*').order('timestamp', { ascending: false }).limit(10000),
-        supabase.from('sales').select('*').order('created_at', { ascending: false }).limit(10000)
+      // 1. Carregar Usuários
+      const { data: userData } = await supabase.from('users').select('*');
+      if (userData) setUsers(userData);
+
+      // Função auxiliar para buscar TODAS as linhas de uma tabela, contornando o limite de 1000 do Supabase
+      const fetchFullTable = async (table: string, orderCol: string) => {
+        let allRecords: any[] = [];
+        let from = 0;
+        let to = 999;
+        let hasMore = true;
+
+        while (hasMore && allRecords.length < 20000) { // Limite de segurança de 20k registros
+          const { data, error } = await supabase
+            .from(table)
+            .select('*')
+            .order(orderCol, { ascending: false })
+            .range(from, to);
+
+          if (error || !data || data.length === 0) {
+            hasMore = false;
+          } else {
+            allRecords = [...allRecords, ...data];
+            if (data.length < 1000) {
+              hasMore = false;
+            } else {
+              from += 1000;
+              to += 1000;
+            }
+          }
+        }
+        return allRecords;
+      };
+
+      // 2. Carregar dados volumosos com paginação automática
+      const [leadsData, callsData, salesData] = await Promise.all([
+        fetchFullTable('leads', 'createdAt'),
+        fetchFullTable('calls', 'timestamp'),
+        fetchFullTable('sales', 'created_at')
       ]);
 
-      if (u.data) setUsers(u.data);
-      if (l.data) setLeads(l.data);
-      if (c.data) setCalls(c.data);
-      if (s.data) setSales(s.data);
+      setLeads(leadsData);
+      setCalls(callsData);
+      setSales(salesData);
 
       const storedId = localStorage.getItem(STORAGE_KEYS.SESSION);
-      if (storedId && u.data) {
-        const found = u.data.find(usr => usr.id === storedId);
+      if (storedId && userData) {
+        const found = userData.find(usr => usr.id === storedId);
         if (found) setCurrentUser(found);
       }
     } catch (err) {
@@ -65,6 +96,9 @@ const App: React.FC = () => {
             if (prev.some(c => c.id === payload.new.id)) return prev;
             return [payload.new as CallRecord, ...prev];
           });
+        }
+        if (payload.eventType === 'DELETE') {
+          setCalls(prev => prev.filter(c => c.id !== payload.old.id));
         }
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'sales' }, (payload) => {

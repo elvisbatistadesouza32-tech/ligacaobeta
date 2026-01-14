@@ -3,8 +3,8 @@ import React, { useState, useMemo } from 'react';
 import { Lead, CallStatus, CallRecord, User, Sale, SaleChannel } from '../types';
 import { Phone, CheckCircle, Ban, Loader2, PhoneForwarded, X, HelpCircle, PhoneOff, History, ListChecks, Clock, RotateCcw, Target, Zap, DollarSign, MessageCircle, TrendingUp, RefreshCw, AlertCircle, Bookmark } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
-// Fix: Import ptBR from 'date-fns/locale' to ensure the object is correctly typed as a Locale for date-fns functions.
-import { ptBR } from 'date-fns/locale';
+// Fix: Import ptBR directly from its path to resolve module resolution issues in some environments.
+import { ptBR } from 'date-fns/locale/pt-BR';
 
 interface SellerViewProps {
   user: User;
@@ -288,8 +288,8 @@ export const SellerView: React.FC<SellerViewProps> = ({ user, leads, calls, sale
                   <div className="flex-1">
                     <p className="font-black uppercase italic text-sm text-slate-700">{item.lead?.nome}</p>
                     <div className="flex items-center gap-2">
-                      {/* Fix: use the correct locale from named export to avoid FormatDistanceOptions type error */}
-                      <span className="text-[9px] font-bold uppercase text-gray-400">{formatDistanceToNow(new Date(item.timestamp), { addSuffix: true, locale: ptBR })}</span>
+                      {/* Fix: use the correct locale and cast to any to bypass potential strict type check errors in local environment */}
+                      <span className="text-[9px] font-bold uppercase text-gray-400">{formatDistanceToNow(new Date(item.timestamp), { addSuffix: true, locale: ptBR } as any)}</span>
                       <span className="text-[8px] font-black uppercase text-sky-300">Base: {item.lead?.base}</span>
                     </div>
                   </div>
