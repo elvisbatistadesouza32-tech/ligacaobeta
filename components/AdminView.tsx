@@ -1,9 +1,11 @@
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { User, Lead, CallRecord, Sale, CallStatus } from '../types';
-import { Users, Database, Power, Search, Trash2, Loader2, FileSpreadsheet, BarChart3, Clock, Activity, DollarSign, TrendingUp, Ban, Edit3, Save, X, RotateCcw, Filter, UserPlus, PhoneOff, AlertCircle, PhoneCall, MessageCircle, Smartphone, RefreshCw, CheckSquare, Square, Bookmark } from 'lucide-react';
+import { Users, Database, Power, Search, Trash2, Loader2, FileSpreadsheet, BarChart3, Clock, Activity, DollarSign, TrendingUp, Ban, Edit3, Save, X, RotateCcw, Filter, UserPlus, PhoneOff, AlertCircle, PhoneCall, MessageCircle, Smartphone, RefreshCw, CheckSquare, Square, Bookmark, FileText } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip, CartesianGrid, Legend } from 'recharts';
 import * as XLSX from 'xlsx';
+import { jsPDF } from 'jspdf';
+import 'jspdf-autotable';
 
 interface AdminViewProps {
   users: User[];
@@ -137,6 +139,109 @@ export const AdminView: React.FC<AdminViewProps> = ({
     });
   }, [filteredCalls]);
 
+  const generateReportPDF = () => {
+    const doc = new jsPDF();
+    const titleDate = viewMode === 'day' ? date.split('-').reverse().join('/') : date.slice(0, 7).split('-').reverse().join('/');
+    
+    // Configurações visuais do PDF
+    doc.setFillColor(30, 27, 75); // Indigo escuro
+    doc.rect(0, 0, 210, 40, 'F');
+    
+    doc.setTextColor(255, 255, 255);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(22);
+    doc.text('LIGAÇÕES PORTAL', 15, 20);
+    
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'normal');
+    doc.text(`RELATÓRIO DE DESEMPENHO • PERÍODO: ${titleDate}`, 15, 30);
+
+    // Seção 1: Resumo Geral
+    doc.setTextColor(30, 27, 75);
+    doc.setFontSize(14);
+    doc.setFont('helvetica', 'bold');
+    doc.text('RESUMO FINANCEIRO', 15, 55);
+    
+    const summaryData = [
+      ['Total Vendido', `R$ ${stats.totalVendido.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`],
+      ['Total de Vendas', `${stats.totalVendasCount} registros`],
+      ['Ticket Médio', `R$ ${stats.ticketMedio.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`],
+      ['Total de Chamadas', `${stats.totalCalls} tentativas`]
+    ];
+
+    (doc as any).autoTable({
+      startY: 60,
+      head: [['Métrica', 'Valor']],
+      body: summaryData,
+      theme: 'striped',
+      headStyles: { fillColor: [14, 165, 233] }
+    });
+
+    // Seção 2: Canais de Venda
+    doc.setFontSize(14);
+    doc.text('PERFORMANCE POR CANAL', 15, (doc as any).lastAutoTable.finalY + 15);
+    
+    const channelData = [
+      ['Ligação', stats.canais.call.count.toString(), `${stats.canais.call.pct}%`],
+      ['WhatsApp', stats.canais.whatsapp.count.toString(), `${stats.canais.whatsapp.pct}%`]
+    ];
+
+    (doc as any).autoTable({
+      startY: (doc as any).lastAutoTable.finalY + 20,
+      head: [['Canal', 'Quantidade', 'Percentual']],
+      body: channelData,
+      theme: 'grid',
+      headStyles: { fillColor: [16, 185, 129] }
+    });
+
+    // Seção 3: Inteligência de Horários (Melhores Horários por Turno)
+    doc.setFontSize(14);
+    doc.text('MELHORES HORÁRIOS (TAXA DE ATENDIMENTO)', 15, (doc as any).lastAutoTable.finalY + 15);
+
+    const getBestHourInTurn = (start: number, end: number) => {
+      const turnHours = hourlyData.filter(h => {
+        const hourNum = parseInt(h.hour);
+        return hourNum >= start && hourNum < end;
+      });
+      
+      if (turnHours.length === 0) return 'Sem dados';
+      
+      const best = turnHours.reduce((prev, current) => {
+        const prevRate = prev.total > 0 ? prev.atendidas / prev.total : 0;
+        const currentRate = current.total > 0 ? current.atendidas / current.total : 0;
+        return currentRate >= prevRate ? current : prev;
+      });
+      
+      const rate = best.total > 0 ? ((best.atendidas / best.total) * 100).toFixed(0) : '0';
+      return `${best.hour} (${rate}% de atendimento)`;
+    };
+
+    const turnsData = [
+      ['Manhã (08h - 12h)', getBestHourInTurn(8, 12)],
+      ['Tarde (12h - 18h)', getBestHourInTurn(12, 18)],
+      ['Noite (18h - 22h)', getBestHourInTurn(18, 22)]
+    ];
+
+    (doc as any).autoTable({
+      startY: (doc as any).lastAutoTable.finalY + 20,
+      head: [['Turno', 'Melhor Horário Sugerido']],
+      body: turnsData,
+      theme: 'striped',
+      headStyles: { fillColor: [30, 27, 75] }
+    });
+
+    // Rodapé
+    const pageCount = (doc as any).internal.getNumberOfPages();
+    for (let i = 1; i <= pageCount; i++) {
+      doc.setPage(i);
+      doc.setFontSize(9);
+      doc.setTextColor(150, 150, 150);
+      doc.text(`© 2025 LIGAÇÕES PORTAL • Desenvolvido por Elvis Souza`, 105, 285, { align: 'center' });
+    }
+
+    doc.save(`Relatorio_Portal_${date}.pdf`);
+  };
+
   const topSellersByValue = useMemo(() => {
     return sellers.map(s => {
       const sellerSales = periodSales.filter(sa => sa.seller_id === s.id);
@@ -248,13 +353,22 @@ export const AdminView: React.FC<AdminViewProps> = ({
             <input type="date" value={date} onChange={e => setDate(e.target.value)} className="bg-transparent font-black text-sm uppercase outline-none" />
           </div>
           
-          <button 
-            onClick={handleSync}
-            className={`flex items-center gap-3 px-6 py-3 bg-slate-900 text-white rounded-2xl font-black uppercase text-[10px] italic shadow-xl transition-all active:scale-95 group ${isSyncing ? 'opacity-50' : ''}`}
-          >
-            <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin' : 'group-hover:rotate-180 transition-transform duration-500'}`} />
-            Atualizar Dados
-          </button>
+          <div className="flex gap-2">
+            <button 
+              onClick={generateReportPDF}
+              className="flex items-center gap-3 px-6 py-3 bg-sky-600 text-white rounded-2xl font-black uppercase text-[10px] italic shadow-xl transition-all active:scale-95 hover:bg-sky-700"
+            >
+              <FileText className="w-4 h-4" />
+              Relatório PDF
+            </button>
+            <button 
+              onClick={handleSync}
+              className={`flex items-center gap-3 px-6 py-3 bg-slate-900 text-white rounded-2xl font-black uppercase text-[10px] italic shadow-xl transition-all active:scale-95 group ${isSyncing ? 'opacity-50' : ''}`}
+            >
+              <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin' : 'group-hover:rotate-180 transition-transform duration-500'}`} />
+              Atualizar
+            </button>
+          </div>
         </div>
       </div>
 
