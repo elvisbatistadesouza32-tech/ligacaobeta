@@ -251,6 +251,19 @@ const App: React.FC = () => {
             <button type="button" onClick={() => setIsRegistering(true)} className="w-full py-5 border-2 border-gray-100 text-gray-500 rounded-3xl font-black uppercase text-[10px] tracking-widest">Novo Vendedor</button>
           </form>
         )}
+
+        <div className="mt-12 pt-8 border-t border-gray-50 w-full text-center flex flex-col items-center gap-3">
+          <div className="text-gray-300 text-[9px] font-black uppercase tracking-[0.2em]">
+            &copy; 2025 LIGAÇÕES PORTAL
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="h-[1px] w-6 bg-gray-100" />
+            <div className="text-slate-900 text-[10px] font-black uppercase tracking-wider italic">
+              Desenvolvido por <span className="text-sky-600">Elvis Souza</span>
+            </div>
+            <div className="h-[1px] w-6 bg-gray-100" />
+          </div>
+        </div>
       </div>
     </div>
   );
