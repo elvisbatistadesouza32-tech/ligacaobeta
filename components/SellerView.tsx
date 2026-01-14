@@ -3,9 +3,8 @@ import React, { useState, useMemo } from 'react';
 import { Lead, CallStatus, CallRecord, User, Sale, SaleChannel } from '../types';
 import { Phone, CheckCircle, Ban, Loader2, PhoneForwarded, X, HelpCircle, PhoneOff, History, ListChecks, Clock, RotateCcw, Target, Zap, DollarSign, MessageCircle, TrendingUp, RefreshCw, AlertCircle, Bookmark } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
-// Fix: Import ptBR from the specific locale path to avoid "no exported member" error.
-// The locale name in the path is 'pt-BR' but the exported object is usually 'ptBR'.
-import { ptBR } from 'date-fns/locale/pt-BR';
+// Fix: Import ptBR from 'date-fns/locale' to ensure the object is correctly typed as a Locale for date-fns functions.
+import { ptBR } from 'date-fns/locale';
 
 interface SellerViewProps {
   user: User;
@@ -289,7 +288,7 @@ export const SellerView: React.FC<SellerViewProps> = ({ user, leads, calls, sale
                   <div className="flex-1">
                     <p className="font-black uppercase italic text-sm text-slate-700">{item.lead?.nome}</p>
                     <div className="flex items-center gap-2">
-                      {/* Fix: In some date-fns versions, passing the locale from a subpath import helps resolve type mismatches in options. */}
+                      {/* Fix: use the correct locale from named export to avoid FormatDistanceOptions type error */}
                       <span className="text-[9px] font-bold uppercase text-gray-400">{formatDistanceToNow(new Date(item.timestamp), { addSuffix: true, locale: ptBR })}</span>
                       <span className="text-[8px] font-black uppercase text-sky-300">Base: {item.lead?.base}</span>
                     </div>

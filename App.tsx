@@ -29,11 +29,12 @@ const App: React.FC = () => {
 
   const fetchAllData = useCallback(async () => {
     try {
+      // Aumentamos o limite de 1000 (padrão do Supabase) para 10000 para evitar que o dashboard trave em 1000 registros
       const [u, l, c, s] = await Promise.all([
         supabase.from('users').select('*'),
-        supabase.from('leads').select('*').order('createdAt', { ascending: false }),
-        supabase.from('calls').select('*').order('timestamp', { ascending: false }),
-        supabase.from('sales').select('*').order('created_at', { ascending: false })
+        supabase.from('leads').select('*').order('createdAt', { ascending: false }).limit(10000),
+        supabase.from('calls').select('*').order('timestamp', { ascending: false }).limit(10000),
+        supabase.from('sales').select('*').order('created_at', { ascending: false }).limit(10000)
       ]);
 
       if (u.data) setUsers(u.data);
