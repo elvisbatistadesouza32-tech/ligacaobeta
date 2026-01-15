@@ -59,7 +59,8 @@ export const SellerView: React.FC<SellerViewProps> = ({ user, leads, calls, sale
         const lead = leads.find(l => l.id === call.leadId);
         return { ...call, lead };
       })
-      .filter(item => item.lead);
+      .filter(item => item.lead)
+      .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
   }, [calls, leads, user.id]);
 
   const selectCarrier = (code: string) => {
@@ -109,6 +110,33 @@ export const SellerView: React.FC<SellerViewProps> = ({ user, leads, calls, sale
     } catch (err) {
       alert("Erro ao registrar venda.");
     } finally { setLoading(false); }
+  };
+
+  const getStatusIcon = (status: CallStatus) => {
+    switch (status) {
+      case CallStatus.ANSWERED: return <CheckCircle className="w-3.5 h-3.5 text-emerald-500" />;
+      case CallStatus.NO_ANSWER: return <PhoneOff className="w-3.5 h-3.5 text-red-500" />;
+      case CallStatus.INVALID_NUMBER: return <AlertCircle className="w-3.5 h-3.5 text-amber-500" />;
+      default: return null;
+    }
+  };
+
+  const getStatusLabel = (status: CallStatus) => {
+    switch (status) {
+      case CallStatus.ANSWERED: return "Atendeu";
+      case CallStatus.NO_ANSWER: return "Não Atendeu";
+      case CallStatus.INVALID_NUMBER: return "Inválido";
+      default: return "";
+    }
+  };
+
+  const getStatusClass = (status: CallStatus) => {
+    switch (status) {
+      case CallStatus.ANSWERED: return "bg-emerald-50 text-emerald-700 border-emerald-100";
+      case CallStatus.NO_ANSWER: return "bg-red-50 text-red-700 border-red-100";
+      case CallStatus.INVALID_NUMBER: return "bg-amber-50 text-amber-700 border-amber-100";
+      default: return "bg-gray-50 text-gray-700 border-gray-100";
+    }
   };
 
   return (
@@ -205,6 +233,7 @@ export const SellerView: React.FC<SellerViewProps> = ({ user, leads, calls, sale
           <div className="bg-white rounded-[3.5rem] w-full max-w-xs p-10 shadow-2xl">
             <h3 className="text-center font-black uppercase mb-8 italic text-slate-900 tracking-tight">Escolha a Operadora</h3>
             <div className="grid grid-cols-2 gap-3">
+              {/* Fix: corrected 'code' to 'c.code' in the map function */}
               {CARRIERS.map(c => <button key={c.code} onClick={() => selectCarrier(c.code)} className="py-6 bg-gray-50 border-2 border-gray-100 text-sky-600 rounded-3xl font-black text-lg hover:bg-sky-600 hover:text-white transition-all uppercase">{c.name}</button>)}
             </div>
             <button onClick={() => setCarrier(false)} className="mt-8 w-full text-[10px] font-black uppercase text-gray-400 flex items-center justify-center gap-2"><X className="w-3 h-3" /> Fechar</button>
@@ -284,18 +313,29 @@ export const SellerView: React.FC<SellerViewProps> = ({ user, leads, calls, sale
           <div className="space-y-3">
              <h4 className="text-[10px] font-black uppercase text-gray-400 tracking-[0.3em] ml-6">Contatos Realizados</h4>
              {myHistory.map(item => (
-                <div key={item.id} className="bg-white p-5 rounded-[2rem] border border-gray-100 flex justify-between items-center group shadow-sm">
+                <div key={item.id} className="bg-white p-5 rounded-[2rem] border-2 border-gray-100 flex justify-between items-center group shadow-sm">
                   <div className="flex-1">
-                    <p className="font-black uppercase italic text-sm text-slate-700">{item.lead?.nome}</p>
+                    <div className="flex items-center gap-2 mb-1">
+                      <p className="font-black uppercase italic text-sm text-slate-700">{item.lead?.nome}</p>
+                      <div className={`flex items-center gap-1 px-2 py-0.5 rounded-full border text-[8px] font-black uppercase italic ${getStatusClass(item.status)}`}>
+                        {getStatusIcon(item.status)}
+                        {getStatusLabel(item.status)}
+                      </div>
+                    </div>
                     <div className="flex items-center gap-2">
-                      {/* Fix: use the correct locale and cast to any to bypass potential strict type check errors in local environment */}
-                      <span className="text-[9px] font-bold uppercase text-gray-400">{formatDistanceToNow(new Date(item.timestamp), { addSuffix: true, locale: ptBR } as any)}</span>
+                      <span className="text-[9px] font-bold uppercase text-gray-400 flex items-center gap-1">
+                        <Clock size={10} />
+                        {formatDistanceToNow(new Date(item.timestamp), { addSuffix: true, locale: ptBR } as any)}
+                      </span>
                       <span className="text-[8px] font-black uppercase text-sky-300">Base: {item.lead?.base}</span>
                     </div>
                   </div>
-                  <button onClick={() => { setActive(item.lead!); setCarrier(true); }} className="p-4 bg-gray-50 text-gray-400 rounded-2xl hover:bg-sky-600 hover:text-white transition-all"><RotateCcw className="w-4 h-4" /></button>
+                  <button onClick={() => { setActive(item.lead!); setCarrier(true); }} className="p-4 bg-gray-50 text-gray-400 rounded-2xl hover:bg-sky-600 hover:text-white transition-all shadow-sm border border-gray-100"><RotateCcw className="w-4 h-4" /></button>
                 </div>
              ))}
+             {myHistory.length === 0 && (
+               <div className="py-20 text-center opacity-30 italic font-black text-xs uppercase">Sem histórico registrado</div>
+             )}
           </div>
         )}
       </div>
