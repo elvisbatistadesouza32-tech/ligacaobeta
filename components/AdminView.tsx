@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { User, Lead, CallRecord, Sale, CallStatus } from '../types';
-import { Users, Database, Power, Search, Trash2, Loader2, FileSpreadsheet, BarChart3, Clock, Activity, DollarSign, TrendingUp, Ban, Edit3, Save, X, RotateCcw, Filter, UserPlus, PhoneOff, AlertCircle, PhoneCall, MessageCircle, Smartphone, RefreshCw, CheckSquare, Square, Bookmark, FileText, Star } from 'lucide-react';
+import { Users, Database, Power, Search, Trash2, Loader2, FileSpreadsheet, BarChart3, Clock, Activity, DollarSign, TrendingUp, Ban, Edit3, Save, X, RotateCcw, Filter, UserPlus, PhoneOff, AlertCircle, PhoneCall, MessageCircle, Smartphone, RefreshCw, CheckSquare, Square, Bookmark, FileText, Star, Zap } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip, CartesianGrid, Legend } from 'recharts';
 import * as XLSX from 'xlsx';
 import { jsPDF } from 'jspdf';
@@ -99,6 +99,8 @@ export const AdminView: React.FC<AdminViewProps> = ({
 
     const canalPct = (count: number) => totalVendasCount > 0 ? ((count / totalVendasCount) * 100).toFixed(0) : '0';
 
+    const conversionRate = totalCalls > 0 ? (totalVendasCount / totalCalls) * 100 : 0;
+
     return {
       totalCalls,
       totalVendido,
@@ -110,7 +112,8 @@ export const AdminView: React.FC<AdminViewProps> = ({
         call: { count: callSales.length, pct: canalPct(callSales.length) },
         whatsapp: { count: whatsappSales.length, pct: canalPct(whatsappSales.length) }
       },
-      ticketMedio: totalVendasCount > 0 ? (totalVendido / totalVendasCount) : 0
+      ticketMedio: totalVendasCount > 0 ? (totalVendido / totalVendasCount) : 0,
+      conversionRate
     };
   }, [filteredCalls, periodSales]);
 
@@ -165,6 +168,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
     const summaryData = [
       ['Total Vendido', `R$ ${stats.totalVendido.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`],
       ['Total de Vendas', `${stats.totalVendasCount} registros`],
+      ['Taxa de Conversão', `${stats.conversionRate.toFixed(1)}%`],
       ['Ticket Médio', `R$ ${stats.ticketMedio.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`],
       ['Total de Chamadas', `${stats.totalCalls} tentativas`]
     ];
@@ -404,9 +408,14 @@ export const AdminView: React.FC<AdminViewProps> = ({
       {tab === 'dash' && (
         <div className="space-y-8 animate-in fade-in duration-500">
           <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4">
-            <div className="bg-emerald-600 p-8 rounded-[2.5rem] text-white shadow-xl flex flex-col justify-center">
+            <div className="bg-emerald-600 p-8 rounded-[2.5rem] text-white shadow-xl flex flex-col justify-center relative overflow-hidden group">
+              <Zap className="absolute -bottom-2 -right-2 w-20 h-20 opacity-10 group-hover:scale-125 transition-transform duration-500" />
               <p className="text-[10px] uppercase font-black opacity-60 mb-1 tracking-widest">Total Vendido</p>
               <p className="text-3xl font-black italic tracking-tighter">R$ {stats.totalVendido.toLocaleString('pt-BR')}</p>
+              <div className="mt-4 pt-4 border-t border-emerald-500/30">
+                <p className="text-[9px] uppercase font-black opacity-60 mb-0.5">Taxa Conversão</p>
+                <p className="text-xl font-black italic">{stats.conversionRate.toFixed(1)}%</p>
+              </div>
             </div>
             <div className="bg-white p-8 rounded-[2.5rem] border-2 border-gray-100 shadow-sm flex flex-col justify-center">
               <div className="flex justify-between items-start mb-1">
@@ -579,7 +588,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
                       </button>
                     </td>
                     <td className="px-10 py-7">
-                      <p className="font-black uppercase text-slate-800 italic">{l.nome}</p>
+                      <p className="font-black uppercase italic text-slate-800 tracking-tighter">{l.nome}</p>
                       <div className="flex flex-col mt-0.5">
                         <span className="text-xs font-bold text-sky-400 tracking-widest">{l.telefone}</span>
                         <span className="text-[9px] font-black uppercase text-gray-300 flex items-center gap-1">
@@ -620,11 +629,16 @@ export const AdminView: React.FC<AdminViewProps> = ({
       )}
 
       {tab === 'users' && (
-        <div className="max-w-4xl mx-auto space-y-6 animate-in fade-in duration-500">
+        <div className="max-w-5xl mx-auto space-y-6 animate-in fade-in duration-500">
           <div className="bg-white rounded-[3rem] border-2 border-gray-100 overflow-hidden shadow-sm">
             <table className="w-full text-left">
               <thead className="bg-gray-50 text-xs font-black uppercase text-gray-400">
-                <tr><th className="px-10 py-8">Equipe</th><th className="px-10 py-8 text-center">Fila Atual</th><th className="px-10 py-8 text-right">AÇÕES</th></tr>
+                <tr>
+                  <th className="px-10 py-8">Equipe</th>
+                  <th className="px-10 py-8 text-center">Ligações</th>
+                  <th className="px-10 py-8 text-center">Fila Atual</th>
+                  <th className="px-10 py-8 text-right">AÇÕES</th>
+                </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
                 {users.map(u => (
@@ -635,10 +649,21 @@ export const AdminView: React.FC<AdminViewProps> = ({
                         <p className="font-black uppercase text-slate-800">{u.nome}</p>
                       </div>
                     </td>
-                    <td className="px-10 py-7 text-center font-black text-xl text-sky-600">{leads.filter(l => l.assignedTo === u.id && l.status === 'PENDING').length}</td>
+                    <td className="px-10 py-7 text-center">
+                      <div className="inline-flex flex-col items-center">
+                        <span className="font-black text-xl text-slate-800">{calls.filter(c => c.sellerId === u.id).length}</span>
+                        <span className="text-[8px] font-black uppercase text-gray-400">Total</span>
+                      </div>
+                    </td>
+                    <td className="px-10 py-7 text-center">
+                      <div className="inline-flex flex-col items-center">
+                        <span className="font-black text-xl text-sky-600">{leads.filter(l => l.assignedTo === u.id && l.status === 'PENDING').length}</span>
+                        <span className="text-[8px] font-black uppercase text-gray-400">Pendentes</span>
+                      </div>
+                    </td>
                     <td className="px-10 py-7 text-right flex justify-end gap-3">
-                      <button onClick={() => onClearSellerLeads(u.id)} className="p-4 bg-red-50 text-red-500 rounded-2xl border-2 border-red-100" title="Limpar Fila"><RotateCcw size={18} /></button>
-                      <button onClick={() => onToggleUserStatus(u.id)} className={`p-4 rounded-2xl border-2 transition-all ${u.online ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-gray-100 text-gray-400'}`} title={u.online ? "Desativar" : "Ativar"}><Power size={18} /></button>
+                      <button onClick={() => onClearSellerLeads(u.id)} className="p-4 bg-red-50 text-red-500 rounded-2xl border-2 border-red-100 hover:bg-red-500 hover:text-white transition-all shadow-sm" title="Limpar Fila"><RotateCcw size={18} /></button>
+                      <button onClick={() => onToggleUserStatus(u.id)} className={`p-4 rounded-2xl border-2 transition-all shadow-sm ${u.online ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-gray-100 text-gray-400'}`} title={u.online ? "Desativar" : "Ativar"}><Power size={18} /></button>
                     </td>
                   </tr>
                 ))}
