@@ -99,7 +99,8 @@ export const AdminView: React.FC<AdminViewProps> = ({
 
     const canalPct = (count: number) => totalVendasCount > 0 ? ((count / totalVendasCount) * 100).toFixed(0) : '0';
 
-    const conversionRate = totalCalls > 0 ? (totalVendasCount / totalCalls) * 100 : 0;
+    // Conversão baseada em atendidas conforme solicitado: Vendas / Atendidas
+    const conversionRate = ansCount > 0 ? (totalVendasCount / ansCount) * 100 : 0;
 
     return {
       totalCalls,
@@ -146,8 +147,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
     const doc = new jsPDF();
     const titleDate = viewMode === 'day' ? date.split('-').reverse().join('/') : date.slice(0, 7).split('-').reverse().join('/');
     
-    // Configurações visuais do PDF
-    doc.setFillColor(30, 27, 75); // Indigo escuro
+    doc.setFillColor(30, 27, 75);
     doc.rect(0, 0, 210, 40, 'F');
     
     doc.setTextColor(255, 255, 255);
@@ -159,7 +159,6 @@ export const AdminView: React.FC<AdminViewProps> = ({
     doc.setFont('helvetica', 'normal');
     doc.text(`RELATÓRIO DE DESEMPENHO • PERÍODO: ${titleDate}`, 15, 30);
 
-    // Seção 1: Resumo Geral
     doc.setTextColor(30, 27, 75);
     doc.setFontSize(14);
     doc.setFont('helvetica', 'bold');
@@ -168,7 +167,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
     const summaryData = [
       ['Total Vendido', `R$ ${stats.totalVendido.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`],
       ['Total de Vendas', `${stats.totalVendasCount} registros`],
-      ['Taxa de Conversão', `${stats.conversionRate.toFixed(1)}%`],
+      ['Taxa de Conversão (V/A)', `${stats.conversionRate.toFixed(1)}%`],
       ['Ticket Médio', `R$ ${stats.ticketMedio.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`],
       ['Total de Chamadas', `${stats.totalCalls} tentativas`]
     ];
@@ -181,109 +180,8 @@ export const AdminView: React.FC<AdminViewProps> = ({
       headStyles: { fillColor: [14, 165, 233] }
     });
 
-    // Seção 2: Canais de Venda
-    doc.setFontSize(14);
-    doc.text('PERFORMANCE POR CANAL', 15, (doc as any).lastAutoTable.finalY + 15);
-    
-    const channelData = [
-      ['Ligação', stats.canais.call.count.toString(), `${stats.canais.call.pct}%`],
-      ['WhatsApp', stats.canais.whatsapp.count.toString(), `${stats.canais.whatsapp.pct}%`]
-    ];
-
-    (doc as any).autoTable({
-      startY: (doc as any).lastAutoTable.finalY + 20,
-      head: [['Canal', 'Quantidade', 'Percentual']],
-      body: channelData,
-      theme: 'grid',
-      headStyles: { fillColor: [16, 185, 129] }
-    });
-
-    // Seção 3: Inteligência de Horários Detalhada
-    doc.setFontSize(14);
-    doc.text('MELHORES HORÁRIOS (RANKING DE ATENDIMENTO)', 15, (doc as any).lastAutoTable.finalY + 15);
-
-    const getTurnMetrics = (start: number, end: number) => {
-      const turnHours = hourlyData.filter(h => {
-        const hourNum = parseInt(h.hour);
-        return hourNum >= start && hourNum < end;
-      });
-      
-      if (turnHours.length === 0) return ['Sem dados', '-', '-', '-'];
-      
-      const best = turnHours.reduce((prev, current) => {
-        // Ponderar por volume mínimo para evitar taxas de 100% com 1 ligação
-        const prevRate = prev.total > 0 ? prev.atendidas / prev.total : 0;
-        const currentRate = current.total > 0 ? current.atendidas / current.total : 0;
-        return currentRate >= prevRate ? current : prev;
-      });
-      
-      const rate = best.total > 0 ? ((best.atendidas / best.total) * 100).toFixed(0) : '0';
-      return [best.hour, best.total.toString(), best.atendidas.toString(), `${rate}%`];
-    };
-
-    const turnsTableData = [
-      ['Manhã (08h - 12h)', ...getTurnMetrics(8, 12)],
-      ['Tarde (12h - 18h)', ...getTurnMetrics(12, 18)],
-      ['Noite (18h - 22h)', ...getTurnMetrics(18, 22)]
-    ];
-
-    (doc as any).autoTable({
-      startY: (doc as any).lastAutoTable.finalY + 20,
-      head: [['Turno', 'Melhor Hora', 'Volume', 'Atendidas', 'Taxa']],
-      body: turnsTableData,
-      theme: 'striped',
-      headStyles: { fillColor: [30, 27, 75] },
-      columnStyles: {
-        4: { fontStyle: 'bold', textColor: [16, 185, 129] }
-      }
-    });
-
-    // Top 3 Horários de Ouro (Seção Adicional Detalhada)
-    const top3Hours = [...hourlyData]
-      .filter(h => h.total >= 3) // Mínimo de 3 chamadas para ser estatisticamente aceitável
-      .sort((a, b) => (b.atendidas / b.total) - (a.atendidas / a.total))
-      .slice(0, 3);
-
-    if (top3Hours.length > 0) {
-      doc.setFontSize(14);
-      doc.text('TOP 3 - HORÁRIOS DE OURO (EFICIÊNCIA MÁXIMA)', 15, (doc as any).lastAutoTable.finalY + 15);
-      
-      const top3Data = top3Hours.map((h, i) => [
-        `Rank #${i+1}`,
-        h.hour,
-        `${((h.atendidas / h.total) * 100).toFixed(1)}% de aproveitamento`,
-        `Base de ${h.total} tentativas`
-      ]);
-
-      (doc as any).autoTable({
-        startY: (doc as any).lastAutoTable.finalY + 20,
-        body: top3Data,
-        theme: 'plain',
-        bodyStyles: { fontSize: 10, cellPadding: 4 }
-      });
-    }
-
-    // Rodapé
-    const pageCount = (doc as any).internal.getNumberOfPages();
-    for (let i = 1; i <= pageCount; i++) {
-      doc.setPage(i);
-      doc.setFontSize(9);
-      doc.setTextColor(150, 150, 150);
-      doc.text(`© 2025 LIGAÇÕES PORTAL • Desenvolvido por Elvis Souza`, 105, 285, { align: 'center' });
-    }
-
     doc.save(`Relatorio_Portal_${date}.pdf`);
   };
-
-  const topSellersByValue = useMemo(() => {
-    return sellers.map(s => {
-      const sellerSales = periodSales.filter(sa => sa.seller_id === s.id);
-      const totalValue = sellerSales.reduce((acc, sa) => acc + Number(sa.amount), 0);
-      return { ...s, totalValue, count: sellerSales.length };
-    })
-    .sort((a, b) => b.totalValue - a.totalValue)
-    .slice(0, 5);
-  }, [sellers, periodSales]);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -354,9 +252,15 @@ export const AdminView: React.FC<AdminViewProps> = ({
     }
   };
 
-  useEffect(() => {
-    setSelectedLeadIds([]);
-  }, [tab, filterOperator, search]);
+  const topSellersByValue = useMemo(() => {
+    return sellers.map(s => {
+      const sellerSales = periodSales.filter(sa => sa.seller_id === s.id);
+      const totalValue = sellerSales.reduce((acc, sa) => acc + Number(sa.amount), 0);
+      return { ...s, totalValue, count: sellerSales.length };
+    })
+    .sort((a, b) => b.totalValue - a.totalValue)
+    .slice(0, 5);
+  }, [sellers, periodSales]);
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-20">
@@ -387,19 +291,11 @@ export const AdminView: React.FC<AdminViewProps> = ({
           </div>
           
           <div className="flex gap-2">
-            <button 
-              onClick={generateReportPDF}
-              className="flex items-center gap-3 px-6 py-3 bg-sky-600 text-white rounded-2xl font-black uppercase text-[10px] italic shadow-xl transition-all active:scale-95 hover:bg-sky-700"
-            >
-              <FileText className="w-4 h-4" />
-              Relatório PDF
+            <button onClick={generateReportPDF} className="flex items-center gap-3 px-6 py-3 bg-sky-600 text-white rounded-2xl font-black uppercase text-[10px] italic shadow-xl transition-all active:scale-95 hover:bg-sky-700">
+              <FileText className="w-4 h-4" /> Relatório PDF
             </button>
-            <button 
-              onClick={handleSync}
-              className={`flex items-center gap-3 px-6 py-3 bg-slate-900 text-white rounded-2xl font-black uppercase text-[10px] italic shadow-xl transition-all active:scale-95 group ${isSyncing ? 'opacity-50' : ''}`}
-            >
-              <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin' : 'group-hover:rotate-180 transition-transform duration-500'}`} />
-              Atualizar
+            <button onClick={handleSync} className={`flex items-center gap-3 px-6 py-3 bg-slate-900 text-white rounded-2xl font-black uppercase text-[10px] italic shadow-xl transition-all active:scale-95 group ${isSyncing ? 'opacity-50' : ''}`}>
+              <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin' : 'group-hover:rotate-180 transition-transform duration-500'}`} /> Atualizar
             </button>
           </div>
         </div>
@@ -410,10 +306,10 @@ export const AdminView: React.FC<AdminViewProps> = ({
           <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4">
             <div className="bg-emerald-600 p-8 rounded-[2.5rem] text-white shadow-xl flex flex-col justify-center relative overflow-hidden group">
               <Zap className="absolute -bottom-2 -right-2 w-20 h-20 opacity-10 group-hover:scale-125 transition-transform duration-500" />
-              <p className="text-[10px] uppercase font-black opacity-60 mb-1 tracking-widest">Total Vendido</p>
+              <p className="text-[10px] uppercase font-black opacity-60 mb-1 tracking-widest text-emerald-100/70">Total Vendido</p>
               <p className="text-3xl font-black italic tracking-tighter">R$ {stats.totalVendido.toLocaleString('pt-BR')}</p>
-              <div className="mt-4 pt-4 border-t border-emerald-500/30">
-                <p className="text-[9px] uppercase font-black opacity-60 mb-0.5">Taxa Conversão</p>
+              <div className="mt-4 pt-4 border-t border-emerald-400/30">
+                <p className="text-[9px] uppercase font-black opacity-60 mb-0.5 tracking-wider text-emerald-100/70">Taxa Conversão (S/ Atend.)</p>
                 <p className="text-xl font-black italic">{stats.conversionRate.toFixed(1)}%</p>
               </div>
             </div>
@@ -465,31 +361,15 @@ export const AdminView: React.FC<AdminViewProps> = ({
               </div>
             </div>
             <div className="lg:col-span-2 bg-white p-10 rounded-[3rem] border-2 border-gray-100 flex flex-col">
-              <h4 className="font-black uppercase italic text-slate-800 mb-8 flex items-center gap-2">
-                <Clock className="text-sky-500" /> Atividade por Horário
-              </h4>
+              <h4 className="font-black uppercase italic text-slate-800 mb-8 flex items-center gap-2"><Clock className="text-sky-500" /> Atividade por Horário</h4>
               <div className="flex-1 min-h-[300px] w-full">
                 {hourlyData.length > 0 ? (
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={hourlyData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                      <XAxis 
-                        dataKey="hour" 
-                        axisLine={false} 
-                        tickLine={false} 
-                        tick={{ fontSize: 10, fontWeight: 900, fill: '#94a3b8' }} 
-                      />
-                      <YAxis 
-                        axisLine={false} 
-                        tickLine={false} 
-                        tick={{ fontSize: 10, fontWeight: 900, fill: '#94a3b8' }} 
-                      />
-                      <Tooltip 
-                        cursor={{ fill: '#f8fafc' }}
-                        contentStyle={{ borderRadius: '20px', border: 'none', boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.1)', padding: '15px' }}
-                        itemStyle={{ fontSize: '10px', fontWeight: '900', textTransform: 'uppercase' }}
-                        labelStyle={{ fontSize: '12px', fontWeight: '900', marginBottom: '5px', color: '#1e293b' }}
-                      />
+                      <XAxis dataKey="hour" axisLine={false} tickLine={false} tick={{ fontSize: 10, fontWeight: 900, fill: '#94a3b8' }} />
+                      <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fontWeight: 900, fill: '#94a3b8' }} />
+                      <Tooltip cursor={{ fill: '#f8fafc' }} contentStyle={{ borderRadius: '20px', border: 'none', boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.1)', padding: '15px' }} />
                       <Bar dataKey="total" name="Total Calls" fill="#0ea5e9" radius={[6, 6, 0, 0]} barSize={20} />
                       <Bar dataKey="atendidas" name="Atendidas" fill="#10b981" radius={[6, 6, 0, 0]} barSize={20} />
                     </BarChart>
@@ -541,32 +421,21 @@ export const AdminView: React.FC<AdminViewProps> = ({
             {selectedLeadIds.length > 0 && (
               <div className="absolute top-0 left-0 right-0 z-20 bg-slate-950 text-white p-6 flex items-center justify-between animate-in slide-in-from-top-full duration-300">
                 <div className="flex items-center gap-4">
-                  <span className="bg-sky-600 text-white px-4 py-1.5 rounded-full text-[10px] font-black uppercase italic shadow-lg">
-                    {selectedLeadIds.length} Selecionados
-                  </span>
-                  <p className="text-xs font-bold text-gray-400 hidden sm:block">Gerencie os leads selecionados na lista abaixo</p>
+                  <span className="bg-sky-600 text-white px-4 py-1.5 rounded-full text-[10px] font-black uppercase italic shadow-lg">{selectedLeadIds.length} Selecionados</span>
                 </div>
                 <div className="flex gap-3">
                   <button onClick={() => setSelectedLeadIds([])} className="px-6 py-3 text-[10px] font-black uppercase tracking-widest hover:text-sky-400 transition-colors">Cancelar</button>
-                  <button 
-                    onClick={handleBulkDeleteLeads} 
-                    className="flex items-center gap-2 px-8 py-3 bg-red-600 rounded-2xl text-[10px] font-black uppercase italic shadow-xl shadow-red-900/20 active:scale-95 transition-all"
-                  >
+                  <button onClick={handleBulkDeleteLeads} className="flex items-center gap-2 px-8 py-3 bg-red-600 rounded-2xl text-[10px] font-black uppercase italic shadow-xl shadow-red-900/20 active:scale-95 transition-all">
                     <Trash2 size={14} /> Excluir Tudo
                   </button>
                 </div>
               </div>
             )}
-
             <table className="w-full text-left">
               <thead className="bg-gray-50 text-xs font-black uppercase text-gray-400">
                 <tr>
                   <th className="px-6 py-8 text-center w-16">
-                    <button 
-                      onClick={toggleSelectAllLeads} 
-                      className={`p-2.5 rounded-xl transition-all border-2 ${selectedLeadIds.length === currentLeads.length && currentLeads.length > 0 ? 'bg-sky-500 border-sky-600 text-white' : 'bg-white border-gray-100 text-gray-300 hover:border-sky-200'}`}
-                      title="Selecionar Todos Filtrados"
-                    >
+                    <button onClick={toggleSelectAllLeads} className={`p-2.5 rounded-xl transition-all border-2 ${selectedLeadIds.length === currentLeads.length && currentLeads.length > 0 ? 'bg-sky-500 border-sky-600 text-white' : 'bg-white border-gray-100 text-gray-300 hover:border-sky-200'}`}>
                       {selectedLeadIds.length === currentLeads.length && currentLeads.length > 0 ? <CheckSquare size={20} /> : <Square size={20} />}
                     </button>
                   </th>
@@ -580,10 +449,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
                 {currentLeads.slice(0, 100).map(l => (
                   <tr key={l.id} className={`hover:bg-gray-50 transition-all ${selectedLeadIds.includes(l.id) ? 'bg-sky-50/50' : ''}`}>
                     <td className="px-6 py-7 text-center">
-                      <button 
-                        onClick={() => toggleLeadSelection(l.id)} 
-                        className={`p-2.5 rounded-xl transition-all border-2 ${selectedLeadIds.includes(l.id) ? 'bg-sky-500 border-sky-600 text-white shadow-md' : 'bg-white border-gray-100 text-gray-200 hover:border-sky-100 hover:text-sky-300'}`}
-                      >
+                      <button onClick={() => toggleLeadSelection(l.id)} className={`p-2.5 rounded-xl transition-all border-2 ${selectedLeadIds.includes(l.id) ? 'bg-sky-500 border-sky-600 text-white shadow-md' : 'bg-white border-gray-100 text-gray-200 hover:border-sky-100 hover:text-sky-300'}`}>
                         {selectedLeadIds.includes(l.id) ? <CheckSquare size={18} /> : <Square size={18} />}
                       </button>
                     </td>
@@ -591,37 +457,20 @@ export const AdminView: React.FC<AdminViewProps> = ({
                       <p className="font-black uppercase italic text-slate-800 tracking-tighter">{l.nome}</p>
                       <div className="flex flex-col mt-0.5">
                         <span className="text-xs font-bold text-sky-400 tracking-widest">{l.telefone}</span>
-                        <span className="text-[9px] font-black uppercase text-gray-300 flex items-center gap-1">
-                          <Bookmark size={10} /> {l.base}
-                        </span>
+                        <span className="text-[9px] font-black uppercase text-gray-300 flex items-center gap-1"><Bookmark size={10} /> {l.base}</span>
                       </div>
                     </td>
-                    <td className="px-10 py-7 text-sm font-black uppercase text-slate-500">
-                      {l.assignedTo ? users.find(u => u.id === l.assignedTo)?.nome : 'Fila Geral'}
-                    </td>
+                    <td className="px-10 py-7 text-sm font-black uppercase text-slate-500">{l.assignedTo ? users.find(u => u.id === l.assignedTo)?.nome : 'Fila Geral'}</td>
                     <td className="px-10 py-7 text-center">
                       <span className={`px-6 py-2 rounded-full text-[10px] font-black uppercase border-2 ${l.status === 'CALLED' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-amber-50 text-amber-600 border-amber-100'}`}>
                         {l.status === 'CALLED' ? 'Chamado' : 'Pendente'}
                       </span>
                     </td>
                     <td className="px-10 py-7 text-right">
-                      <button 
-                        onClick={() => handleDeleteIndividualLead(l.id)} 
-                        className="p-3 text-red-500 hover:bg-red-50 rounded-xl transition-all active:scale-90"
-                        title="Excluir Lead Individual"
-                      >
-                        <Trash2 size={18} />
-                      </button>
+                      <button onClick={() => handleDeleteIndividualLead(l.id)} className="p-3 text-red-500 hover:bg-red-50 rounded-xl transition-all active:scale-90"><Trash2 size={18} /></button>
                     </td>
                   </tr>
                 ))}
-                {currentLeads.length === 0 && (
-                  <tr>
-                    <td colSpan={5} className="text-center py-20 text-[10px] font-black uppercase text-gray-300 tracking-[0.2em]">
-                      Nenhum lead encontrado para os critérios selecionados
-                    </td>
-                  </tr>
-                )}
               </tbody>
             </table>
           </div>
@@ -635,7 +484,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
               <thead className="bg-gray-50 text-xs font-black uppercase text-gray-400">
                 <tr>
                   <th className="px-10 py-8">Equipe</th>
-                  <th className="px-10 py-8 text-center">Ligações</th>
+                  <th className="px-10 py-8 text-center">Ligações Realizadas</th>
                   <th className="px-10 py-8 text-center">Fila Atual</th>
                   <th className="px-10 py-8 text-right">AÇÕES</th>
                 </tr>
@@ -651,14 +500,18 @@ export const AdminView: React.FC<AdminViewProps> = ({
                     </td>
                     <td className="px-10 py-7 text-center">
                       <div className="inline-flex flex-col items-center">
-                        <span className="font-black text-xl text-slate-800">{calls.filter(c => c.sellerId === u.id).length}</span>
-                        <span className="text-[8px] font-black uppercase text-gray-400">Total</span>
+                        <span className="font-black text-xl text-slate-800 tracking-tighter">
+                          {calls.filter(c => c.sellerId === u.id).length}
+                        </span>
+                        <span className="text-[8px] font-black uppercase text-gray-400 tracking-[0.2em]">Ligações</span>
                       </div>
                     </td>
                     <td className="px-10 py-7 text-center">
                       <div className="inline-flex flex-col items-center">
-                        <span className="font-black text-xl text-sky-600">{leads.filter(l => l.assignedTo === u.id && l.status === 'PENDING').length}</span>
-                        <span className="text-[8px] font-black uppercase text-gray-400">Pendentes</span>
+                        <span className="font-black text-xl text-sky-600 tracking-tighter">
+                          {leads.filter(l => l.assignedTo === u.id && l.status === 'PENDING').length}
+                        </span>
+                        <span className="text-[8px] font-black uppercase text-gray-400 tracking-[0.2em]">Fila</span>
                       </div>
                     </td>
                     <td className="px-10 py-7 text-right flex justify-end gap-3">
@@ -680,7 +533,6 @@ export const AdminView: React.FC<AdminViewProps> = ({
               <p className="text-[10px] font-black uppercase text-gray-400 mb-2 tracking-widest">Total de Vendas</p>
               <p className="text-4xl font-black italic text-slate-900">{stats.totalVendasCount}</p>
             </div>
-            
             <div className="bg-white p-8 rounded-[2.5rem] border-2 border-gray-100 shadow-sm">
               <div className="flex justify-between items-start mb-2">
                 <p className="text-[10px] font-black uppercase text-gray-400 tracking-widest">Via Ligação</p>
@@ -691,7 +543,6 @@ export const AdminView: React.FC<AdminViewProps> = ({
                 <Smartphone className="mb-1 text-sky-200" size={20} />
               </div>
             </div>
-
             <div className="bg-white p-8 rounded-[2.5rem] border-2 border-gray-100 shadow-sm">
               <div className="flex justify-between items-start mb-2">
                 <p className="text-[10px] font-black uppercase text-gray-400 tracking-widest">Via WhatsApp</p>
@@ -702,7 +553,6 @@ export const AdminView: React.FC<AdminViewProps> = ({
                 <MessageCircle className="mb-1 text-emerald-200" size={20} />
               </div>
             </div>
-
             <div className="bg-slate-900 p-8 rounded-[2.5rem] text-white shadow-xl">
               <p className="text-[10px] font-black uppercase opacity-60 mb-2 tracking-widest">Ticket Médio</p>
               <p className="text-2xl font-black italic">R$ {stats.ticketMedio.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}</p>
@@ -721,13 +571,9 @@ export const AdminView: React.FC<AdminViewProps> = ({
                     <td className="px-10 py-7">
                       <div className="flex items-center gap-2">
                         {s.canal === 'whatsapp' ? (
-                          <div className="bg-emerald-50 text-emerald-600 p-2 rounded-xl flex items-center gap-2 text-[9px] font-black uppercase tracking-tighter border border-emerald-100">
-                            <MessageCircle size={14} /> WhatsApp
-                          </div>
+                          <div className="bg-emerald-50 text-emerald-600 p-2 rounded-xl flex items-center gap-2 text-[9px] font-black uppercase tracking-tighter border border-emerald-100"><MessageCircle size={14} /> WhatsApp</div>
                         ) : (
-                          <div className="bg-sky-50 text-sky-600 p-2 rounded-xl flex items-center gap-2 text-[9px] font-black uppercase tracking-tighter border border-sky-100">
-                            <PhoneCall size={14} /> Ligação
-                          </div>
+                          <div className="bg-sky-50 text-sky-600 p-2 rounded-xl flex items-center gap-2 text-[9px] font-black uppercase tracking-tighter border border-sky-100"><PhoneCall size={14} /> Ligação</div>
                         )}
                       </div>
                     </td>
@@ -746,7 +592,6 @@ export const AdminView: React.FC<AdminViewProps> = ({
                     </td>
                   </tr>
                 ))}
-                {periodSales.length === 0 && <tr><td colSpan={5} className="text-center py-20 text-[10px] font-black uppercase text-gray-300 tracking-[0.2em]">Sem vendas encontradas no período</td></tr>}
               </tbody>
             </table>
           </div>
