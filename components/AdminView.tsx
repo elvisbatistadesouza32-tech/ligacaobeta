@@ -99,13 +99,14 @@ export const AdminView: React.FC<AdminViewProps> = ({
 
     const canalPct = (count: number) => totalVendasCount > 0 ? ((count / totalVendasCount) * 100).toFixed(0) : '0';
 
-    // Taxa de Conversão: Vendas / Ligações Atendidas (conforme solicitado anteriormente)
+    // Taxa de Conversão: Vendas / Ligações Atendidas
     const conversionRate = ansCount > 0 ? (totalVendasCount / ansCount) * 100 : 0;
 
     return {
       totalCalls,
       totalVendido,
       totalVendasCount,
+      ansCount,
       ans: { count: ansCount, pct: pct(ansCount) },
       noAns: { count: noAnsCount, pct: pct(noAnsCount) },
       invalid: { count: invalidCount, pct: pct(invalidCount) },
@@ -141,44 +142,44 @@ export const AdminView: React.FC<AdminViewProps> = ({
     const doc = new jsPDF();
     const titleDate = viewMode === 'day' ? date.split('-').reverse().join('/') : date.slice(0, 7).split('-').reverse().join('/');
     
-    // Cabeçalho Indigo
+    // Configuração do Cabeçalho
     doc.setFillColor(30, 27, 75);
-    doc.rect(0, 0, 210, 40, 'F');
-    
+    doc.rect(0, 0, 210, 35, 'F');
     doc.setTextColor(255, 255, 255);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(22);
-    doc.text('LIGAÇÕES PORTAL', 15, 20);
-    
-    doc.setFontSize(10);
+    doc.text('LIGAÇÕES PORTAL', 15, 18);
+    doc.setFontSize(9);
     doc.setFont('helvetica', 'normal');
-    doc.text(`RELATÓRIO DE DESEMPENHO • PERÍODO: ${titleDate}`, 15, 30);
+    doc.text(`RELATÓRIO DE DESEMPENHO • PERÍODO: ${titleDate}`, 15, 26);
 
     // 1. RESUMO FINANCEIRO
     doc.setTextColor(30, 27, 75);
-    doc.setFontSize(14);
+    doc.setFontSize(13);
     doc.setFont('helvetica', 'bold');
-    doc.text('RESUMO FINANCEIRO', 15, 55);
+    doc.text('RESUMO FINANCEIRO', 15, 48);
     
     const summaryData = [
       ['Total Vendido', `R$ ${stats.totalVendido.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`],
       ['Total de Vendas', `${stats.totalVendasCount} registros`],
       ['Ticket Médio', `R$ ${stats.ticketMedio.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`],
+      ['Taxa de Conversão (V/A)', `${stats.conversionRate.toFixed(1)}%`],
       ['Total de Chamadas', `${stats.totalCalls} tentativas`]
     ];
 
     (doc as any).autoTable({
-      startY: 60,
+      startY: 52,
       head: [['Métrica', 'Valor']],
       body: summaryData,
       theme: 'striped',
-      headStyles: { fillColor: [14, 165, 233] }, // Azul claro como na imagem
-      styles: { fontSize: 10, cellPadding: 4 }
+      headStyles: { fillColor: [14, 165, 233] },
+      styles: { fontSize: 9, cellPadding: 3 },
+      margin: { left: 15, right: 15 }
     });
 
     // 2. PERFORMANCE POR CANAL
-    doc.setFontSize(14);
-    doc.text('PERFORMANCE POR CANAL', 15, (doc as any).lastAutoTable.finalY + 15);
+    doc.setFontSize(13);
+    doc.text('PERFORMANCE POR CANAL', 15, (doc as any).lastAutoTable.finalY + 12);
     
     const channelData = [
       ['Ligação', stats.canais.call.count.toString(), `${stats.canais.call.pct}%`],
@@ -186,88 +187,90 @@ export const AdminView: React.FC<AdminViewProps> = ({
     ];
 
     (doc as any).autoTable({
-      startY: (doc as any).lastAutoTable.finalY + 20,
+      startY: (doc as any).lastAutoTable.finalY + 16,
       head: [['Canal', 'Quantidade', 'Percentual']],
       body: channelData,
       theme: 'grid',
-      headStyles: { fillColor: [16, 185, 129] }, // Verde como na imagem
-      styles: { fontSize: 10, cellPadding: 4 }
+      headStyles: { fillColor: [16, 185, 129] },
+      styles: { fontSize: 9, cellPadding: 3 },
+      margin: { left: 15, right: 15 }
     });
 
-    // 3. MELHORES HORÁRIOS (RANKING DE ATENDIMENTO)
-    doc.setFontSize(14);
-    doc.text('MELHORES HORÁRIOS (RANKING DE ATENDIMENTO)', 15, (doc as any).lastAutoTable.finalY + 15);
+    // 3. TOP VENDEDORES (VALOR E VOLUME)
+    doc.setFontSize(13);
+    doc.text('TOP 3 VENDEDORES', 15, (doc as any).lastAutoTable.finalY + 12);
 
-    const getTurnMetrics = (start: number, end: number, label: string) => {
-      const turnHours = hourlyData.filter(h => {
-        const hNum = parseInt(h.hour);
-        return hNum >= start && hNum < end;
-      });
-      
-      const best = turnHours.reduce((prev, curr) => {
-        const pRate = prev.total > 0 ? prev.atendidas / prev.total : 0;
-        const cRate = curr.total > 0 ? curr.atendidas / curr.total : 0;
-        return cRate >= pRate ? curr : prev;
-      }, { hour: '-', total: 0, atendidas: 0 });
+    const topValueSellers = sellers.map(s => {
+      const v = periodSales.filter(sa => sa.seller_id === s.id).reduce((acc, sa) => acc + Number(sa.amount), 0);
+      return { nome: s.nome, valor: v };
+    }).sort((a, b) => b.valor - a.valor).slice(0, 3);
 
-      const totalTurn = turnHours.reduce((a, b) => ({ ...a, total: a.total + b.total, atendidas: a.atendidas + b.atendidas }), { total: 0, atendidas: 0 });
-      const rate = totalTurn.total > 0 ? ((totalTurn.atendidas / totalTurn.total) * 100).toFixed(0) : '0';
+    const topVolumeSellers = sellers.map(s => {
+      const v = calls.filter(c => c.sellerId === s.id).length;
+      return { nome: s.nome, volume: v };
+    }).sort((a, b) => b.volume - a.volume).slice(0, 3);
 
-      return [label, best.hour, totalTurn.total.toString(), totalTurn.atendidas.toString(), `${rate}%`];
-    };
-
-    const turnsTableData = [
-      getTurnMetrics(8, 12, 'Manhã (08h - 12h)'),
-      getTurnMetrics(12, 18, 'Tarde (12h - 18h)'),
-      getTurnMetrics(18, 22, 'Noite (18h - 22h)')
+    const sellersTableData = [
+      ['#1', topValueSellers[0]?.nome || '-', `R$ ${topValueSellers[0]?.valor.toLocaleString('pt-BR') || '0'}`, topVolumeSellers[0]?.nome || '-', topVolumeSellers[0]?.volume.toString() || '0'],
+      ['#2', topValueSellers[1]?.nome || '-', `R$ ${topValueSellers[1]?.valor.toLocaleString('pt-BR') || '0'}`, topVolumeSellers[1]?.nome || '-', topVolumeSellers[1]?.volume.toString() || '0'],
+      ['#3', topValueSellers[2]?.nome || '-', `R$ ${topValueSellers[2]?.valor.toLocaleString('pt-BR') || '0'}`, topVolumeSellers[2]?.nome || '-', topVolumeSellers[2]?.volume.toString() || '0']
     ];
 
     (doc as any).autoTable({
-      startY: (doc as any).lastAutoTable.finalY + 20,
-      head: [['Turno', 'Melhor Hora', 'Volume', 'Atendidas', 'Taxa']],
-      body: turnsTableData,
+      startY: (doc as any).lastAutoTable.finalY + 16,
+      head: [['Pos', 'Top Vendas (Nome)', 'Valor Total', 'Top Ligações (Nome)', 'Qtd. Chamadas']],
+      body: sellersTableData,
       theme: 'striped',
       headStyles: { fillColor: [30, 27, 75] },
-      columnStyles: { 4: { fontStyle: 'bold', textColor: [16, 185, 129] } },
-      styles: { fontSize: 10, cellPadding: 4 }
+      styles: { fontSize: 8, cellPadding: 3 },
+      margin: { left: 15, right: 15 }
     });
 
-    // 4. TOP 3 - HORÁRIOS DE OURO
-    const sortedHours = [...hourlyData]
+    // 4. MELHORES HORÁRIOS POR TURNO (TOP 3 DE CADA)
+    doc.setFontSize(13);
+    doc.text('INTELIGÊNCIA DE HORÁRIOS (TOP 3 POR TURNO)', 15, (doc as any).lastAutoTable.finalY + 12);
+
+    const getTurnTop3 = (start: number, end: number, label: string) => {
+      const hours = hourlyData.filter(h => {
+        const hNum = parseInt(h.hour);
+        return hNum >= start && hNum < end;
+      })
       .filter(h => h.total > 0)
-      .sort((a, b) => (b.atendidas / b.total) - (a.atendidas / a.total))
+      .sort((a, b) => (b.atendidas / (b.total || 1)) - (a.atendidas / (a.total || 1)))
       .slice(0, 3);
-
-    if (sortedHours.length > 0) {
-      doc.setFontSize(14);
-      doc.text('TOP 3 - HORÁRIOS DE OURO (EFICIÊNCIA MÁXIMA)', 15, (doc as any).lastAutoTable.finalY + 15);
       
-      let yPos = (doc as any).lastAutoTable.finalY + 25;
-      sortedHours.forEach((h, i) => {
-        const rate = ((h.atendidas / h.total) * 100).toFixed(1);
-        doc.setFontSize(10);
-        doc.setFont('helvetica', 'normal');
-        doc.setTextColor(100, 116, 139);
-        
-        doc.text(`Rank #${i + 1}`, 15, yPos);
-        doc.setFont('helvetica', 'bold');
-        doc.setTextColor(30, 27, 75);
-        doc.text(h.hour, 45, yPos);
-        doc.text(`${rate}% de aproveitamento`, 70, yPos);
-        doc.setFont('helvetica', 'normal');
-        doc.setTextColor(100, 116, 139);
-        doc.text(`Base de ${h.total} tentativas`, 140, yPos);
-        
-        yPos += 12;
-      });
-    }
+      return hours.map((h, idx) => [
+        idx === 0 ? label : '',
+        h.hour,
+        h.total.toString(),
+        h.atendidas.toString(),
+        `${((h.atendidas / (h.total || 1)) * 100).toFixed(0)}%`
+      ]);
+    };
 
-    // Rodapé fixo
-    doc.setFontSize(9);
+    const turnsBody = [
+      ...getTurnTop3(8, 12, 'MANHÃ'),
+      ...getTurnTop3(12, 18, 'TARDE'),
+      ...getTurnTop3(18, 22, 'NOITE')
+    ];
+
+    (doc as any).autoTable({
+      startY: (doc as any).lastAutoTable.finalY + 16,
+      head: [['Turno', 'Horário', 'Volume', 'Atendidas', 'Eficiência']],
+      body: turnsBody,
+      theme: 'grid',
+      headStyles: { fillColor: [30, 27, 75] },
+      styles: { fontSize: 8, cellPadding: 2.5 },
+      columnStyles: { 4: { fontStyle: 'bold', textColor: [16, 185, 129] } },
+      margin: { left: 15, right: 15 }
+    });
+
+    // Rodapé
+    doc.setFontSize(8);
     doc.setTextColor(150, 150, 150);
-    doc.text(`© 2025 LIGAÇÕES PORTAL • Desenvolvido por Elvis Souza`, 105, 285, { align: 'center' });
+    doc.text(`Relatório gerado em ${new Date().toLocaleString('pt-BR')} • © 2025 LIGAÇÕES PORTAL`, 105, 285, { align: 'center' });
 
-    doc.save(`Relatorio_Portal_${date}.pdf`);
+    doc.save(`Relatorio_Portal_Completo_${date}.pdf`);
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
