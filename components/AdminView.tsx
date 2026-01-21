@@ -99,7 +99,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
 
     const canalPct = (count: number) => totalVendasCount > 0 ? ((count / totalVendasCount) * 100).toFixed(0) : '0';
 
-    // Conversão baseada em atendidas conforme solicitado: Vendas / Atendidas
+    // Taxa de Conversão: Vendas / Ligações Atendidas (conforme solicitado anteriormente)
     const conversionRate = ansCount > 0 ? (totalVendasCount / ansCount) * 100 : 0;
 
     return {
@@ -134,19 +134,14 @@ export const AdminView: React.FC<AdminViewProps> = ({
       }
     });
 
-    const hasActivity = hours.some(h => h.total > 0);
-    if (!hasActivity) return [];
-
-    return hours.filter((h, idx) => {
-      if (h.total > 0) return true;
-      return idx >= 8 && idx <= 20; 
-    });
+    return hours;
   }, [filteredCalls]);
 
   const generateReportPDF = () => {
     const doc = new jsPDF();
     const titleDate = viewMode === 'day' ? date.split('-').reverse().join('/') : date.slice(0, 7).split('-').reverse().join('/');
     
+    // Cabeçalho Indigo
     doc.setFillColor(30, 27, 75);
     doc.rect(0, 0, 210, 40, 'F');
     
@@ -159,6 +154,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
     doc.setFont('helvetica', 'normal');
     doc.text(`RELATÓRIO DE DESEMPENHO • PERÍODO: ${titleDate}`, 15, 30);
 
+    // 1. RESUMO FINANCEIRO
     doc.setTextColor(30, 27, 75);
     doc.setFontSize(14);
     doc.setFont('helvetica', 'bold');
@@ -167,7 +163,6 @@ export const AdminView: React.FC<AdminViewProps> = ({
     const summaryData = [
       ['Total Vendido', `R$ ${stats.totalVendido.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`],
       ['Total de Vendas', `${stats.totalVendasCount} registros`],
-      ['Taxa de Conversão (V/A)', `${stats.conversionRate.toFixed(1)}%`],
       ['Ticket Médio', `R$ ${stats.ticketMedio.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`],
       ['Total de Chamadas', `${stats.totalCalls} tentativas`]
     ];
@@ -177,8 +172,100 @@ export const AdminView: React.FC<AdminViewProps> = ({
       head: [['Métrica', 'Valor']],
       body: summaryData,
       theme: 'striped',
-      headStyles: { fillColor: [14, 165, 233] }
+      headStyles: { fillColor: [14, 165, 233] }, // Azul claro como na imagem
+      styles: { fontSize: 10, cellPadding: 4 }
     });
+
+    // 2. PERFORMANCE POR CANAL
+    doc.setFontSize(14);
+    doc.text('PERFORMANCE POR CANAL', 15, (doc as any).lastAutoTable.finalY + 15);
+    
+    const channelData = [
+      ['Ligação', stats.canais.call.count.toString(), `${stats.canais.call.pct}%`],
+      ['WhatsApp', stats.canais.whatsapp.count.toString(), `${stats.canais.whatsapp.pct}%`]
+    ];
+
+    (doc as any).autoTable({
+      startY: (doc as any).lastAutoTable.finalY + 20,
+      head: [['Canal', 'Quantidade', 'Percentual']],
+      body: channelData,
+      theme: 'grid',
+      headStyles: { fillColor: [16, 185, 129] }, // Verde como na imagem
+      styles: { fontSize: 10, cellPadding: 4 }
+    });
+
+    // 3. MELHORES HORÁRIOS (RANKING DE ATENDIMENTO)
+    doc.setFontSize(14);
+    doc.text('MELHORES HORÁRIOS (RANKING DE ATENDIMENTO)', 15, (doc as any).lastAutoTable.finalY + 15);
+
+    const getTurnMetrics = (start: number, end: number, label: string) => {
+      const turnHours = hourlyData.filter(h => {
+        const hNum = parseInt(h.hour);
+        return hNum >= start && hNum < end;
+      });
+      
+      const best = turnHours.reduce((prev, curr) => {
+        const pRate = prev.total > 0 ? prev.atendidas / prev.total : 0;
+        const cRate = curr.total > 0 ? curr.atendidas / curr.total : 0;
+        return cRate >= pRate ? curr : prev;
+      }, { hour: '-', total: 0, atendidas: 0 });
+
+      const totalTurn = turnHours.reduce((a, b) => ({ ...a, total: a.total + b.total, atendidas: a.atendidas + b.atendidas }), { total: 0, atendidas: 0 });
+      const rate = totalTurn.total > 0 ? ((totalTurn.atendidas / totalTurn.total) * 100).toFixed(0) : '0';
+
+      return [label, best.hour, totalTurn.total.toString(), totalTurn.atendidas.toString(), `${rate}%`];
+    };
+
+    const turnsTableData = [
+      getTurnMetrics(8, 12, 'Manhã (08h - 12h)'),
+      getTurnMetrics(12, 18, 'Tarde (12h - 18h)'),
+      getTurnMetrics(18, 22, 'Noite (18h - 22h)')
+    ];
+
+    (doc as any).autoTable({
+      startY: (doc as any).lastAutoTable.finalY + 20,
+      head: [['Turno', 'Melhor Hora', 'Volume', 'Atendidas', 'Taxa']],
+      body: turnsTableData,
+      theme: 'striped',
+      headStyles: { fillColor: [30, 27, 75] },
+      columnStyles: { 4: { fontStyle: 'bold', textColor: [16, 185, 129] } },
+      styles: { fontSize: 10, cellPadding: 4 }
+    });
+
+    // 4. TOP 3 - HORÁRIOS DE OURO
+    const sortedHours = [...hourlyData]
+      .filter(h => h.total > 0)
+      .sort((a, b) => (b.atendidas / b.total) - (a.atendidas / a.total))
+      .slice(0, 3);
+
+    if (sortedHours.length > 0) {
+      doc.setFontSize(14);
+      doc.text('TOP 3 - HORÁRIOS DE OURO (EFICIÊNCIA MÁXIMA)', 15, (doc as any).lastAutoTable.finalY + 15);
+      
+      let yPos = (doc as any).lastAutoTable.finalY + 25;
+      sortedHours.forEach((h, i) => {
+        const rate = ((h.atendidas / h.total) * 100).toFixed(1);
+        doc.setFontSize(10);
+        doc.setFont('helvetica', 'normal');
+        doc.setTextColor(100, 116, 139);
+        
+        doc.text(`Rank #${i + 1}`, 15, yPos);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(30, 27, 75);
+        doc.text(h.hour, 45, yPos);
+        doc.text(`${rate}% de aproveitamento`, 70, yPos);
+        doc.setFont('helvetica', 'normal');
+        doc.setTextColor(100, 116, 139);
+        doc.text(`Base de ${h.total} tentativas`, 140, yPos);
+        
+        yPos += 12;
+      });
+    }
+
+    // Rodapé fixo
+    doc.setFontSize(9);
+    doc.setTextColor(150, 150, 150);
+    doc.text(`© 2025 LIGAÇÕES PORTAL • Desenvolvido por Elvis Souza`, 105, 285, { align: 'center' });
 
     doc.save(`Relatorio_Portal_${date}.pdf`);
   };
@@ -363,9 +450,9 @@ export const AdminView: React.FC<AdminViewProps> = ({
             <div className="lg:col-span-2 bg-white p-10 rounded-[3rem] border-2 border-gray-100 flex flex-col">
               <h4 className="font-black uppercase italic text-slate-800 mb-8 flex items-center gap-2"><Clock className="text-sky-500" /> Atividade por Horário</h4>
               <div className="flex-1 min-h-[300px] w-full">
-                {hourlyData.length > 0 ? (
+                {hourlyData.filter(h => h.total > 0).length > 0 ? (
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={hourlyData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                    <BarChart data={hourlyData.filter(h => parseInt(h.hour) >= 8 && parseInt(h.hour) <= 22)} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                       <XAxis dataKey="hour" axisLine={false} tickLine={false} tick={{ fontSize: 10, fontWeight: 900, fill: '#94a3b8' }} />
                       <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fontWeight: 900, fill: '#94a3b8' }} />
