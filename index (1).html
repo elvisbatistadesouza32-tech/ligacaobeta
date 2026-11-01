@@ -1,0 +1,675 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<title>Assistente de Visão</title>
+<!--
+  ASSISTENTE DE VISÃO - PROTÓTIPO PARA CELULAR
+  ============================================
+  Como funciona:
+    1. A página abre a câmera traseira do celular.
+    2. Toque na metade de CIMA da tela  -> a IA descreve o ambiente (prioriza riscos).
+       Toque na metade de BAIXO da tela -> a IA lê textos, placas e rótulos.
+    3. A resposta é falada em voz alta (sai no fone Bluetooth, se estiver conectado).
+    4. A página mede: tempo de resposta de cada análise e gasto de bateria
+       (a bateria só aparece no Android/Chrome; o iPhone não informa).
+
+  Tudo fica neste único arquivo: HTML (estrutura), CSS (aparência) e JavaScript (funcionamento).
+-->
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; background: #000; color: #fff;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+
+  /* A câmera fica ao fundo, ocupando a tela toda */
+  #video { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: .35; }
+
+  /* Dois botões gigantes: metade de cima e metade de baixo */
+  #principal { position: fixed; inset: 0; display: flex; flex-direction: column;
+    padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom); }
+  .botao-gigante { flex: 1; border: none; color: #fff; font-size: 2.1rem; font-weight: 800;
+    letter-spacing: .02em; display: flex; flex-direction: column; align-items: center;
+    justify-content: center; gap: .5rem; background: rgba(0,0,0,.25); cursor: pointer;
+    -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+  .botao-gigante small { font-size: 1rem; font-weight: 500; opacity: .85; }
+  #btn-descrever { border-bottom: 4px solid #ffd400; }
+  #btn-ler { border-top: 4px solid #ffd400; }
+  .botao-gigante:active { background: rgba(255,212,0,.35); }
+  .ocupado .botao-gigante { opacity: .5; }
+
+  /* Faixa de status no meio */
+  #status { position: fixed; left: 0; right: 0; top: 50%; transform: translateY(-50%);
+    background: #ffd400; color: #000; text-align: center; font-size: 1.15rem;
+    font-weight: 700; padding: .6rem 1rem; pointer-events: none; }
+
+  /* Botão de configurações e medições (canto) */
+  #btn-config { position: fixed; top: calc(env(safe-area-inset-top) + .6rem); right: .6rem;
+    z-index: 5; background: #fff; color: #000; border: none; border-radius: 999px;
+    font-size: 1rem; font-weight: 700; padding: .55rem 1rem; }
+
+  /* Telas sobrepostas (configurar e medições) */
+  .tela { position: fixed; inset: 0; z-index: 10; background: #111; overflow-y: auto;
+    padding: calc(env(safe-area-inset-top) + 1.2rem) 1.2rem calc(env(safe-area-inset-bottom) + 1.5rem); }
+  .tela[hidden] { display: none; }
+  .tela h1 { font-size: 1.6rem; margin-bottom: .8rem; }
+  .tela h2 { font-size: 1.2rem; margin: 1.4rem 0 .5rem; color: #ffd400; }
+  .tela p, .tela li { font-size: 1.05rem; line-height: 1.5; color: #ddd; }
+  .tela ul { padding-left: 1.2rem; }
+  label { display: block; font-size: 1.05rem; margin: 1rem 0 .4rem; }
+  input, select { width: 100%; font-size: 1.1rem; padding: .8rem; border-radius: 10px;
+    border: 2px solid #555; background: #000; color: #fff; }
+  .acoes { display: flex; flex-direction: column; gap: .7rem; margin-top: 1.4rem; }
+  .acoes button { font-size: 1.2rem; font-weight: 700; padding: 1rem; border-radius: 12px; border: none; }
+  .primario { background: #ffd400; color: #000; }
+  .secundario { background: #333; color: #fff; }
+  .aviso { background: #3a2a00; border-left: 4px solid #ffd400; padding: .8rem; border-radius: 8px; margin-top: 1rem; }
+  table { width: 100%; border-collapse: collapse; margin-top: .5rem; font-size: .95rem; }
+  th, td { text-align: left; padding: .45rem .3rem; border-bottom: 1px solid #333; vertical-align: top; }
+  th { color: #aaa; font-weight: 600; }
+  .numero { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .resumo { display: grid; grid-template-columns: 1fr 1fr; gap: .6rem; }
+  .cartao { background: #000; border: 1px solid #333; border-radius: 10px; padding: .7rem; }
+  .cartao b { display: block; font-size: 1.5rem; }
+  .cartao span { color: #aaa; font-size: .9rem; }
+
+  /* Texto só para leitores de tela (TalkBack / VoiceOver) */
+  .so-leitor { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+</style>
+</head>
+<body>
+
+<video id="video" autoplay playsinline muted></video>
+
+<main id="principal" aria-label="Assistente de visão">
+  <button id="btn-descrever" class="botao-gigante">
+    DESCREVER
+    <small>o que está à minha frente</small>
+  </button>
+  <button id="btn-ler" class="botao-gigante">
+    LER TEXTO
+    <small>placas, rótulos, documentos</small>
+  </button>
+</main>
+
+<div id="status" role="status">Toque para começar</div>
+<div id="falado" class="so-leitor" aria-live="assertive"></div>
+
+<button id="btn-config" aria-label="Configurações e medições">⚙ Ajustes</button>
+
+<!-- Câmera de reserva: abre a câmera nativa se a câmera ao vivo não funcionar -->
+<input id="foto-reserva" type="file" accept="image/*" capture="environment" hidden>
+
+<!-- ===================== TELA DE CONFIGURAÇÃO ===================== -->
+<section id="tela-config" class="tela" hidden aria-labelledby="titulo-config">
+  <h1 id="titulo-config">Ajustes</h1>
+
+  <label for="campo-chave">Chave da API (Google Gemini gratuita ou Anthropic)</label>
+  <input id="campo-chave" type="password" autocomplete="off" placeholder="AIza... ou sk-ant-...">
+  <p class="aviso">O app reconhece sozinho qual IA usar pela chave: chaves do Google começam com
+    "AIza", chaves da Anthropic com "sk-ant-". A chave fica guardada só neste celular.</p>
+
+  <label for="campo-modelo">Modelo de IA</label>
+  <select id="campo-modelo">
+    <optgroup label="Google Gemini (gratuito)">
+      <option value="gemini-flash-latest">Gemini Flash (recomendado)</option>
+      <option value="gemini-3.1-flash-lite">Gemini Flash-Lite (mais rápido, menos detalhado)</option>
+    </optgroup>
+    <optgroup label="Anthropic Claude (pago)">
+      <option value="claude-haiku-5-5">Claude Haiku (rápido)</option>
+      <option value="claude-sonnet-5-5">Claude Sonnet (mais detalhado)</option>
+    </optgroup>
+  </select>
+
+  <label for="campo-velocidade">Velocidade da fala</label>
+  <select id="campo-velocidade">
+    <option value="1">Normal</option>
+    <option value="1.25" selected>Um pouco rápida</option>
+    <option value="1.5">Rápida</option>
+    <option value="1.8">Muito rápida</option>
+  </select>
+
+  <label for="campo-auto">Modo automático (para teste de bateria)</label>
+  <select id="campo-auto">
+    <option value="0">Desligado: só analisa quando tocar</option>
+    <option value="5">Descrever a cada 5 segundos</option>
+    <option value="10">Descrever a cada 10 segundos</option>
+    <option value="30">Descrever a cada 30 segundos</option>
+  </select>
+
+  <div class="acoes">
+    <button id="btn-salvar" class="primario">Salvar e voltar</button>
+    <button id="btn-abrir-medicoes" class="secundario">Ver medições</button>
+  </div>
+
+  <h2>Como usar</h2>
+  <ul>
+    <li>Prenda o celular no peito com a câmera traseira para frente.</li>
+    <li>Conecte um fone Bluetooth (de preferência de condução óssea, para não tampar o ouvido).</li>
+    <li>Metade de cima da tela: descreve o ambiente. Metade de baixo: lê textos.</li>
+    <li>Com o TalkBack ou VoiceOver ligado, toque duas vezes no botão.</li>
+    <li>Este protótipo é um complemento à bengala e ao cão-guia, nunca um substituto.</li>
+  </ul>
+</section>
+
+<!-- ===================== TELA DE MEDIÇÕES ===================== -->
+<section id="tela-medicoes" class="tela" hidden aria-labelledby="titulo-medicoes">
+  <h1 id="titulo-medicoes">Medições de viabilidade</h1>
+  <div class="resumo">
+    <div class="cartao"><b id="m-total" class="numero">0</b><span>análises feitas</span></div>
+    <div class="cartao"><b id="m-media" class="numero">–</b><span>tempo médio de resposta</span></div>
+    <div class="cartao"><b id="m-min-max" class="numero">–</b><span>mais rápida / mais lenta</span></div>
+    <div class="cartao"><b id="m-erros" class="numero">0</b><span>erros</span></div>
+    <div class="cartao"><b id="m-bateria" class="numero">–</b><span>bateria gasta / tempo de uso</span></div>
+    <div class="cartao"><b id="m-projecao" class="numero">–</b><span>autonomia estimada (100% → 0%)</span></div>
+  </div>
+  <p style="margin-top:.8rem;font-size:.95rem;color:#aaa">A bateria só é medida no Android com Chrome.
+    No iPhone, anote a porcentagem no início e no fim do teste.</p>
+
+  <h2>Histórico</h2>
+  <table>
+    <thead><tr><th>Hora</th><th>Tipo</th><th>Tempo</th><th>Resposta</th></tr></thead>
+    <tbody id="tabela-historico"></tbody>
+  </table>
+
+  <div class="acoes">
+    <button id="btn-copiar" class="primario">Copiar medições (para colar no relatório)</button>
+    <button id="btn-zerar" class="secundario">Zerar medições</button>
+    <button id="btn-voltar" class="secundario">Voltar</button>
+  </div>
+</section>
+
+<script>
+// =====================================================================
+// INSTRUÇÕES PARA A IA (você pode editar estes textos)
+// =====================================================================
+const INSTRUCAO_DESCREVER = `Você é o assistente de visão de uma pessoa cega.
+A foto foi tirada por um celular preso ao peito dela, apontando para frente.
+
+Responda em português do Brasil, em no máximo 2 frases curtas e diretas:
+1. Primeiro, avise sobre qualquer risco imediato (degrau, escada, buraco, obstáculo,
+   veículo, porta de vidro, pessoa muito perto). Diga a posição (à frente, à esquerda,
+   à direita) e a distância aproximada em passos.
+2. Depois, diga em poucas palavras que ambiente é este.
+
+Regras:
+- Não use as palavras "imagem" ou "foto".
+- Só cite cores se forem importantes (por exemplo, a cor de um semáforo).
+- Se não houver risco, não invente um.
+- Se não der para entender a cena, diga isso de forma breve.`;
+
+const INSTRUCAO_LER = `Você ajuda uma pessoa cega a ler textos.
+A foto foi tirada por um celular preso ao peito dela.
+
+Leia, em português do Brasil, o texto mais importante que aparece (placa, rótulo,
+cardápio, documento, tela). Comece pelo título ou pela informação principal.
+Se houver muito texto, leia o essencial e diga que há mais.
+Se não houver texto legível, diga apenas "Não encontrei texto legível" e sugira
+aproximar ou afastar o celular. Não use as palavras "imagem" ou "foto".`;
+
+// =====================================================================
+// CONFIGURAÇÕES E ESTADO
+// =====================================================================
+const LARGURA_DA_FOTO = 768;   // fotos menores = resposta mais rápida e mais barata
+
+const $ = (id) => document.getElementById(id);
+const video = $("video");
+
+let ocupado = false;           // evita duas análises ao mesmo tempo
+let cameraAoVivo = false;      // a câmera ao vivo abriu?
+let bloqueioDeTela = null;     // mantém a tela ligada
+let temporizadorAuto = null;   // modo automático
+let tipoPendenteReserva = null;
+
+// Funções seguras para guardar dados no celular (localStorage)
+function ler(chave, padrao) {
+  try { const v = localStorage.getItem(chave); return v === null ? padrao : v; }
+  catch { return padrao; }
+}
+function gravar(chave, valor) {
+  try { localStorage.setItem(chave, valor); } catch {}
+}
+
+const config = {
+  chave: ler("av_chave", ""),
+  modelo: ler("av_modelo", "gemini-flash-latest"),
+  velocidade: parseFloat(ler("av_velocidade", "1.25")),
+  auto: parseInt(ler("av_auto", "0"), 10),
+};
+
+let medicoes = [];
+try { medicoes = JSON.parse(ler("av_medicoes", "[]")) || []; } catch { medicoes = []; }
+let bateriaInicio = null;      // { nivel, hora }
+
+// =====================================================================
+// VOZ
+// =====================================================================
+let vozPortugues = null;
+function escolherVoz() {
+  if (!("speechSynthesis" in window)) return;
+  const vozes = speechSynthesis.getVoices();
+  vozPortugues =
+    vozes.find(v => v.lang === "pt-BR") ||
+    vozes.find(v => v.lang && v.lang.toLowerCase().startsWith("pt")) || null;
+}
+if ("speechSynthesis" in window) {
+  escolherVoz();
+  speechSynthesis.onvoiceschanged = escolherVoz;
+}
+
+function falar(texto) {
+  $("falado").textContent = texto;   // também avisa o TalkBack/VoiceOver
+  if (!("speechSynthesis" in window)) return;
+  speechSynthesis.cancel();          // interrompe a fala anterior
+  const fala = new SpeechSynthesisUtterance(texto);
+  fala.lang = "pt-BR";
+  if (vozPortugues) fala.voice = vozPortugues;
+  fala.rate = config.velocidade;
+  speechSynthesis.speak(fala);
+}
+
+function vibrar(padrao) {
+  try { if (navigator.vibrate) navigator.vibrate(padrao); } catch {}
+}
+
+function mostrarStatus(texto) { $("status").textContent = texto; }
+
+// =====================================================================
+// CÂMERA
+// =====================================================================
+async function abrirCamera() {
+  if (cameraAoVivo) return true;
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return false;
+  try {
+    const fluxo = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } },
+      audio: false,
+    });
+    video.srcObject = fluxo;
+    await video.play().catch(() => {});
+    cameraAoVivo = true;
+    return true;
+  } catch (erro) {
+    console.warn("Câmera ao vivo indisponível:", erro);
+    return false;
+  }
+}
+
+// Mantém a tela acesa (se a tela apagar, a câmera para)
+async function manterTelaLigada() {
+  try {
+    if ("wakeLock" in navigator && !bloqueioDeTela) {
+      bloqueioDeTela = await navigator.wakeLock.request("screen");
+      bloqueioDeTela.addEventListener("release", () => { bloqueioDeTela = null; });
+    }
+  } catch {}
+}
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") manterTelaLigada();
+});
+
+// Tira uma foto do vídeo, diminui e converte para base64 (formato que a IA recebe)
+function fotografarDoVideo() {
+  const larguraOriginal = video.videoWidth, alturaOriginal = video.videoHeight;
+  if (!larguraOriginal) throw new Error("A câmera ainda não está pronta.");
+  return redimensionar(video, larguraOriginal, alturaOriginal);
+}
+
+function redimensionar(origem, largura, altura) {
+  const escala = Math.min(1, LARGURA_DA_FOTO / largura);
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(largura * escala);
+  canvas.height = Math.round(altura * escala);
+  canvas.getContext("2d").drawImage(origem, 0, 0, canvas.width, canvas.height);
+  return canvas.toDataURL("image/jpeg", 0.8).split(",")[1];
+}
+
+// Câmera de reserva: usa a câmera nativa do celular (precisa apertar o botão de foto)
+function fotografarPelaReserva(tipo) {
+  tipoPendenteReserva = tipo;
+  $("foto-reserva").value = "";
+  $("foto-reserva").click();
+}
+$("foto-reserva").addEventListener("change", async () => {
+  const arquivo = $("foto-reserva").files[0];
+  if (!arquivo) return;
+  try {
+    const bitmap = await createImageBitmap(arquivo);
+    const base64 = redimensionar(bitmap, bitmap.width, bitmap.height);
+    await analisar(tipoPendenteReserva, base64);
+  } catch (erro) {
+    falar("Não consegui abrir a foto.");
+  }
+});
+
+// =====================================================================
+// BATERIA (só Android/Chrome)
+// =====================================================================
+async function nivelBateria() {
+  try {
+    if (navigator.getBattery) {
+      const b = await navigator.getBattery();
+      return Math.round(b.level * 100);
+    }
+  } catch {}
+  return null;
+}
+
+// =====================================================================
+// IA
+// =====================================================================
+// Descobre qual IA usar pela chave: Anthropic começa com "sk-ant-", Google com "AIza"
+function provedor() {
+  return config.chave.startsWith("sk-ant-") ? "anthropic" : "gemini";
+}
+function modeloEmUso() {
+  if (provedor() === "anthropic") return config.modelo.startsWith("claude") ? config.modelo : "claude-haiku-5-5";
+  return config.modelo.startsWith("gemini") ? config.modelo : "gemini-flash-latest";
+}
+
+async function perguntarParaIA(fotoBase64, instrucao) {
+  return provedor() === "anthropic"
+    ? perguntarParaClaude(fotoBase64, instrucao)
+    : perguntarParaGemini(fotoBase64, instrucao);
+}
+
+// ---- Google Gemini (tem plano gratuito) ----
+async function perguntarParaGemini(fotoBase64, instrucao) {
+  const url = "https://generativelanguage.googleapis.com/v1beta/models/" +
+              encodeURIComponent(modeloEmUso()) + ":generateContent";
+  const resposta = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-goog-api-key": config.chave },
+    body: JSON.stringify({
+      contents: [{
+        parts: [
+          { inline_data: { mime_type: "image/jpeg", data: fotoBase64 } },
+          { text: instrucao },
+        ],
+      }],
+      generationConfig: { maxOutputTokens: 300, temperature: 0.2 },
+    }),
+  });
+
+  const dados = await resposta.json().catch(() => ({}));
+  if (!resposta.ok) {
+    const msg = (dados.error && dados.error.message) || ("Erro " + resposta.status);
+    const erro = new Error(msg);
+    // O Google responde 400/403 para chave inválida; tratamos como 401 para a mensagem ficar clara
+    erro.status = (resposta.status === 403 || /API key/i.test(msg)) ? 401 : resposta.status;
+    throw erro;
+  }
+  const partes = (dados.candidates && dados.candidates[0] && dados.candidates[0].content &&
+                  dados.candidates[0].content.parts) || [];
+  const texto = partes.map(p => p.text || "").join(" ").trim();
+  return texto || "Sem resposta.";
+}
+
+// ---- Anthropic Claude (pago) ----
+async function perguntarParaClaude(fotoBase64, instrucao) {
+  const resposta = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-api-key": config.chave,
+      "anthropic-version": "2023-06-01",
+      "anthropic-dangerous-direct-browser-access": "true",
+    },
+    body: JSON.stringify({
+      model: modeloEmUso(),
+      max_tokens: 300,
+      messages: [{
+        role: "user",
+        content: [
+          { type: "image", source: { type: "base64", media_type: "image/jpeg", data: fotoBase64 } },
+          { type: "text", text: instrucao },
+        ],
+      }],
+    }),
+  });
+
+  const dados = await resposta.json().catch(() => ({}));
+  if (!resposta.ok) {
+    const msg = (dados.error && dados.error.message) || ("Erro " + resposta.status);
+    const erro = new Error(msg);
+    erro.status = resposta.status;
+    throw erro;
+  }
+  const bloco = (dados.content || []).find(b => b.type === "text");
+  return bloco ? bloco.text.trim() : "Sem resposta.";
+}
+
+// =====================================================================
+// FLUXO PRINCIPAL: tocar -> foto -> IA -> voz -> medir
+// =====================================================================
+async function iniciarAnalise(tipo) {
+  if (ocupado) { falar("Aguarde, ainda estou analisando."); return; }
+
+  if (!config.chave) {
+    falar("Falta configurar a chave da API. Abra os ajustes.");
+    abrirTela("tela-config");
+    return;
+  }
+
+  manterTelaLigada();
+  if (bateriaInicio === null) {
+    const nivel = await nivelBateria();
+    if (nivel !== null) bateriaInicio = { nivel, hora: Date.now() };
+  }
+
+  const ok = await abrirCamera();
+  if (!ok) {
+    falar("A câmera ao vivo não abriu. Vou usar a câmera do celular. Aperte o botão de foto.");
+    fotografarPelaReserva(tipo);
+    return;
+  }
+
+  // A câmera acabou de abrir? espera um pouco para a imagem estabilizar
+  if (!video.videoWidth) await new Promise(r => setTimeout(r, 800));
+
+  let foto;
+  try { foto = fotografarDoVideo(); }
+  catch (erro) { falar("A câmera ainda não está pronta. Tente de novo."); return; }
+
+  await analisar(tipo, foto);
+}
+
+async function analisar(tipo, fotoBase64) {
+  ocupado = true;
+  document.body.classList.add("ocupado");
+  vibrar(40);
+  falar(tipo === "ler" ? "Lendo." : "Analisando.");
+  mostrarStatus("Analisando…");
+
+  const inicio = performance.now();
+  let texto, deuErro = false;
+  try {
+    texto = await perguntarParaIA(fotoBase64, tipo === "ler" ? INSTRUCAO_LER : INSTRUCAO_DESCREVER);
+  } catch (erro) {
+    deuErro = true;
+    console.error(erro);
+    if (erro.status === 401) texto = "A chave da API está errada. Confira nos ajustes.";
+    else if (erro.status === 404 || erro.status === 400) texto = "Erro na configuração: " + erro.message;
+    else if (erro.status === 429) texto = "Limite gratuito atingido. Espere um minuto e tente de novo.";
+    else if (!navigator.onLine) texto = "Sem internet.";
+    else texto = "Não consegui analisar agora.";
+  }
+  const segundos = (performance.now() - inicio) / 1000;
+
+  vibrar(deuErro ? [80, 60, 80] : [30, 40, 30]);
+  falar(texto);
+  mostrarStatus(deuErro ? texto : `${texto}  (${segundos.toFixed(1)} s)`);
+
+  medicoes.push({
+    hora: Date.now(),
+    tipo,
+    segundos: Number(segundos.toFixed(2)),
+    erro: deuErro,
+    texto,
+    modelo: modeloEmUso(),
+    bateria: await nivelBateria(),
+  });
+  gravar("av_medicoes", JSON.stringify(medicoes.slice(-500)));
+
+  ocupado = false;
+  document.body.classList.remove("ocupado");
+}
+
+// Modo automático: descreve sozinho a cada N segundos (útil para medir bateria)
+function configurarModoAutomatico() {
+  clearInterval(temporizadorAuto);
+  temporizadorAuto = null;
+  if (config.auto > 0) {
+    temporizadorAuto = setInterval(() => {
+      if (!ocupado && $("tela-config").hidden && $("tela-medicoes").hidden) iniciarAnalise("descrever");
+    }, config.auto * 1000);
+  }
+}
+
+// =====================================================================
+// TELAS DE AJUSTES E MEDIÇÕES
+// =====================================================================
+function abrirTela(id) {
+  $(id).hidden = false;
+  if (id === "tela-medicoes") desenharMedicoes();
+  $(id).querySelector("h1").setAttribute("tabindex", "-1");
+  $(id).querySelector("h1").focus();
+}
+function fecharTelas() {
+  $("tela-config").hidden = true;
+  $("tela-medicoes").hidden = true;
+}
+
+function preencherAjustes() {
+  $("campo-chave").value = config.chave;
+  $("campo-modelo").value = config.modelo;
+  $("campo-velocidade").value = String(config.velocidade);
+  $("campo-auto").value = String(config.auto);
+}
+
+function hora(ms) {
+  return new Date(ms).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
+
+function calcularResumo() {
+  const ok = medicoes.filter(m => !m.erro);
+  const tempos = ok.map(m => m.segundos);
+  const media = tempos.length ? tempos.reduce((a, b) => a + b, 0) / tempos.length : null;
+  const comBateria = medicoes.filter(m => m.bateria !== null && m.bateria !== undefined);
+  let gasto = null, minutos = null, projecaoHoras = null;
+  if (comBateria.length >= 2) {
+    const primeiro = comBateria[0], ultimo = comBateria[comBateria.length - 1];
+    gasto = primeiro.bateria - ultimo.bateria;
+    minutos = (ultimo.hora - primeiro.hora) / 60000;
+    if (gasto > 0 && minutos > 0) projecaoHoras = (100 / gasto) * minutos / 60;
+  }
+  return {
+    total: medicoes.length,
+    erros: medicoes.length - ok.length,
+    media,
+    min: tempos.length ? Math.min(...tempos) : null,
+    max: tempos.length ? Math.max(...tempos) : null,
+    gasto, minutos, projecaoHoras,
+  };
+}
+
+function desenharMedicoes() {
+  const r = calcularResumo();
+  $("m-total").textContent = r.total;
+  $("m-erros").textContent = r.erros;
+  $("m-media").textContent = r.media === null ? "–" : r.media.toFixed(1) + " s";
+  $("m-min-max").textContent = r.min === null ? "–" : `${r.min.toFixed(1)} / ${r.max.toFixed(1)} s`;
+  $("m-bateria").textContent = r.gasto === null ? "–" : `${r.gasto}% / ${Math.round(r.minutos)} min`;
+  $("m-projecao").textContent = r.projecaoHoras === null ? "–" : `≈ ${r.projecaoHoras.toFixed(1)} h`;
+
+  const corpo = $("tabela-historico");
+  corpo.innerHTML = "";
+  medicoes.slice().reverse().slice(0, 50).forEach(m => {
+    const linha = document.createElement("tr");
+    [hora(m.hora), m.tipo === "ler" ? "Ler" : "Descrever",
+     m.erro ? "erro" : m.segundos.toFixed(1) + " s", m.texto].forEach((valor, i) => {
+      const celula = document.createElement("td");
+      celula.textContent = valor;
+      if (i === 2) celula.className = "numero";
+      linha.appendChild(celula);
+    });
+    corpo.appendChild(linha);
+  });
+}
+
+function textoDasMedicoes() {
+  const r = calcularResumo();
+  const linhas = [
+    "MEDIÇÕES - ASSISTENTE DE VISÃO",
+    `Análises: ${r.total} | Erros: ${r.erros}`,
+    `Tempo médio de resposta: ${r.media === null ? "-" : r.media.toFixed(1) + " s"}`,
+    `Mais rápida / mais lenta: ${r.min === null ? "-" : r.min.toFixed(1) + " s / " + r.max.toFixed(1) + " s"}`,
+    `Bateria gasta: ${r.gasto === null ? "não medida" : r.gasto + "% em " + Math.round(r.minutos) + " min"}`,
+    `Autonomia estimada: ${r.projecaoHoras === null ? "-" : r.projecaoHoras.toFixed(1) + " h"}`,
+    "",
+    "Hora;Tipo;Modelo;Tempo (s);Bateria (%);Resposta",
+    ...medicoes.map(m => [hora(m.hora), m.tipo, m.modelo, m.erro ? "erro" : m.segundos,
+      m.bateria ?? "", '"' + String(m.texto).replace(/"/g, "'") + '"'].join(";")),
+  ];
+  return linhas.join("\n");
+}
+
+// =====================================================================
+// LIGAR OS BOTÕES
+// =====================================================================
+$("btn-descrever").addEventListener("click", () => iniciarAnalise("descrever"));
+$("btn-ler").addEventListener("click", () => iniciarAnalise("ler"));
+
+$("btn-config").addEventListener("click", () => { preencherAjustes(); abrirTela("tela-config"); });
+$("btn-salvar").addEventListener("click", () => {
+  config.chave = $("campo-chave").value.trim();
+  config.modelo = $("campo-modelo").value;
+  config.velocidade = parseFloat($("campo-velocidade").value);
+  config.auto = parseInt($("campo-auto").value, 10);
+  gravar("av_chave", config.chave);
+  gravar("av_modelo", config.modelo);
+  gravar("av_velocidade", String(config.velocidade));
+  gravar("av_auto", String(config.auto));
+  configurarModoAutomatico();
+  fecharTelas();
+  falar(config.chave ? "Ajustes salvos. Toque em cima para descrever, embaixo para ler." : "Ajustes salvos, mas falta a chave da API.");
+  mostrarStatus(config.chave ? "Pronto" : "Falta a chave da API");
+  abrirCamera();
+});
+$("btn-abrir-medicoes").addEventListener("click", () => { fecharTelas(); abrirTela("tela-medicoes"); });
+$("btn-voltar").addEventListener("click", fecharTelas);
+$("btn-zerar").addEventListener("click", () => {
+  if ($("btn-zerar").dataset.confirmar !== "1") {
+    $("btn-zerar").dataset.confirmar = "1";
+    $("btn-zerar").textContent = "Toque de novo para confirmar";
+    setTimeout(() => { $("btn-zerar").dataset.confirmar = ""; $("btn-zerar").textContent = "Zerar medições"; }, 4000);
+    return;
+  }
+  medicoes = [];
+  bateriaInicio = null;
+  gravar("av_medicoes", "[]");
+  $("btn-zerar").dataset.confirmar = "";
+  $("btn-zerar").textContent = "Zerar medições";
+  desenharMedicoes();
+});
+$("btn-copiar").addEventListener("click", async () => {
+  try {
+    await navigator.clipboard.writeText(textoDasMedicoes());
+    $("btn-copiar").textContent = "Copiado!";
+  } catch {
+    $("btn-copiar").textContent = "Não consegui copiar";
+  }
+  setTimeout(() => { $("btn-copiar").textContent = "Copiar medições (para colar no relatório)"; }, 2500);
+});
+
+// Início
+if (!config.chave) {
+  mostrarStatus("Abra os Ajustes e cole a chave da API");
+} else {
+  mostrarStatus("Toque em cima para descrever, embaixo para ler");
+}
+configurarModoAutomatico();
+</script>
+</body>
+</html>
